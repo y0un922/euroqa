@@ -101,6 +101,9 @@ MinerU 输出的 Markdown 进行结构化解析：
 - Parent chunk：章节（Section）级别，用于生成时补充上下文
 - 过长小节（>1500 tokens）：按条款编号 `(1)` `(2)` 切分
 - 过短小节（<100 tokens）：合并相邻小节
+- Parent chunk 上限 4000 tokens，超过时按 Subsection 级别拆分为 sub-parent
+- 公式密集小节（>5 个公式）：按公式分组，而非每个公式一个 chunk
+- 生成阶段若 child + parent > 3000 tokens，仅使用 child chunk
 
 **特殊元素：独立分块**
 
@@ -124,6 +127,7 @@ MinerU 输出的 Markdown 进行结构化解析：
   "source_title": "Eurocode - Basis of structural design",
   "section_path": ["Section 2 Requirements", "2.3 Design working life"],
   "page_numbers": [28],
+  "page_file_index": [27],
   "clause_ids": ["2.3(1)"],
   "element_type": "text|table|formula|image",
   "has_table": false,
@@ -137,8 +141,9 @@ MinerU 输出的 Markdown 进行结构化解析：
 ### 3.5 Embedding + 入库
 
 - **Embedding 模型**：bge-m3（BAAI），支持中英双语，输出 dense + sparse 向量
-- **向量库**：Milvus/Qdrant，存储 dense 向量
-- **关键词检索**：Elasticsearch，存储 sparse/BM25 索引 + 元数据
+- **向量库**：Milvus/Qdrant，仅存储 dense 向量
+- **关键词检索**：Elasticsearch，使用原生 BM25 索引 + 元数据存储（不存储 bge-m3 sparse 向量，避免重复索引）
+- **Reranker 输入**：dense Top-K + BM25 Top-K 合并去重后，由 bge-reranker-v2-m3 做 cross-encoder 精排
 - 图片不做视觉 embedding（VLM 文本描述足够），后续有图搜图需求再扩展 CLIP
 
 ### 3.6 完整管线流程
@@ -192,6 +197,12 @@ Stage 4: Embedding + 入库
 ```
 
 术语表命中的用精确翻译，未命中的由 LLM 自行翻译。
+
+**术语表生命周期**：
+
+- 初始构建：领域专家人工校验 + 从前 5 个 PDF 解析结果中 LLM 自动提取候选词
+- 持续补充：后续 PDF 解析时自动识别新候选术语，标记为 `unverified`
+- 同义词处理：允许多个中文词映射到同一英文术语（如"设计寿命" / "设计使用年限" → "design working life"）
 
 ### 4.3 结构化检索条件提取
 
@@ -296,7 +307,14 @@ LLM 输出结构化 JSON：
 
 ### 7.2 对话追问
 
-保留最近 2-3 轮对话的检索结果作为上下文，支持连续追问。通过 `conversation_id` 关联。
+通过 `conversation_id` 关联多轮对话。
+
+**会话状态管理**：
+
+- `conversation_id` 生命周期：24 小时 TTL（可配置）
+- 存储：Redis / 内存缓存，保存最近 3 轮检索结果 + Q&A 对
+- 多轮 prompt 结构：system prompt + 最近 2 轮 Q&A（截断至 1000 tokens/轮） + 当前问题
+- token 预算超限时，优先丢弃最早的对话轮次
 
 ---
 
@@ -336,6 +354,21 @@ Response:
   "conversation_id": "string"
 }
 ```
+
+### 8.3 响应格式约束
+
+- `sources` 数组：最多 5 条
+- `original_text`：最长 1000 字符，超出截断并附 `"..."`
+- SSE 流式格式：`{event: "chunk", data: {text: "...", done: false}}` → `{event: "done", data: {sources: [...], confidence: "..."}}`
+
+### 8.4 错误响应
+
+| 场景 | HTTP 状态码 | 行为 |
+|------|-----------|------|
+| 向量库不可用 | 206 | 降级为 BM25-only 检索，标注 `degraded: true` |
+| LLM API 超时 | 206 | 仅返回检索结果，不生成回答 |
+| 无相关结果 | 200 | `confidence: "none"`, `answer` 提示未找到 |
+| 请求参数错误 | 422 | 标准 FastAPI 校验错误 |
 
 API 提供完整 OpenAPI/Swagger 文档，前端团队可自行对接。
 
@@ -396,9 +429,28 @@ euro-qa/
 | LLM 幻觉 | 给出规范中不存在的内容 | 强制引用原文 + 置信度标注 |
 | 40个PDF处理时间 | 离线管线耗时 | 一次性处理，增量更新 |
 
-### 待定项
+---
+
+## 12. 上线前验证
+
+- 40 个 PDF 全量解析后，校验所有 chunk 元数据完整性（source、section_path、page_numbers 非空）
+- 每个 PDF 随机抽查 5 个 chunk，人工对照原文验证
+- chunk 校验失败率 > 2% 的 PDF 需重新解析
+- 准备 30 个覆盖各意图类型的测试问题，在 staging 环境跑通后方可上线
+- 交叉引用解析：answer 中出现的 "see EN xxxx" 引用，若在已索引文档中则自动补充到 `related_refs`；未索引则原样返回
+
+---
+
+## 13. 安全与输入校验
+
+- 用户问题输入限制：最长 500 字符
+- 基本 prompt 注入防护：过滤常见注入模式（"忽略之前的指令"等）
+- chunk 内容为离线解析产物，视为可信数据
+
+---
+
+## 14. 待定项
 
 - 国产 LLM 具体选型（通义千问 / DeepSeek / 其他）
 - Milvus vs Qdrant 最终选择
 - 中欧规范差异对比功能的深度
-- 术语表的初始规模和维护机制
