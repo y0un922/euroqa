@@ -4,12 +4,20 @@ from __future__ import annotations
 import json
 
 import structlog
+import tiktoken
 from openai import AsyncOpenAI
 
 from server.config import ServerConfig
 from server.models.schemas import Chunk, Confidence, QueryResponse, Source
 
 logger = structlog.get_logger()
+
+_enc = tiktoken.get_encoding("cl100k_base")
+
+
+def _count_tokens(text: str) -> int:
+    return len(_enc.encode(text))
+
 
 # 系统提示词：指导 LLM 以 Eurocode 专家身份回答问题
 _SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eurocode）的专家，帮助中国工程师理解和查询规范内容。
@@ -65,12 +73,16 @@ def build_prompt(
         source_info = f"{meta.source}, Page {page_str}, {section_str}"
         parts.append(f"[{i}] {source_info}\n{chunk.content}\n")
 
-    # 扩展上下文（截取前2000字符，避免过长）
-    if parent_chunks:
+    # Token budget check: only include parent if child+parent <= 3000 tokens
+    child_tokens = sum(_count_tokens(c.content) for c in chunks)
+    if parent_chunks and child_tokens < 3000:
+        remaining = 3000 - child_tokens
         parts.append("\n扩展上下文（章节级）：\n")
         for pc in parent_chunks[:2]:
-            section_str = " > ".join(pc.metadata.section_path)
-            parts.append(f"[Parent] {section_str}\n{pc.content[:2000]}\n")
+            pc_text = pc.content[:2000]
+            if _count_tokens(pc_text) <= remaining:
+                parts.append(f"[Parent] {' > '.join(pc.metadata.section_path)}\n{pc_text}\n")
+                remaining -= _count_tokens(pc_text)
 
     # 历史对话（仅保留最近两轮，避免上下文膨胀）
     if conversation_history:
@@ -120,6 +132,66 @@ def parse_llm_response(raw: str) -> QueryResponse:
             related_refs=[],
             confidence=Confidence.LOW,
         )
+
+
+async def generate_answer_stream(
+    question: str,
+    chunks: list[Chunk],
+    parent_chunks: list[Chunk],
+    glossary_terms: dict[str, str] | None = None,
+    conversation_history: list[dict] | None = None,
+    config: ServerConfig | None = None,
+):
+    """流式生成 LLM 回答，通过异步生成器逐步输出。
+
+    每次 yield 一个 (event_type, data) 元组：
+    - ("chunk", {"text": ..., "done": False})：文本增量片段
+    - ("done", {"sources": ..., ...})：完成信号，包含结构化元数据
+    - ("error", {"message": ...})：错误信号
+
+    Args:
+        question: 用户原始问题
+        chunks: 检索到的规范片段
+        parent_chunks: 扩展上下文（章节级父片段）
+        glossary_terms: 中英术语对照表
+        conversation_history: 历史对话记录
+        config: 服务器配置（为空时使用默认配置）
+
+    Yields:
+        (event_type, data) 元组
+    """
+    cfg = config or ServerConfig()
+    prompt = build_prompt(question, chunks, parent_chunks, glossary_terms, conversation_history)
+
+    client = AsyncOpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url)
+    try:
+        stream = await client.chat.completions.create(
+            model=cfg.llm_model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=2000,
+            stream=True,
+        )
+        full_text = ""
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                full_text += delta
+                yield ("chunk", {"text": delta, "done": False})
+
+        # 解析累积的完整响应，提取结构化元数据
+        response = parse_llm_response(full_text)
+        yield ("done", {
+            "sources": [s.model_dump() for s in response.sources],
+            "related_refs": response.related_refs,
+            "confidence": response.confidence.value,
+        })
+    except Exception:
+        logger.exception("llm_stream_failed")
+        yield ("error", {"message": "LLM 服务暂时不可用"})
 
 
 async def generate_answer(

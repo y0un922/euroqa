@@ -19,6 +19,27 @@ from server.models.schemas import IntentType
 # ---------------------------------------------------------------------------
 # 精确引用识别模式 —— 命中任一即判定为 EXACT intent
 # ---------------------------------------------------------------------------
+_INJECTION_PATTERNS = [
+    re.compile(r"忽略.{0,10}(之前|以上|前面).{0,10}(指令|规则|提示)", re.IGNORECASE),
+    re.compile(r"ignore.{0,20}(previous|above|prior).{0,20}(instructions?|rules?|prompts?)", re.IGNORECASE),
+    re.compile(r"disregard.{0,20}(previous|above|prior)", re.IGNORECASE),
+    re.compile(r"你(现在)?是.{0,10}(一个|一名)", re.IGNORECASE),
+    re.compile(r"pretend.{0,10}(you are|to be)", re.IGNORECASE),
+]
+
+
+def sanitize_input(question: str) -> str:
+    """Filter common prompt injection patterns. Returns cleaned question."""
+    for pattern in _INJECTION_PATTERNS:
+        if pattern.search(question):
+            # 移除注入尝试，保留其余内容
+            question = pattern.sub("", question).strip()
+    return question
+
+
+# ---------------------------------------------------------------------------
+# 精确引用识别模式 —— 命中任一即判定为 EXACT intent
+# ---------------------------------------------------------------------------
 _EXACT_PATTERNS: list[re.Pattern[str]] = [
     # 公式 / Formula / Eq. + 编号
     re.compile(r"(?:公式|formula|eq\.?)\s*[\d.]+", re.IGNORECASE),
@@ -130,6 +151,7 @@ async def analyze_query(
     config: ServerConfig | None = None,
 ) -> QueryAnalysis:
     """组合 intent 分类、过滤提取、查询改写，返回完整分析结果."""
+    question = sanitize_input(question)
     intent = classify_intent(question)
     filters = extract_filters(question)
     rewritten = await rewrite_query(question, glossary, config)
