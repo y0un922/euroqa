@@ -58,7 +58,7 @@ class ContentListEntry:
     element_type: str = ""                                 # 新增
 ```
 
-`_normalize_content_list()` 提取时同步读取 `bbox` 和 `type`。
+`_normalize_content_list()` 提取时同步读取 `bbox` 和 `type`。bbox 的验证规则：仅接受长度为 4 的数值列表，且所有值在 [0, 1000] 范围内；不满足条件时 bbox 置为空列表。
 
 #### 3.2.2 `pipeline/structure.py`
 
@@ -88,6 +88,8 @@ class ChunkMetadata(BaseModel):
 ```
 
 chunk 构建时从 `DocumentNode` 继承 bbox。对于 parent chunk（多个子节点合并），取第一个有 bbox 的子节点的值。
+
+**已知局限**：parent chunk 可能跨越多页，但只保留第一个子节点的 bbox。这意味着高亮定位到的是 chunk 内容的起始位置，而非全部内容。后续可扩展为 `bbox: list[list[float]]` 以支持多区域高亮，但不在本次范围内。
 
 #### 3.2.4 `pipeline/index.py`
 
@@ -129,6 +131,12 @@ height = ((y1 - y0) / 1000) * 100%
 
 MinerU 使用左上角原点、Y 轴向下，与浏览器 CSS 定位一致，无需翻转。
 
+**注意**：现有 `PdfEvidenceViewer.tsx` 中 table 类型的 overlay 使用的是 `pageViewport.width/height`（PDF 点数）做除法，而 MinerU bbox 的值域是 0-1000，两者不匹配——这是一个已存在的 bug。本次改造统一使用 `/1000` 换算，同时修复了这个问题。
+
+**element type 限制移除**：现有代码中 `useBboxOverlay = elementType === "table" && hasUsablePdfBbox(bbox)` 将 bbox 覆盖层限制为仅 table 类型。本次改为 `useBboxOverlay = hasUsablePdfBbox(bbox)`，使所有 element type 在 bbox 可用时都使用坐标覆盖层。
+
+**文本层渲染**：现有代码在 bbox 覆盖层启用时关闭 `renderTextLayer`。改为始终启用 `renderTextLayer`（保证用户可以选中/复制 PDF 文本），bbox 覆盖层以 `pointer-events: none` 叠加在文本层之上。
+
 #### 兜底路径：文本匹配
 
 当 `Source.bbox` 为空时（旧数据或 pipeline 未覆盖的场景），回退到现有的 `pdfLocator.ts` 文本匹配逻辑。不修改也不删除现有文本匹配代码。
@@ -139,7 +147,12 @@ MinerU 使用左上角原点、Y 轴向下，与浏览器 CSS 定位一致，无
 
 ### 4.2 页码策略
 
-当 `Source.bbox` 可用时，使用 `bbox_page_idx + 1` 作为 PDF 跳转页（bbox 对应的精确页），而非 chunk 的 `page_numbers[0]`（可能是 section 起始页）。
+`Source.page` 的赋值优先级（在 `generation.py` 的 `_build_sources_from_chunks` 中解析）：
+
+1. `bbox_page_idx + 1`：当 `ChunkMetadata.bbox_page_idx >= 0` 时，使用 bbox 对应的精确页
+2. `page_numbers[0]`：兜底，使用 section 起始页
+
+**`bbox_page_idx` 不暴露到前端**。它在后端被折叠进 `Source.page` 字段。前端继续使用 `Source.page` 做 PDF 跳页，无需感知 `bbox_page_idx` 的存在。
 
 ---
 
@@ -222,6 +235,7 @@ MinerU 使用左上角原点、Y 轴向下，与浏览器 CSS 定位一致，无
 | 文件 | 改动 |
 |------|------|
 | `server/models/schemas.py` | `ChunkMetadata` 新增 `bbox`、`bbox_page_idx` |
+| `server/core/retrieval.py` | ES `_source` 中新增字段映射到 `ChunkMetadata` |
 | `server/core/generation.py` | `_build_sources_from_chunks` 统一使用 metadata bbox |
 
 ### Frontend
@@ -232,6 +246,7 @@ MinerU 使用左上角原点、Y 轴向下，与浏览器 CSS 定位一致，无
 | `frontend/src/components/PdfEvidenceViewer.tsx` | bbox 覆盖层为主、文本匹配为兜底 |
 | `frontend/src/lib/pdfLocator.ts` | 新增 bbox → CSS 百分比换算工具函数 |
 | `frontend/src/lib/evidenceDebug.ts` | 调试信息移到 popover |
+| `frontend/src/lib/evidencePanelLayout.ts` | 面板布局 class 更新 |
 
 ### 测试
 
