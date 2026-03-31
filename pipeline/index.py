@@ -6,8 +6,7 @@ Chunk text + metadata → Elasticsearch for BM25 + metadata queries.
 from __future__ import annotations
 
 import structlog
-from FlagEmbedding import BGEM3FlagModel
-from elasticsearch import AsyncElasticsearch
+from pymilvus.exceptions import MilvusException
 from pymilvus import (
     Collection,
     CollectionSchema,
@@ -18,30 +17,28 @@ from pymilvus import (
 )
 
 from pipeline.config import PipelineConfig
+from shared.elasticsearch_client import build_async_elasticsearch
+from shared.model_clients import build_embedding_client
 from server.models.schemas import Chunk
 
 logger = structlog.get_logger()
 
-_embed_model: BGEM3FlagModel | None = None
 
-
-def _get_embed_model() -> BGEM3FlagModel:
-    global _embed_model
-    if _embed_model is None:
-        _embed_model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
-    return _embed_model
-
-
-def _embed_texts(texts: list[str]) -> list[list[float]]:
-    """Batch generate dense embeddings."""
-    model = _get_embed_model()
-    result = model.encode(texts, return_dense=True, return_sparse=False, return_colbert_vecs=False)
-    return result["dense_vecs"].tolist()
+def _build_embedding_client(config: PipelineConfig):
+    return build_embedding_client(config)
 
 
 def _init_milvus_collection(config: PipelineConfig) -> Collection:
     """Create or get Milvus collection."""
-    connections.connect(host=config.milvus_host, port=config.milvus_port)
+    try:
+        connections.connect(host=config.milvus_host, port=config.milvus_port)
+    except MilvusException as exc:
+        host_port = f"{config.milvus_host}:{config.milvus_port}"
+        raise RuntimeError(
+            "Milvus is unavailable at "
+            f"{host_port}. Start it with `docker compose up -d milvus` "
+            "or update MILVUS_HOST/MILVUS_PORT before rerunning Stage 4."
+        ) from exc
 
     if utility.has_collection(config.milvus_collection):
         return Collection(config.milvus_collection)
@@ -70,7 +67,7 @@ async def index_to_milvus(chunks: list[Chunk], config: PipelineConfig) -> int:
         return 0
 
     texts = [c.embedding_text for c in to_embed]
-    embeddings = _embed_texts(texts)
+    embeddings = await _build_embedding_client(config).embed_texts(texts)
 
     data = [
         [c.chunk_id for c in to_embed],
@@ -99,6 +96,9 @@ _ES_MAPPING = {
             "cross_refs": {"type": "keyword"},
             "parent_chunk_id": {"type": "keyword"},
             "parent_text_chunk_id": {"type": "keyword"},
+            "bbox": {"type": "float"},
+            "bbox_page_idx": {"type": "integer"},
+            "page_file_index": {"type": "integer"},
         }
     }
 }
@@ -106,7 +106,7 @@ _ES_MAPPING = {
 
 async def index_to_elasticsearch(chunks: list[Chunk], config: PipelineConfig) -> int:
     """Index chunks into Elasticsearch for BM25 + metadata queries."""
-    es = AsyncElasticsearch(config.es_url)
+    es = build_async_elasticsearch(config.es_url)
 
     try:
         if not await es.indices.exists(index=config.es_index):
