@@ -43,6 +43,8 @@ class DocumentNode:
     cross_refs: list[str] = field(default_factory=list)
     children: list[DocumentNode] = field(default_factory=list)
     source: str = ""
+    bbox: list[float] = field(default_factory=list)
+    bbox_page_idx: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +208,7 @@ def parse_markdown_to_tree(
     # 栈中每个元素为 (level, node)
     stack: list[tuple[int, DocumentNode]] = [(0, root)]
 
-    for (level, title, body), (page_numbers, page_file_index, *_) in zip(
+    for (level, title, body), (page_numbers, page_file_index, bbox, bbox_page_idx) in zip(
         segments,
         section_pages,
         strict=False,
@@ -218,6 +220,8 @@ def parse_markdown_to_tree(
             page_numbers=page_numbers,
             page_file_index=page_file_index,
             source=source,
+            bbox=bbox,
+            bbox_page_idx=bbox_page_idx,
         )
 
         # 解析正文中的特殊元素并提取纯文本

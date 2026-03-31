@@ -351,6 +351,28 @@ class TestContentListBbox:
         assert all(isinstance(v, float) for v in bbox)
 
 
+class TestDocumentNodeBbox:
+    def test_section_node_receives_bbox_from_content_list(self):
+        md = "## 2.3 Design working life\n\n(1) The design working life should be specified.\n"
+        content_list = [
+            {"type": "text", "text": "2.3 Design working life",
+             "page_idx": 27, "text_level": 2, "bbox": [186, 362, 858, 420]},
+            {"type": "text", "text": "The design working life should be specified.",
+             "page_idx": 27, "text_level": 0, "bbox": [186, 430, 858, 470]},
+        ]
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002", content_list=content_list)
+        section = tree.children[0]
+        assert section.bbox == [186.0, 362.0, 858.0, 420.0]
+        assert section.bbox_page_idx == 27
+
+    def test_section_without_content_list_has_empty_bbox(self):
+        md = "## 2.3 Design working life\n\n(1) Specified.\n"
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        section = tree.children[0]
+        assert section.bbox == []
+        assert section.bbox_page_idx == -1
+
+
 class TestExtractCrossRefs:
     def test_extract_en_references(self):
         text = "See also EN 1991-1-2 and EN 1992 for details."
