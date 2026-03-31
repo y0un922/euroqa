@@ -1,6 +1,14 @@
 """Test Markdown -> structured document tree."""
 import pytest
-from pipeline.structure import DocumentNode, ElementType, parse_markdown_to_tree, extract_cross_refs
+from pipeline.content_list import resolve_section_page_metadata
+from pipeline.structure import (
+    DocumentNode,
+    ElementType,
+    TreePruningConfig,
+    extract_cross_refs,
+    parse_markdown_to_tree,
+    prune_document_tree,
+)
 
 
 class TestParseMarkdownToTree:
@@ -35,6 +43,26 @@ class TestParseMarkdownToTree:
         tables = [c for c in subsection.children if c.element_type == ElementType.TABLE]
         assert len(tables) == 1
 
+    def test_html_table_detection_preserves_caption_and_removes_html_from_text(self):
+        md = (
+            "## 2.3 Design working life\n\n"
+            "(1) The design working life should be specified.\n\n"
+            "NOTE Indicative categories are given in Table 2.1.\n\n"
+            "Table 2.1 - Indicative design working life\n\n"
+            "<table><tr><td>1</td><td>10</td><td>Temporary structures</td></tr></table>\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+
+        subsection = tree.children[0]
+        tables = [c for c in subsection.children if c.element_type == ElementType.TABLE]
+
+        assert len(tables) == 1
+        assert "NOTE Indicative categories are given in Table 2.1." in subsection.content
+        assert "<table>" not in subsection.content
+        assert tables[0].title == "Table 2.1 - Indicative design working life"
+        assert tables[0].content.startswith("Table 2.1 - Indicative design working life")
+        assert "<table>" in tables[0].content
+
     def test_formula_detection(self):
         md = (
             "## 6.3.5 Design resistance\n\n"
@@ -59,6 +87,268 @@ class TestParseMarkdownToTree:
         tree = parse_markdown_to_tree(md, source="EN 1990:2002")
         images = [c for c in tree.children[0].children if c.element_type == ElementType.IMAGE]
         assert len(images) == 1
+
+    def test_assigns_page_metadata_from_content_list(self):
+        md = (
+            "# Section 2 Requirements\n\n"
+            "## 2.3 Design working life\n\n"
+            "(1) The design working life should be specified.\n\n"
+            "(2)P Indicative categories are given in Table 2.1.\n"
+        )
+        content_list = [
+            {"type": "text", "text": "Section 2 Requirements", "text_level": 1, "page_idx": 4},
+            {"type": "text", "text": "2.3 Design working life", "text_level": 2, "page_idx": 5},
+            {
+                "type": "text",
+                "text": "(1) The design working life should be specified.",
+                "text_level": 0,
+                "page_idx": 5,
+            },
+            {
+                "type": "text",
+                "text": "(2)P Indicative categories are given in Table 2.1.",
+                "text_level": 0,
+                "page_idx": 6,
+            },
+        ]
+
+        tree = parse_markdown_to_tree(
+            md,
+            source="EN 1990:2002",
+            content_list=content_list,
+        )
+
+        section = tree.children[0]
+        subsection = section.children[0]
+        assert section.page_numbers == [5, 6, 7]
+        assert section.page_file_index == [4, 5, 6]
+        assert subsection.page_numbers == [6, 7]
+        assert subsection.page_file_index == [5, 6]
+
+
+class TestPruneDocumentTree:
+    """文档树清洗测试。"""
+
+    def test_removes_prefix_before_foreword(self):
+        """封面、目录、法国前言等应在 Foreword 之前被裁剪。"""
+        md = (
+            "# NF EN 1990\n\n"
+            "Cover page content.\n\n"
+            "# A.P. 1: Introduction\n\n"
+            "French national foreword.\n\n"
+            "# FOREWORD...\n\n"
+            "BACKGROUND OF THE EUROCODE PROGRAMME ... 5\n"
+            "SECTION 1 GENERAL .. 9\n\n"
+            "# Foreword\n\n"
+            "Real foreword paragraph.\n\n"
+            "# Section 1 General\n\n"
+            "Actual section body.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        pruned = prune_document_tree(tree)
+        titles = [n.title for n in pruned.children]
+        assert titles == ["Foreword", "Section 1 General"]
+        assert pruned.children[0].content == "Real foreword paragraph."
+
+    def test_cleans_page_numbers_from_titles(self):
+        """标题中的 dot-leader + 页码应被清洗。"""
+        md = (
+            "# Foreword\n\n"
+            "Content.\n\n"
+            "# SECTION 1 GENERAL .. 0\n\n"
+            "Body text.\n\n"
+            "# SECTION 2 REQUIREMENTS ... . 23\n\n"
+            "More body.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        pruned = prune_document_tree(tree)
+        titles = [n.title for n in pruned.children]
+        assert titles == ["Foreword", "SECTION 1 GENERAL", "SECTION 2 REQUIREMENTS"]
+
+    def test_removes_empty_sections(self):
+        """空内容且标题在 removable 列表中的节点应被删除。"""
+        md = (
+            "# Foreword\n\n"
+            "Content.\n\n"
+            "# Modifications\n\n"
+            "# Corrections\n\n"
+            "# Section 1\n\n"
+            "Body.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        pruned = prune_document_tree(tree)
+        titles = [n.title for n in pruned.children]
+        assert "Modifications" not in titles
+        assert "Corrections" not in titles
+        assert "Foreword" in titles
+        assert "Section 1" in titles
+
+    def test_merges_running_headers(self):
+        """页眉节点（如 EN 1990:2002 (E)）应合并到前一个 section。"""
+        md = (
+            "# Foreword\n\n"
+            "Paragraph A.\n\n"
+            "# EN 1990:2002 (E)\n\n"
+            "Paragraph B.\n\n"
+            "# Section 1 General\n\n"
+            "Paragraph C.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        pruned = prune_document_tree(tree)
+        titles = [n.title for n in pruned.children]
+        assert titles == ["Foreword", "Section 1 General"]
+        # 页眉内容合并到 Foreword
+        assert "Paragraph A." in pruned.children[0].content
+        assert "Paragraph B." in pruned.children[0].content
+
+    def test_preserves_all_when_no_foreword(self):
+        """找不到 Foreword 起点时，保守保留所有节点。"""
+        md = (
+            "# NF EN 1990\n\n"
+            "Cover.\n\n"
+            "# Section 1 General\n\n"
+            "Body.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        pruned = prune_document_tree(tree)
+        # 未裁剪前缀，但标题仍会被清洗
+        assert len(pruned.children) == 2
+
+    def test_disabled_pruning_returns_copy(self):
+        """禁用清洗时返回未修改的深拷贝。"""
+        md = "# Cover\n\nNoise.\n\n# Foreword\n\nReal.\n"
+        tree = parse_markdown_to_tree(md, source="test")
+        cfg = TreePruningConfig(enabled=False)
+        pruned = prune_document_tree(tree, cfg)
+        assert len(pruned.children) == len(tree.children)
+        # 确认是深拷贝
+        assert pruned is not tree
+
+    def test_skips_toc_foreword_entry(self):
+        """目录中的 FOREWORD 标题（带页码）不应被当作正文起点。"""
+        md = (
+            "# FOREWORD...\n\n"
+            "BACKGROUND ... 5\nSTATUS ... 6\nSECTION 1 GENERAL .. 9\n\n"
+            "# Foreword\n\n"
+            "Actual foreword content.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="EN 1990:2002")
+        pruned = prune_document_tree(tree)
+        # 应跳过 TOC 中的 FOREWORD，从真正的 Foreword 开始
+        assert len(pruned.children) == 1
+        assert pruned.children[0].title == "Foreword"
+        assert "Actual foreword content." in pruned.children[0].content
+
+
+class TestContentListBbox:
+    """Tests for bbox extraction via ContentListEntry and resolve_section_page_metadata."""
+
+    def test_extracts_bbox_via_resolve(self):
+        segments = [(2, "Design working life", "body text")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Design working life",
+                "page_idx": 27,
+                "text_level": 2,
+                "bbox": [186, 362, 858, 420],
+            }
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        page_numbers, page_file_indexes, bbox, bbox_page_idx = results[0]
+        assert bbox == [186.0, 362.0, 858.0, 420.0]
+        assert bbox_page_idx == 27
+
+    def test_rejects_invalid_bbox_via_resolve(self):
+        segments = [(2, "Hello", "body")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Hello",
+                "page_idx": 0,
+                "text_level": 2,
+                "bbox": [100, 200],  # 只有2个值，无效
+            }
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        _, _, bbox, _ = results[0]
+        assert bbox == []
+
+    def test_rejects_out_of_range_bbox(self):
+        segments = [(2, "Hello", "body")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Hello",
+                "page_idx": 0,
+                "text_level": 2,
+                "bbox": [100, 200, 1500, 400],  # 1500 超出0-1000范围
+            }
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        _, _, bbox, _ = results[0]
+        assert bbox == []
+
+    def test_unmatched_heading_returns_sentinel(self):
+        segments = [(2, "Nonexistent Heading", "body")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Different Heading",
+                "page_idx": 5,
+                "text_level": 2,
+                "bbox": [0, 0, 100, 50],
+            }
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        page_numbers, page_file_indexes, bbox, bbox_page_idx = results[0]
+        assert page_numbers == []
+        assert page_file_indexes == []
+        assert bbox == []
+        assert bbox_page_idx == -1
+
+    def test_empty_content_list_returns_sentinels(self):
+        segments = [(1, "Section 1", "body")]
+        results = resolve_section_page_metadata(segments, [])
+        page_numbers, page_file_indexes, bbox, bbox_page_idx = results[0]
+        assert page_numbers == []
+        assert page_file_indexes == []
+        assert bbox == []
+        assert bbox_page_idx == -1
+
+    def test_missing_bbox_field_returns_empty(self):
+        """Entries without a bbox key should yield empty bbox."""
+        segments = [(1, "Section A", "body")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Section A",
+                "page_idx": 3,
+                "text_level": 1,
+                # bbox キーなし
+            }
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        _, _, bbox, bbox_page_idx = results[0]
+        assert bbox == []
+        assert bbox_page_idx == 3
+
+    def test_bbox_values_coerced_to_float(self):
+        """Integer bbox values should be returned as floats."""
+        segments = [(1, "Intro", "text")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Intro",
+                "page_idx": 0,
+                "text_level": 1,
+                "bbox": [0, 0, 500, 100],
+            }
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        _, _, bbox, _ = results[0]
+        assert bbox == [0.0, 0.0, 500.0, 100.0]
+        assert all(isinstance(v, float) for v in bbox)
 
 
 class TestExtractCrossRefs:
