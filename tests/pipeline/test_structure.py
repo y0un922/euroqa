@@ -243,7 +243,33 @@ class TestPruneDocumentTree:
 class TestContentListBbox:
     """Tests for bbox extraction via ContentListEntry and resolve_section_page_metadata."""
 
-    def test_extracts_bbox_via_resolve(self):
+    def test_prefers_body_text_bbox_over_heading(self):
+        """当 section 有 body text entry 时，返回 body entry 的 bbox 而非 heading 的。"""
+        segments = [(2, "Design working life", "body text")]
+        raw = [
+            {
+                "type": "text",
+                "text": "Design working life",
+                "page_idx": 27,
+                "text_level": 2,
+                "bbox": [139, 451, 374, 471],  # heading bbox
+            },
+            {
+                "type": "text",
+                "text": "(1) The design working life should be specified.",
+                "page_idx": 27,
+                "text_level": 0,
+                "bbox": [139, 488, 529, 504],  # body text bbox
+            },
+        ]
+        results = resolve_section_page_metadata(segments, raw)
+        _, _, bbox, bbox_page_idx = results[0]
+        # 应返回 body text bbox，不是 heading bbox
+        assert bbox == [139.0, 488.0, 529.0, 504.0]
+        assert bbox_page_idx == 27
+
+    def test_falls_back_to_heading_when_no_body_entries(self):
+        """当 section 只有 heading 没有 body text 时，返回 heading 的 bbox。"""
         segments = [(2, "Design working life", "body text")]
         raw = [
             {
@@ -255,7 +281,7 @@ class TestContentListBbox:
             }
         ]
         results = resolve_section_page_metadata(segments, raw)
-        page_numbers, page_file_indexes, bbox, bbox_page_idx = results[0]
+        _, _, bbox, bbox_page_idx = results[0]
         assert bbox == [186.0, 362.0, 858.0, 420.0]
         assert bbox_page_idx == 27
 
@@ -362,7 +388,8 @@ class TestDocumentNodeBbox:
         ]
         tree = parse_markdown_to_tree(md, source="EN 1990:2002", content_list=content_list)
         section = tree.children[0]
-        assert section.bbox == [186.0, 362.0, 858.0, 420.0]
+        # 应返回 body text entry 的 bbox，不是 heading 的
+        assert section.bbox == [186.0, 430.0, 858.0, 470.0]
         assert section.bbox_page_idx == 27
 
     def test_section_without_content_list_has_empty_bbox(self):

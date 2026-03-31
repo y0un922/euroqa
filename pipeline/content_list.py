@@ -83,12 +83,18 @@ def resolve_section_page_metadata(
                 break
 
         page_file_indexes = _collect_page_indexes(normalized_list[start:end])
-        matched_entry = normalized_list[start]
+
+        # 优先使用第一个 body text entry 的 bbox（实际内容位置），
+        # 而非 heading entry 的 bbox（仅标题位置）。
+        heading_entry = normalized_list[start]
+        body_entry = _find_first_body_entry(normalized_list[start + 1 : end])
+        target_entry = body_entry if body_entry else heading_entry
+
         resolved.append((
             [page + 1 for page in page_file_indexes],
             page_file_indexes,
-            list(matched_entry.bbox),
-            matched_entry.page_idx,
+            list(target_entry.bbox),
+            target_entry.page_idx,
         ))
     return resolved
 
@@ -202,6 +208,16 @@ def _normalize_text(value: str) -> str:
     """Normalize heading text for resilient matching."""
 
     return _NORMALIZE_TEXT_RE.sub("", value.casefold())
+
+
+def _find_first_body_entry(
+    entries: list[ContentListEntry],
+) -> ContentListEntry | None:
+    """Return the first body text entry with a valid bbox, or None."""
+    for entry in entries:
+        if entry.text_level == 0 and entry.bbox:
+            return entry
+    return None
 
 
 def _collect_page_indexes(entries: list[ContentListEntry]) -> list[int]:
