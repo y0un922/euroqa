@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import TYPE_CHECKING
 
 from pipeline.structure import DocumentNode
@@ -174,11 +175,13 @@ def _build_child_text_chunk(
             source_title=source_title,
             section_path=section_path,
             page_numbers=node.page_numbers,
-            page_file_index=[],
+            page_file_index=node.page_file_index,
             clause_ids=node.clause_ids,
             element_type=ChunkElementType.TEXT,
             cross_refs=node.cross_refs,
             parent_chunk_id=None,  # 稍后由 parent 构建时回填
+            bbox=list(node.bbox),
+            bbox_page_idx=node.bbox_page_idx,
         ),
     )
 
@@ -203,9 +206,11 @@ def _build_parent_chunk(
 
     # 汇总子节点的元数据
     all_pages: list[int] = []
+    all_page_file_indexes: list[int] = []
     all_clause_ids: list[str] = []
     all_cross_refs: list[str] = []
     seen_pages: set[int] = set()
+    seen_page_file_indexes: set[int] = set()
     seen_clauses: set[str] = set()
     seen_refs: set[str] = set()
 
@@ -214,6 +219,10 @@ def _build_parent_chunk(
             if p not in seen_pages:
                 seen_pages.add(p)
                 all_pages.append(p)
+        for page_index in child.metadata.page_file_index:
+            if page_index not in seen_page_file_indexes:
+                seen_page_file_indexes.add(page_index)
+                all_page_file_indexes.append(page_index)
         for c in child.metadata.clause_ids:
             if c not in seen_clauses:
                 seen_clauses.add(c)
@@ -222,6 +231,15 @@ def _build_parent_chunk(
             if r not in seen_refs:
                 seen_refs.add(r)
                 all_cross_refs.append(r)
+
+    # 取第一个有 bbox 的子块的位置信息作为父块的代表性位置
+    first_bbox: list[float] = []
+    first_bbox_page_idx = -1
+    for child in child_chunks:
+        if child.metadata.bbox:
+            first_bbox = list(child.metadata.bbox)
+            first_bbox_page_idx = child.metadata.bbox_page_idx
+            break
 
     return Chunk(
         chunk_id=chunk_id,
@@ -232,11 +250,13 @@ def _build_parent_chunk(
             source_title=source_title,
             section_path=section_path,
             page_numbers=all_pages,
-            page_file_index=[],
+            page_file_index=all_page_file_indexes,
             clause_ids=all_clause_ids,
             element_type=ChunkElementType.TEXT,
             cross_refs=all_cross_refs,
             parent_chunk_id=None,  # parent 块自身无父块
+            bbox=first_bbox,
+            bbox_page_idx=first_bbox_page_idx,
         ),
     )
 
@@ -255,6 +275,14 @@ def _build_special_chunk(
     suffix = f"{element_type.value}_{special_node.title}"
     chunk_id = _make_chunk_id(parent_section.source, section_path, suffix)
 
+    # 优先使用特殊节点自身的 bbox；若无则回退到父 section 的 bbox
+    bbox = list(special_node.bbox) if special_node.bbox else list(parent_section.bbox)
+    bbox_page_idx = (
+        special_node.bbox_page_idx
+        if special_node.bbox
+        else parent_section.bbox_page_idx
+    )
+
     return Chunk(
         chunk_id=chunk_id,
         content=special_node.content,
@@ -264,11 +292,13 @@ def _build_special_chunk(
             source_title=source_title,
             section_path=section_path,
             page_numbers=parent_section.page_numbers,
-            page_file_index=[],
-            clause_ids=[],
+            page_file_index=parent_section.page_file_index,
+            clause_ids=_extract_special_clause_ids(special_node),
             element_type=element_type,
             cross_refs=special_node.cross_refs,
             parent_text_chunk_id=parent_text_chunk_id,
+            bbox=bbox,
+            bbox_page_idx=bbox_page_idx,
         ),
     )
 
@@ -317,3 +347,14 @@ def _insert_placeholders(
     if placeholders:
         return text + "\n" + "\n".join(placeholders)
     return text
+
+
+def _extract_special_clause_ids(special_node: DocumentNode) -> list[str]:
+    """Extract stable clause-like identifiers for special elements."""
+    if special_node.element_type != StructElementType.TABLE:
+        return []
+
+    match = re.search(r"\b(Table\s+[A-Z]?\d+(?:\.\d+)*)\b", special_node.title)
+    if match:
+        return [match.group(1)]
+    return []
