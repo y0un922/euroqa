@@ -28,6 +28,8 @@ def sample_text_chunk() -> Chunk:
             element_type=ElementType.TEXT,
             cross_refs=["Annex A"],
             parent_chunk_id="chunk_section_2",
+            bbox=[186, 362, 858, 420],
+            bbox_page_idx=27,
         ),
     )
 
@@ -62,5 +64,7 @@ def sample_table_chunk() -> Chunk:
             element_type=ElementType.TABLE,
             cross_refs=[],
             parent_text_chunk_id="chunk_023",
+            bbox=[186, 591, 858, 768],
+            bbox_page_idx=27,
         ),
     )
