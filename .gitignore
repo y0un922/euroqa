@@ -11,3 +11,5 @@ wheels/
 
 # Environment secrets
 .env
+.ace-tool/
+.worktrees/
