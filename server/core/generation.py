@@ -43,7 +43,7 @@ def _collect_pending_source_indexes(sources: list[Source]) -> list[int]:
 def _build_document_id(source: str) -> str:
     """Build a stable document identifier from source metadata."""
     normalized = re.sub(r"(?<=[A-Za-z])\s+(?=\d)", "", source.strip())
-    normalized = re.sub(r"[^A-Za-z0-9]+", "_", normalized)
+    normalized = re.sub(r"[^A-Za-z0-9\-]+", "_", normalized)
     return normalized.strip("_")
 
 
