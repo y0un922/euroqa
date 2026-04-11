@@ -1045,7 +1045,7 @@ class TestGenerateAnswerStream:
                 events.append((event_type, data))
 
         assert seen_system_prompts
-        assert "### 先说结论" in seen_system_prompts[0]
+        assert "### 规定内容" in seen_system_prompts[0]
         assert events[-1][0] == "done"
     @pytest.mark.asyncio
     async def test_generate_answer_stream_emits_reasoning_event(
