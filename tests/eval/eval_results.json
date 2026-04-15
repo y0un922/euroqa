@@ -1,0 +1,63 @@
+{
+  "config": {
+    "vector_top_k": 30,
+    "bm25_top_k": 30,
+    "rerank_top_n": 10,
+    "eval_top_k": 1
+  },
+  "metrics": {
+    "avg_section_recall": 1.0,
+    "avg_keyword_recall": 1.0,
+    "anchor_hit_rate": null,
+    "anchor_hit_rate_measured_questions": 0,
+    "grounded_mode_accuracy": 1.0,
+    "grounded_mode_accuracy_measured_questions": 1,
+    "direct_ref_resolution_rate": 1.0,
+    "direct_ref_resolution_measured_questions": 1,
+    "reference_closure_rate": 1.0,
+    "reference_closure_measured_questions": 1,
+    "noise_intrusion_rate": null,
+    "noise_intrusion_measured_questions": 0,
+    "over_answer_rate": null,
+    "over_answer_rate_note": "placeholder: 当前脚本仅评估 retrieval/routing，不调用 generation，无法真实计算 over-answer_rate。",
+    "pass_rate": 1.0,
+    "pass_count": 1,
+    "total": 1,
+    "measured_questions": 1
+  },
+  "per_question": [
+    {
+      "id": "cross-ref-1",
+      "question": "3.1.7 里面混凝土受压应变限值怎么取？",
+      "category": "exact_cross_ref",
+      "rewritten_query": "3.1.7 里面混凝土受压应变限值怎么取？",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": false,
+      "section_recall": 1.0,
+      "keyword_recall": 1.0,
+      "anchor_hit_rate": null,
+      "grounded_mode_match": true,
+      "direct_ref_hits": [
+        "Table 3.1"
+      ],
+      "direct_ref_resolution_rate": 1.0,
+      "reference_closure": true,
+      "resolved_refs": [
+        "Table 3.1"
+      ],
+      "unresolved_refs": [],
+      "noise_intrusion_rate": null,
+      "hit_sections": [],
+      "missed_sections": [],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [],
+      "chunk_count": 0,
+      "notes": null
+    }
+  ]
+}

@@ -94,6 +94,12 @@ _ES_MAPPING = {
             "clause_ids": {"type": "keyword"},
             "element_type": {"type": "keyword"},
             "cross_refs": {"type": "keyword"},
+            "object_type": {"type": "keyword"},
+            "object_label": {"type": "keyword"},
+            "object_id": {"type": "keyword"},
+            "object_aliases": {"type": "keyword"},
+            "ref_labels": {"type": "keyword"},
+            "ref_object_ids": {"type": "keyword"},
             "parent_chunk_id": {"type": "keyword"},
             "parent_text_chunk_id": {"type": "keyword"},
             "bbox": {"type": "float"},
@@ -102,6 +108,52 @@ _ES_MAPPING = {
         }
     }
 }
+
+
+async def delete_document_from_milvus(
+    source_name: str,
+    config: PipelineConfig,
+) -> int:
+    """删除指定 source 在 Milvus 中的所有 chunks。"""
+    collection = _init_milvus_collection(config)
+    escaped = source_name.replace("\\", "\\\\").replace('"', '\\"')
+    result = collection.delete(expr=f'source == "{escaped}"')
+    collection.flush()
+    deleted = int(getattr(result, "delete_count", 0) or 0)
+    logger.info("milvus_document_deleted", source=source_name, deleted=deleted)
+    return deleted
+
+
+async def delete_document_from_elasticsearch(
+    source_name: str,
+    config: PipelineConfig,
+) -> int:
+    """删除指定 source 在 Elasticsearch 中的所有 chunks。"""
+    es = build_async_elasticsearch(config.es_url)
+    try:
+        if not await es.indices.exists(index=config.es_index):
+            return 0
+        response = await es.delete_by_query(
+            index=config.es_index,
+            body={"query": {"term": {"source": source_name}}},
+            refresh=True,
+            conflicts="proceed",
+        )
+        deleted = int(response.get("deleted", 0) or 0)
+        logger.info("es_document_deleted", source=source_name, deleted=deleted)
+        return deleted
+    finally:
+        await es.close()
+
+
+async def delete_document_chunks(
+    source_name: str,
+    config: PipelineConfig,
+) -> dict[str, int]:
+    """删除指定文档在 Milvus 和 Elasticsearch 中的所有 chunks。"""
+    milvus_deleted = await delete_document_from_milvus(source_name, config)
+    es_deleted = await delete_document_from_elasticsearch(source_name, config)
+    return {"milvus": milvus_deleted, "elasticsearch": es_deleted}
 
 
 async def index_to_elasticsearch(chunks: list[Chunk], config: PipelineConfig) -> int:

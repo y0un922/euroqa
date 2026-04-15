@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from cachetools import TTLCache
 
@@ -10,7 +10,6 @@ from cachetools import TTLCache
 @dataclass
 class ConversationState:
     conversation_id: str
-    history: list[dict] = field(default_factory=list)
 
 
 class ConversationManager:
@@ -26,8 +25,4 @@ class ConversationManager:
         return state
 
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
-        state = self._cache.get(conversation_id)
-        if state:
-            state.history.append({"question": question, "answer": answer})
-            if len(state.history) > 3:
-                state.history = state.history[-3:]
+        del conversation_id, question, answer

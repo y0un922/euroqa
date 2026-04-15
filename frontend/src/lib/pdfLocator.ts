@@ -130,22 +130,32 @@ function findBestContainedWindow(
 ): number[] {
   let bestStart = -1;
   let bestEnd = -1;
-  let bestLength = 0;
+  let bestScore = -Infinity;
 
   for (let startIndex = 0; startIndex < ranges.length; startIndex += 1) {
     for (let endIndex = startIndex; endIndex < ranges.length; endIndex += 1) {
       const candidate = text
         .slice(ranges[startIndex].start, ranges[endIndex].end)
         .trim();
-      if (candidate.length <= bestLength || !isStrongHighlightCandidate(candidate)) {
+      if (!isStrongHighlightCandidate(candidate)) {
         continue;
       }
-      if (!normalizedHighlight.includes(candidate)) {
+      // 正向：高亮文本包含页面窗口（chunk 跨页场景）
+      const forwardContains = normalizedHighlight.includes(candidate);
+      // 反向：页面窗口包含高亮文本（短高亮在长段落中）
+      const reverseContains = candidate.includes(normalizedHighlight);
+      if (!forwardContains && !reverseContains) {
         continue;
       }
+      // 正向匹配优先使用窗口长度评分，反向匹配使用负偏移确保正向优先
+      const score = forwardContains ? candidate.length : candidate.length - 1_000_000;
+      if (score <= bestScore) {
+        continue;
+      }
+
       bestStart = startIndex;
       bestEnd = endIndex;
-      bestLength = candidate.length;
+      bestScore = score;
     }
   }
 
@@ -158,13 +168,18 @@ function findBestContainedWindow(
 
 function isStrongHighlightCandidate(text: string): boolean {
   const normalized = normalizePdfText(text);
-  if (normalized.length < 12) {
+  if (normalized.length < 8) {
     return false;
   }
 
   const tokens = normalized.split(" ").filter(Boolean);
   if (tokens.length === 1) {
     return normalized.length >= 10;
+  }
+
+  // 含有条款编号模式（如 6.1, 2.3(1), A1.2）的文本降低阈值
+  if (/\d+\.\d+/.test(normalized) && tokens.filter((t) => t.length >= 4).length >= 1) {
+    return true;
   }
 
   return tokens.filter((token) => token.length >= 4).length >= 3;

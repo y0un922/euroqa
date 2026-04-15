@@ -30,7 +30,7 @@ No new files are created.
 **Files:**
 - Modify: `tests/server/test_generation.py:49-99` (TestAnswerPrompts class)
 
-- [ ] **Step 1: Replace old template assertions with new template routing tests**
+- [x] **Step 1: Replace old template assertions with new template routing tests** -- Done: replaced imports (removed `build_stream_system_prompt` and `_STREAM_SYSTEM_PROMPT_LEGACY`), replaced `TestAnswerPrompts` class with 28 new tests covering 4 template types, fallback, old header absence, anti-vagueness rules, engineering context, and Chinese engineer targeting. 19 tests fail as expected (TDD), 9 pass (retained behavior).
 
 Replace the existing tests that assert old 7-section headers with new tests for each question_type template. Also add negative assertions for old headers and a fallback test.
 

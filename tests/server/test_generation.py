@@ -8,7 +8,6 @@ import pytest
 
 from server.config import ServerConfig
 from server.core.generation import (
-    _STREAM_BASE_RULES,
     _SYSTEM_PROMPT,
     _collect_exact_evidence_candidates,
     _build_exact_evidence_pack,
@@ -122,6 +121,17 @@ class TestAnswerPrompts:
         assert "### 使用时要再核对的条件" in prompt
         assert "先直接回答" in prompt
         assert "中度展开" in prompt or "必要解释" in prompt
+
+    def test_exact_assumption_prompt_prefers_anchor_first_answer(self):
+        prompt = build_exact_system_prompt(intent_label="assumption")
+        assert "assumption / definition / applicability" in prompt
+        assert "优先直接枚举主依据条款中的结论" in prompt
+        assert "不要因为检索里顺带包含表格" in prompt
+
+    def test_exact_limit_prompt_keeps_numeric_extraction_requirement(self):
+        prompt = build_exact_system_prompt(intent_label="limit")
+        assert "如果问题在问限值" in prompt
+        assert "必须直接提取并引用这些数值" in prompt
 
     def test_exact_not_grounded_system_prompt_has_guardrails(self):
         prompt = build_exact_not_grounded_system_prompt()
@@ -405,6 +415,121 @@ class TestSourceTranslationFill:
             "parent-table",
         ]
 
+    def test_build_exact_evidence_pack_filters_unrelated_support_for_assumption(
+        self, sample_text_chunk, sample_table_chunk
+    ):
+        primary_clause = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "clause-6-1-1",
+                "content": "(1) In section analysis the following assumptions are made.",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Section 6 ULS", "6.1 Bending with or without axial force"],
+                        "clause_ids": ["6.1(1)"],
+                        "cross_refs": ["3.1.7"],
+                    }
+                ),
+            }
+        )
+        sibling_clause = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "clause-6-1-2",
+                "content": "(2) Plane sections remain plane after deformation.",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Section 6 ULS", "6.1 Bending with or without axial force"],
+                        "clause_ids": ["6.1(2)"],
+                    }
+                ),
+            }
+        )
+        unrelated_text = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "clause-5-8-9",
+                "content": "(1) Members in biaxial bending shall be checked...",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Section 5 Analysis", "5.8.9 Biaxial bending"],
+                        "clause_ids": ["5.8.9(1)"],
+                    }
+                ),
+            }
+        )
+        unrelated_table = sample_table_chunk.model_copy(
+            update={
+                "chunk_id": "table-3-1",
+                "content": "Table 3.1 strain limits",
+                "metadata": sample_table_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Section 3 Materials", "3.1.7 Stress-strain relation"],
+                        "clause_ids": ["Table 3.1"],
+                    }
+                ),
+            }
+        )
+
+        evidence = _build_exact_evidence_pack(
+            [unrelated_table, primary_clause, unrelated_text, sibling_clause],
+            question="欧标的截面计算的基本假设前提是什么？",
+            intent_label="assumption",
+        )
+
+        assert evidence["primary_clause"] is primary_clause
+        assert evidence["supporting_visuals"] == []
+        assert evidence["supporting_context"] == [sibling_clause]
+
+    def test_build_exact_evidence_pack_keeps_visual_support_for_limit(
+        self, sample_text_chunk, sample_table_chunk
+    ):
+        evidence = _build_exact_evidence_pack(
+            [sample_table_chunk, sample_text_chunk],
+            question="设计使用年限的推荐值是多少？",
+            intent_label="limit",
+        )
+
+        assert evidence["primary_clause"] is sample_text_chunk
+        assert evidence["supporting_visuals"] == [sample_table_chunk]
+
+    def test_build_prompt_exact_orders_primary_clause_before_background_candidates(
+        self, sample_text_chunk, sample_table_chunk
+    ):
+        primary_clause = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "clause-6-1-1",
+                "content": "(1) In section analysis the following assumptions are made.",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Section 6 ULS", "6.1 Bending with or without axial force"],
+                        "clause_ids": ["6.1(1)"],
+                    }
+                ),
+            }
+        )
+        background_table = sample_table_chunk.model_copy(
+            update={
+                "chunk_id": "table-3-1",
+                "content": "Table 3.1 strain limits",
+                "metadata": sample_table_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Section 3 Materials", "3.1.7 Stress-strain relation"],
+                        "clause_ids": ["Table 3.1"],
+                    }
+                ),
+            }
+        )
+
+        prompt = build_prompt(
+            "欧标的截面计算的基本假设前提是什么？",
+            [background_table, primary_clause],
+            [],
+            generation_mode="exact",
+            intent_label="assumption",
+        )
+
+        assert "检索到的规范内容（按回答优先级排序）" in prompt
+        assert prompt.index(primary_clause.content) < prompt.index(background_table.content)
+        assert "其他相关片段：另有 1 个候选片段仅作背景参考" in prompt
+
     @pytest.mark.asyncio
     async def test_fill_missing_source_translations_uses_llm_result(
         self, sample_text_chunk
@@ -576,12 +701,14 @@ class TestGenerateAnswer:
                 [],
                 answer_mode="exact",
                 groundedness="grounded",
+                intent_label="assumption",
             )
 
         assert seen_system_prompts
         assert "八个三级标题" not in seen_system_prompts[0]
         assert "回答必须简短" not in seen_system_prompts[0]
         assert "必要解释" in seen_system_prompts[0] or "中度展开" in seen_system_prompts[0]
+        assert "优先直接枚举主依据条款中的结论" in seen_system_prompts[0]
 
     @pytest.mark.asyncio
     async def test_generate_answer_uses_exact_not_grounded_system_prompt(self, sample_text_chunk):

@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Optional
 
 from pipeline.content_list import resolve_section_page_metadata
+from shared.reference_graph import extract_reference_labels
 
 # ---------------------------------------------------------------------------
 # 元素类型枚举（比 schemas.py 多一个 SECTION）
@@ -122,10 +123,6 @@ _HTML_TABLE_BLOCK_RE = re.compile(
 # Markdown 图片引用
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 
-# 交叉引用模式
-_EN_REF_RE = re.compile(r"EN\s+\d{4}(?:-\d+(?:-\d+)?)?")
-_ANNEX_REF_RE = re.compile(r"Annex\s+[A-Z]\d*")
-
 # --- 清洗用正则 ---
 # 标题尾部的 dot-leader + 页码（如 "SECTION 1 GENERAL .. 0"、"... . 23"）
 # 允许点号之间有空格
@@ -143,21 +140,14 @@ _TOC_LINE_RE = re.compile(r"^.{3,}(?:[.\u00b7\u2026]\s*){2,}\d+\s*$")
 def extract_cross_refs(text: str) -> list[str]:
     """从文本中提取 Eurocode 交叉引用。
 
-    识别两类引用：
-    - ``EN nnnn`` 或 ``EN nnnn-n-n`` 格式的标准引用
-    - ``Annex X`` 或 ``Annex Xn`` 格式的附录引用
+    识别外部规范引用与内部对象引用：
+    - ``EN nnnn`` / ``Annex X``
+    - ``Table 3.1`` / ``Figure 3.3`` / ``Expression (3.14)``
+    - ``see 3.1.7`` 之类带信号词的条款引用
 
     返回去重后的引用列表。
     """
-    refs: list[str] = []
-    seen: set[str] = set()
-    for pattern in (_EN_REF_RE, _ANNEX_REF_RE):
-        for match in pattern.finditer(text):
-            ref = match.group()
-            if ref not in seen:
-                seen.add(ref)
-                refs.append(ref)
-    return refs
+    return extract_reference_labels(text)
 
 
 def parse_markdown_to_tree(

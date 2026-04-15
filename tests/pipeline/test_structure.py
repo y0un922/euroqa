@@ -417,3 +417,14 @@ class TestExtractCrossRefs:
         text = "A simple paragraph with no references."
         refs = extract_cross_refs(text)
         assert refs == []
+
+    def test_extract_internal_object_references(self):
+        text = (
+            "See Table 3.1, Figure 3.3 and Expression (3.14). "
+            "The stress-strain relation defined in 3.1.7 may be used."
+        )
+        refs = extract_cross_refs(text)
+        assert "Table 3.1" in refs
+        assert "Figure 3.3" in refs
+        assert "Expression (3.14)" in refs
+        assert "3.1.7" in refs

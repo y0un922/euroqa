@@ -1,0 +1,247 @@
+[
+  {
+    "id": "q01",
+    "question": "C30/37混凝土的抗压强度设计值是多少？",
+    "category": "parameter_lookup",
+    "expected_type": "parameter",
+    "expected_sections": ["3.1.6", "3.1"],
+    "expected_keywords": ["fcd", "design compressive", "Table 3.1"],
+    "notes": "应命中 Table 3.1 或 3.1.6 设计强度公式"
+  },
+  {
+    "id": "q02",
+    "question": "什么是保护层厚度？最小保护层厚度如何确定？",
+    "category": "concept",
+    "expected_type": "rule",
+    "expected_sections": ["4.4.1", "4.4.1.2"],
+    "expected_keywords": ["concrete cover", "cmin", "minimum cover"],
+    "notes": "应命中 4.4.1 concrete cover 相关条款"
+  },
+  {
+    "id": "q03",
+    "question": "梁的抗剪设计应按什么步骤进行？",
+    "category": "reasoning",
+    "expected_type": "calculation",
+    "expected_sections": ["6.2", "6.2.1", "6.2.2", "6.2.3"],
+    "expected_keywords": ["shear", "VRd", "design shear reinforcement"],
+    "notes": "应命中 6.2 shear 相关条款"
+  },
+  {
+    "id": "q04",
+    "question": "Table 3.1 混凝土强度等级有哪些？",
+    "category": "exact_reference",
+    "expected_type": "parameter",
+    "expected_sections": ["3.1", "3.1.2"],
+    "expected_keywords": ["Table 3.1", "strength class", "fck"],
+    "notes": "应精确命中 Table 3.1"
+  },
+  {
+    "id": "q05",
+    "question": "裂缝宽度控制有哪些要求？",
+    "category": "concept",
+    "expected_type": "parameter",
+    "expected_sections": ["7.3", "7.3.1", "7.3.3", "7.3.4"],
+    "expected_keywords": ["crack width", "crack control", "wmax"],
+    "notes": "应命中 7.3 crack control 全节"
+  },
+  {
+    "id": "q06",
+    "question": "6.2.2条说不需要设计抗剪钢筋的构件需满足什么条件？",
+    "category": "exact_reference",
+    "expected_type": "rule",
+    "expected_sections": ["6.2.2"],
+    "expected_keywords": ["VRd,c", "without design shear reinforcement"],
+    "notes": "应精确命中 6.2.2"
+  },
+  {
+    "id": "q07",
+    "question": "混凝土的徐变和收缩如何计算？",
+    "category": "reasoning",
+    "expected_type": "mechanism",
+    "expected_sections": ["3.1.4"],
+    "expected_keywords": ["creep", "shrinkage", "creep coefficient"],
+    "notes": "应命中 3.1.4"
+  },
+  {
+    "id": "q08",
+    "question": "环境等级分类标准是什么？XC1和XC2有什么区别？",
+    "category": "concept",
+    "expected_type": "rule",
+    "expected_sections": ["4.2"],
+    "expected_keywords": ["exposure class", "XC1", "XC2", "Table 4.1"],
+    "notes": "应命中 4.2 和 Table 4.1"
+  },
+  {
+    "id": "q09",
+    "question": "受弯构件的挠度控制限值是多少？",
+    "category": "parameter_lookup",
+    "expected_type": "parameter",
+    "expected_sections": ["7.4", "7.4.1", "7.4.2"],
+    "expected_keywords": ["deflection", "span/depth", "span to depth"],
+    "notes": "应命中 7.4 deflection control"
+  },
+  {
+    "id": "q10",
+    "question": "冲切承载力如何验算？",
+    "category": "reasoning",
+    "expected_type": "calculation",
+    "expected_sections": ["6.4", "6.4.1", "6.4.3", "6.4.4"],
+    "expected_keywords": ["punching", "control perimeter", "vRd,c"],
+    "notes": "应命中 6.4 punching 相关条款"
+  },
+  {
+    "id": "q11",
+    "question": "预应力损失有哪些类型？如何计算？",
+    "category": "reasoning",
+    "expected_type": "calculation",
+    "expected_sections": ["5.10.4", "5.10.5", "5.10.6"],
+    "expected_keywords": ["prestress", "losses", "friction", "immediate losses"],
+    "notes": "应命中 5.10 预应力损失相关条款"
+  },
+  {
+    "id": "q12",
+    "question": "钢筋搭接长度如何确定？",
+    "category": "parameter_lookup",
+    "expected_type": "parameter",
+    "expected_sections": ["8.7", "8.4"],
+    "expected_keywords": ["lap length", "anchorage", "bond"],
+    "notes": "应命中第8章搭接和锚固相关条款"
+  },
+  {
+    "id": "q13",
+    "question": "欧标里截面计算的基本假设前提是什么？",
+    "category": "exact_assumption",
+    "expected_type": "rule",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["6.1"],
+    "expected_keywords": ["assumptions", "plane sections remain plane"],
+    "expected_anchor_phrases": [
+      "the following assumptions are made",
+      "plane sections remain plane"
+    ],
+    "must_not_include": ["5.8.9", "biaxial bending"],
+    "notes": "动机案例：应优先命中 6.1 基本假设条文，而非双向弯曲等泛相关内容"
+  },
+  {
+    "id": "q14",
+    "question": "欧标中最小保护层厚度是什么意思？",
+    "category": "exact_definition",
+    "expected_type": "rule",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["4.4.1", "4.4.1.2"],
+    "expected_keywords": ["minimum cover", "cmin"],
+    "expected_anchor_phrases": ["minimum cover", "concrete cover"],
+    "must_not_include": ["crack width", "deflection"],
+    "notes": "definition 类 exact 问题，期望定位 4.4.1 concrete cover 定义"
+  },
+  {
+    "id": "q15",
+    "question": "截面计算基本假设适用于哪些区域或构件？",
+    "category": "exact_applicability",
+    "expected_type": "rule",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["6.1", "5.6"],
+    "expected_keywords": ["applies", "members", "sections"],
+    "expected_anchor_phrases": ["applies to", "for members"],
+    "must_not_include": ["prestress losses", "punching"],
+    "notes": "适用条件/适用区域问题，应优先命中 applicability 相关直述而不是泛化解释"
+  },
+  {
+    "id": "q16",
+    "question": "抗弯承载力计算公式在欧标哪一条？",
+    "category": "exact_formula_lookup",
+    "expected_type": "parameter",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["6.1"],
+    "expected_keywords": ["moment resistance", "expression", "M_Rd"],
+    "expected_anchor_phrases": ["expression", "moment resistance"],
+    "must_not_include": ["7.4", "deflection"],
+    "notes": "公式定位类问题，关注 clause lookup / formula anchor"
+  },
+  {
+    "id": "q17",
+    "question": "受弯构件挠度控制限值在欧标哪一条？",
+    "category": "exact_limit_lookup",
+    "expected_type": "parameter",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["7.4", "7.4.1", "7.4.2"],
+    "expected_keywords": ["deflection", "span to depth", "limit"],
+    "expected_anchor_phrases": ["shall be limited to", "span/depth"],
+    "must_not_include": ["5.10", "prestress losses"],
+    "notes": "限值定位类问题，应定位 deflection control 相关条款"
+  },
+  {
+    "id": "q18",
+    "question": "不需要设计抗剪钢筋的条件在欧标哪一条？",
+    "category": "exact_clause_lookup",
+    "expected_type": "rule",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["6.2.2"],
+    "expected_keywords": ["without design shear reinforcement", "VRd,c"],
+    "expected_anchor_phrases": ["without design shear reinforcement"],
+    "must_not_include": ["6.4", "punching"],
+    "notes": "clause lookup 动机案例，要求精确定位 6.2.2"
+  },
+  {
+    "id": "q19",
+    "question": "欧标中冲切控制周长的公式在哪一条？",
+    "category": "exact_formula_lookup",
+    "expected_type": "parameter",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["6.4", "6.4.2"],
+    "expected_keywords": ["control perimeter", "u1", "punching"],
+    "expected_anchor_phrases": ["control perimeter", "expression"],
+    "must_not_include": ["6.2.2", "shear reinforcement"],
+    "notes": "公式定位问题，关注 punching control perimeter 相关表达式"
+  },
+  {
+    "id": "q20",
+    "question": "欧标中 exposure class XC1 的定义在哪一条？",
+    "category": "exact_definition",
+    "expected_type": "rule",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["4.1", "4.2"],
+    "expected_keywords": ["XC1", "exposure class"],
+    "expected_anchor_phrases": ["exposure class", "XC1"],
+    "must_not_include": ["4.4.1", "minimum cover"],
+    "notes": "definition + clause lookup 组合问题，要求优先定位 exposure class 定义"
+  },
+  {
+    "id": "q21",
+    "question": "3.1.7里说的混凝土受压应变限值要看哪个表？表里的数值是什么？",
+    "category": "exact_cross_ref_clause_to_table",
+    "expected_type": "parameter",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["3.1.7", "Table 3.1"],
+    "expected_keywords": ["compressive strain", "Table 3.1", "strength and deformation"],
+    "expected_anchor_phrases": ["Table 3.1"],
+    "expected_direct_refs": ["Table 3.1"],
+    "expected_reference_closure": true,
+    "must_not_include": ["Figure 3.3", "Figure 3.4"],
+    "notes": "交叉引用主场景：主条款命中后必须把 Table 3.1 补齐，否则不能算 grounded"
+  },
+  {
+    "id": "q22",
+    "question": "环境等级 XC1 和 XC2 的区别应查看哪个表？",
+    "category": "exact_cross_ref_clause_to_table",
+    "expected_type": "rule",
+    "expected_mode": "exact",
+    "expected_document": "EN 1992-1-1:2004",
+    "expected_sections": ["4.2", "Table 4.1"],
+    "expected_keywords": ["XC1", "XC2", "Table 4.1", "exposure class"],
+    "expected_anchor_phrases": ["Table 4.1"],
+    "expected_direct_refs": ["Table 4.1"],
+    "expected_reference_closure": true,
+    "must_not_include": ["minimum cover", "4.4.1"],
+    "notes": "交叉引用表格定位场景：应从 exposure class 条文补齐 Table 4.1，而不是只返回泛说明"
+  }
+]

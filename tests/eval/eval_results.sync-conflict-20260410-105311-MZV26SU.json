@@ -1,0 +1,703 @@
+{
+  "config": {
+    "vector_top_k": 30,
+    "bm25_top_k": 30,
+    "rerank_top_n": 10,
+    "eval_top_k": 5
+  },
+  "metrics": {
+    "avg_section_recall": 0.2708,
+    "avg_keyword_recall": 0.2292,
+    "anchor_hit_rate": 0.65,
+    "grounded_mode_accuracy": 0.65,
+    "over_answer_rate": null,
+    "over_answer_rate_note": "placeholder: 当前脚本仅评估 retrieval/routing，不调用 generation，无法真实计算 over-answer_rate。",
+    "pass_rate": 0.35,
+    "pass_count": 7,
+    "total": 20,
+    "measured_questions": 20
+  },
+  "per_question": [
+    {
+      "id": "q01",
+      "question": "C30/37混凝土的抗压强度设计值是多少？",
+      "category": "parameter_lookup",
+      "rewritten_query": "What is the design compressive strength for concrete class C30/37?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "3.1",
+        "3.1.6"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.0006312705809250474,
+        0.0003808200126513839,
+        0.000585316214710474,
+        9.337982919532806e-05,
+        8.111508213914931e-05
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 Table 3.1 或 3.1.6 设计强度公式"
+    },
+    {
+      "id": "q02",
+      "question": "什么是保护层厚度？最小保护层厚度如何确定？",
+      "category": "concept",
+      "rewritten_query": "What is concrete cover and how is the minimum concrete cover determined according to Eurocode?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "4.4.1",
+        "4.4.1.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.00042019030661322176,
+        0.0002796579501591623,
+        0.00013332196976989508,
+        0.0001003315337584354,
+        8.297907334053889e-05
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 4.4.1 concrete cover 相关条款"
+    },
+    {
+      "id": "q03",
+      "question": "梁的抗剪设计应按什么步骤进行？",
+      "category": "reasoning",
+      "rewritten_query": "What are the steps for shear design of beams according to Eurocode?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "open",
+      "groundedness": "open",
+      "document_hit": true,
+      "section_recall": 0.5,
+      "keyword_recall": 1.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [
+        "6.2",
+        "6.2.3"
+      ],
+      "missed_sections": [
+        "6.2.1",
+        "6.2.2"
+      ],
+      "hit_keywords": [
+        "VRd",
+        "design shear reinforcement",
+        "shear"
+      ],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.2623893916606903,
+        0.11954350769519806,
+        0.009647957049310207,
+        0.004791823215782642,
+        0.003447564784437418
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 6.2 shear 相关条款"
+    },
+    {
+      "id": "q04",
+      "question": "Table 3.1 混凝土强度等级有哪些？",
+      "category": "exact_reference",
+      "rewritten_query": "What are the concrete strength classes listed in Table 3.1?",
+      "filters": {
+        "element_type": "table"
+      },
+      "expected_mode": null,
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": true,
+      "section_recall": 0.5,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [
+        "3.1"
+      ],
+      "missed_sections": [
+        "3.1.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.6469779014587402,
+        0.08342443406581879,
+        0.025511765852570534,
+        0.01475630421191454,
+        0.0028381971642374992
+      ],
+      "chunk_count": 5,
+      "notes": "应精确命中 Table 3.1"
+    },
+    {
+      "id": "q05",
+      "question": "裂缝宽度控制有哪些要求？",
+      "category": "concept",
+      "rewritten_query": "What are the requirements for crack width control?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": true,
+      "section_recall": 0.25,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [
+        "7.3"
+      ],
+      "missed_sections": [
+        "7.3.1",
+        "7.3.3",
+        "7.3.4"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        1.8221406207885593e-05,
+        0.0010462910868227482,
+        5.307826359057799e-05,
+        0.00027292166487313807,
+        0.00018729938892647624
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 7.3 crack control 全节"
+    },
+    {
+      "id": "q06",
+      "question": "6.2.2条说不需要设计抗剪钢筋的构件需满足什么条件？",
+      "category": "exact_reference",
+      "rewritten_query": "What conditions must be satisfied for members where shear reinforcement is not required according to clause 6.2.2?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "6.2.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.011581324972212315,
+        0.00184811360668391,
+        0.0016556910704821348,
+        0.0011602897429838777,
+        0.0007470751297660172
+      ],
+      "chunk_count": 5,
+      "notes": "应精确命中 6.2.2"
+    },
+    {
+      "id": "q07",
+      "question": "混凝土的徐变和收缩如何计算？",
+      "category": "reasoning",
+      "rewritten_query": "How to calculate creep and shrinkage of concrete?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "3.1.4"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.0060629392974078655,
+        0.0014469297602772713,
+        0.00036300442297942936,
+        0.0008037595544010401,
+        0.0007879505283199251
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 3.1.4"
+    },
+    {
+      "id": "q08",
+      "question": "环境等级分类标准是什么？XC1和XC2有什么区别？",
+      "category": "concept",
+      "rewritten_query": "What are the classification criteria for environmental exposure classes, and what is the difference between XC1 and XC2?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": true,
+      "section_recall": 1.0,
+      "keyword_recall": 0.25,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [
+        "4.2"
+      ],
+      "missed_sections": [],
+      "hit_keywords": [
+        "Table 4.1"
+      ],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.0056429035030305386,
+        5.01509421155788e-05,
+        6.613420555368066e-05,
+        3.585910963010974e-05,
+        2.874335586966481e-05
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 4.2 和 Table 4.1"
+    },
+    {
+      "id": "q09",
+      "question": "受弯构件的挠度控制限值是多少？",
+      "category": "parameter_lookup",
+      "rewritten_query": "What is the deflection control limit for flexural members?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "7.4",
+        "7.4.1",
+        "7.4.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.06857746839523315,
+        0.0010616877116262913,
+        0.000716078095138073,
+        0.0005706381634809077,
+        0.000518463843036443
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 7.4 deflection control"
+    },
+    {
+      "id": "q10",
+      "question": "冲切承载力如何验算？",
+      "category": "reasoning",
+      "rewritten_query": "How to check punching shear capacity?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "6.4",
+        "6.4.1",
+        "6.4.3",
+        "6.4.4"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.00575501611456275,
+        0.00020917585061397403,
+        0.0001830978726502508,
+        9.579490142641589e-05,
+        5.537776087294333e-05
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 6.4 punching 相关条款"
+    },
+    {
+      "id": "q11",
+      "question": "预应力损失有哪些类型？如何计算？",
+      "category": "reasoning",
+      "rewritten_query": "What are the types of prestress losses and how are they calculated?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "open",
+      "groundedness": "open",
+      "document_hit": true,
+      "section_recall": 0.6666666666666666,
+      "keyword_recall": 1.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [
+        "5.10.4",
+        "5.10.6"
+      ],
+      "missed_sections": [
+        "5.10.5"
+      ],
+      "hit_keywords": [
+        "friction",
+        "immediate losses",
+        "losses",
+        "prestress"
+      ],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.7051710486412048,
+        0.3686924874782562,
+        0.1866462528705597,
+        0.11774677783250809,
+        0.056843265891075134
+      ],
+      "chunk_count": 5,
+      "notes": "应命中 5.10 预应力损失相关条款"
+    },
+    {
+      "id": "q12",
+      "question": "钢筋搭接长度如何确定？",
+      "category": "parameter_lookup",
+      "rewritten_query": "How to determine the lap length of reinforcement bars?",
+      "filters": {},
+      "expected_mode": null,
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": true,
+      "section_recall": 0.0,
+      "keyword_recall": 0.3333333333333333,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "8.4",
+        "8.7"
+      ],
+      "hit_keywords": [
+        "bond"
+      ],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.00023266466450877488,
+        0.00020139785192441195,
+        0.00017209092038683593,
+        0.00015602789062540978,
+        0.00012150630936957896
+      ],
+      "chunk_count": 5,
+      "notes": "应命中第8章搭接和锚固相关条款"
+    },
+    {
+      "id": "q13",
+      "question": "欧标里截面计算的基本假设前提是什么？",
+      "category": "exact_assumption",
+      "rewritten_query": "What are the fundamental assumptions for cross-section design in Eurocode?",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 1.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": false,
+      "hit_sections": [
+        "6.1"
+      ],
+      "missed_sections": [],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.002883892972022295,
+        0.002731319982558489,
+        0.0005903217825107276,
+        0.00022057333262637258,
+        0.00019747533951885998
+      ],
+      "chunk_count": 5,
+      "notes": "动机案例：应优先命中 6.1 基本假设条文，而非双向弯曲等泛相关内容"
+    },
+    {
+      "id": "q14",
+      "question": "欧标中最小保护层厚度是什么意思？",
+      "category": "exact_definition",
+      "rewritten_query": "What is the definition of minimum concrete cover in Eurocodes?",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact",
+      "groundedness": "grounded",
+      "document_hit": false,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": true,
+      "hit_sections": [],
+      "missed_sections": [
+        "4.4.1",
+        "4.4.1.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.00048778802738524973,
+        0.0003561826597433537,
+        8.810248255031183e-05,
+        3.5806042433250695e-05,
+        3.048143844353035e-05
+      ],
+      "chunk_count": 5,
+      "notes": "definition 类 exact 问题，期望定位 4.4.1 concrete cover 定义"
+    },
+    {
+      "id": "q15",
+      "question": "截面计算基本假设适用于哪些区域或构件？",
+      "category": "exact_applicability",
+      "rewritten_query": "To which regions or members do the basic assumptions for cross-section calculation apply?",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 0.0,
+      "keyword_recall": 0.6666666666666666,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": false,
+      "hit_sections": [],
+      "missed_sections": [
+        "5.6",
+        "6.1"
+      ],
+      "hit_keywords": [
+        "members",
+        "sections"
+      ],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.12804941833019257,
+        0.042598906904459,
+        0.03351633623242378,
+        0.02641543745994568,
+        0.008932515978813171
+      ],
+      "chunk_count": 5,
+      "notes": "适用条件/适用区域问题，应优先命中 applicability 相关直述而不是泛化解释"
+    },
+    {
+      "id": "q16",
+      "question": "抗弯承载力计算公式在欧标哪一条？",
+      "category": "exact_formula_lookup",
+      "rewritten_query": "Which clause of Eurocode provides the formula for calculating bending resistance?",
+      "filters": {
+        "element_type": "formula"
+      },
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 1.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": false,
+      "hit_sections": [
+        "6.1"
+      ],
+      "missed_sections": [],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.8678856492042542,
+        0.7284704446792603,
+        0.49980777502059937,
+        0.1530078500509262,
+        0.14490126073360443
+      ],
+      "chunk_count": 5,
+      "notes": "公式定位类问题，关注 clause lookup / formula anchor"
+    },
+    {
+      "id": "q17",
+      "question": "受弯构件挠度控制限值在欧标哪一条？",
+      "category": "exact_limit_lookup",
+      "rewritten_query": "What is the clause for deflection control limits of flexural members in Eurocode?",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 0.0,
+      "keyword_recall": 0.3333333333333333,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": false,
+      "hit_sections": [],
+      "missed_sections": [
+        "7.4",
+        "7.4.1",
+        "7.4.2"
+      ],
+      "hit_keywords": [
+        "limit"
+      ],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.030062980949878693,
+        0.00685862498357892,
+        0.003800480393692851,
+        0.0031352113001048565,
+        0.0017655105330049992
+      ],
+      "chunk_count": 5,
+      "notes": "限值定位类问题，应定位 deflection control 相关条款"
+    },
+    {
+      "id": "q18",
+      "question": "不需要设计抗剪钢筋的条件在欧标哪一条？",
+      "category": "exact_clause_lookup",
+      "rewritten_query": "Under what condition is shear reinforcement not required according to Eurocode?",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": false,
+      "hit_sections": [],
+      "missed_sections": [
+        "6.2.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.008093580603599548,
+        0.003295749193057418,
+        0.0012959957821294665,
+        0.0011209548683837056,
+        0.0009019278804771602
+      ],
+      "chunk_count": 5,
+      "notes": "clause lookup 动机案例，要求精确定位 6.2.2"
+    },
+    {
+      "id": "q19",
+      "question": "欧标中冲切控制周长的公式在哪一条？",
+      "category": "exact_formula_lookup",
+      "rewritten_query": "Where is the formula for the punching shear control perimeter located in Eurocode?",
+      "filters": {
+        "element_type": "formula"
+      },
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 0.0,
+      "keyword_recall": 0.0,
+      "anchor_hit_rate": 0.0,
+      "grounded_mode_match": false,
+      "hit_sections": [],
+      "missed_sections": [
+        "6.4",
+        "6.4.2"
+      ],
+      "hit_keywords": [],
+      "hit_anchor_phrases": [],
+      "must_not_include_hits": [],
+      "top_scores": [
+        0.03322363644838333,
+        0.017010614275932312,
+        0.011173446662724018,
+        0.009463208727538586,
+        0.0025415897835046053
+      ],
+      "chunk_count": 5,
+      "notes": "公式定位问题，关注 punching control perimeter 相关表达式"
+    },
+    {
+      "id": "q20",
+      "question": "欧标中 exposure class XC1 的定义在哪一条？",
+      "category": "exact_definition",
+      "rewritten_query": "Where is exposure class XC1 defined in Eurocodes?",
+      "filters": {},
+      "expected_mode": "exact",
+      "predicted_mode": "exact_not_grounded",
+      "groundedness": "exact_not_grounded",
+      "document_hit": false,
+      "section_recall": 0.5,
+      "keyword_recall": 1.0,
+      "anchor_hit_rate": 1.0,
+      "grounded_mode_match": false,
+      "hit_sections": [
+        "4.1"
+      ],
+      "missed_sections": [
+        "4.2"
+      ],
+      "hit_keywords": [
+        "XC1",
+        "exposure class"
+      ],
+      "hit_anchor_phrases": [
+        "XC1",
+        "exposure class"
+      ],
+      "must_not_include_hits": [
+        "4.4.1",
+        "minimum cover"
+      ],
+      "top_scores": [
+        0.2638389468193054,
+        0.252799391746521,
+        0.015444289892911911,
+        0.013229568488895893,
+        0.007364556193351746
+      ],
+      "chunk_count": 5,
+      "notes": "definition + clause lookup 组合问题，要求优先定位 exposure class 定义"
+    }
+  ]
+}

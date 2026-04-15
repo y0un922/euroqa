@@ -1,0 +1,4 @@
+interface:
+  display_name: "Euro_QA 回复导出开发"
+  short_description: "继续这个仓库里的回复复制与会话导出 feature。"
+  default_prompt: "继续实现 Euro_QA 的 LLM 回复复制与整会话 Markdown 导出功能；先读取 docs/progress/MASTER.md，再按当前 phase 执行并同步更新进度文件。"

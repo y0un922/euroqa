@@ -22,17 +22,56 @@ class Confidence(str, Enum):
     NONE = "none"
 
 
-class QueryType(str, Enum):
-    CONCEPT = "concept"
-    CLAUSE = "clause"
+class QuestionType(str, Enum):
+    """问题分型：四类工程问题。"""
+    RULE = "rule"
     PARAMETER = "parameter"
-    COMPARISON = "comparison"
+    CALCULATION = "calculation"
+    MECHANISM = "mechanism"
 
 
-class IntentType(str, Enum):
+class AnswerMode(str, Enum):
+    """问答路由模式。"""
     EXACT = "exact"
-    CONCEPT = "concept"
-    REASONING = "reasoning"
+    OPEN = "open"
+    EXACT_NOT_GROUNDED = "exact_not_grounded"
+
+
+class EngineeringContext(BaseModel):
+    """从用户问题中提取的工程上下文字段。"""
+    country: Optional[str] = None
+    structure_type: Optional[str] = None
+    limit_state: Optional[str] = None
+    load_combination: Optional[bool] = None
+    concrete_class: Optional[str] = None
+    rebar_grade: Optional[str] = None
+    prestressed: Optional[bool] = None
+    discontinuity_region: Optional[bool] = None
+
+    @property
+    def missing_fields(self) -> list[str]:
+        """返回值为 None 或空字符串的字段名列表。"""
+        missing: list[str] = []
+        for name, value in self.model_dump().items():
+            if value is None or (isinstance(value, str) and not value.strip()):
+                missing.append(name)
+        return missing
+
+
+class RoutingTargetHint(BaseModel):
+    """LLM 输出的检索目标提示。"""
+    document: Optional[str] = None
+    clause: Optional[str] = None
+    object: Optional[str] = None
+
+
+class RoutingDecision(BaseModel):
+    """查询理解阶段的路由决策。"""
+    answer_mode: AnswerMode
+    intent_label: str
+    intent_confidence: float
+    target_hint: RoutingTargetHint
+    reason_short: str
 
 
 class ChunkMetadata(BaseModel):
@@ -48,6 +87,12 @@ class ChunkMetadata(BaseModel):
     parent_text_chunk_id: Optional[str] = None
     bbox: list[float] = []
     bbox_page_idx: int = -1
+    object_type: Optional[str] = None
+    object_label: str = ""
+    object_id: str = ""
+    object_aliases: list[str] = []
+    ref_labels: list[str] = []
+    ref_object_ids: list[str] = []
 
 
 class Chunk(BaseModel):
@@ -74,7 +119,6 @@ class LlmSettingsResponse(BaseModel):
 class QueryRequest(BaseModel):
     question: str = Field(..., max_length=500)
     domain: Optional[str] = None
-    query_type: Optional[QueryType] = None
     conversation_id: Optional[str] = None
     stream: bool = False
     llm: Optional[LlmSettingsOverride] = None
@@ -105,13 +149,26 @@ class Source(BaseModel):
         return str(value)
 
 
+class RetrievalContext(BaseModel):
+    chunks: list[dict[str, object]] = Field(default_factory=list)
+    parent_chunks: list[dict[str, object]] = Field(default_factory=list)
+    ref_chunks: list[dict[str, object]] = Field(default_factory=list)
+    resolved_refs: list[str] = Field(default_factory=list)
+    unresolved_refs: list[str] = Field(default_factory=list)
+
+
 class QueryResponse(BaseModel):
     answer: str
-    sources: list[Source] = Field(default_factory=list, max_length=5)
+    sources: list[Source] = Field(default_factory=list)
     related_refs: list[str] = []
     confidence: Confidence
     conversation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     degraded: bool = False
+    retrieval_context: RetrievalContext | None = None
+    question_type: Optional[str] = None
+    engineering_context: Optional[dict[str, object]] = None
+    answer_mode: Optional[str] = None
+    groundedness: Optional[str] = None
 
 
 class SourceTranslationRequest(BaseModel):
@@ -131,12 +188,47 @@ class SourceTranslationResponse(BaseModel):
     translation: str
 
 
+class DocumentStatus(str, Enum):
+    """文档生命周期状态。"""
+    UPLOADED = "uploaded"
+    PENDING = "pending"
+    PARSING = "parsing"
+    STRUCTURING = "structuring"
+    CHUNKING = "chunking"
+    SUMMARIZING = "summarizing"
+    INDEXING = "indexing"
+    READY = "ready"
+    ERROR = "error"
+
+
 class DocumentInfo(BaseModel):
     id: str
     name: str
     title: str
     total_pages: int
     chunk_count: int
+    status: DocumentStatus = DocumentStatus.READY
+
+
+class DocumentUploadResponse(BaseModel):
+    doc_id: str
+    name: str
+    title: str
+    total_pages: int
+
+
+class DocumentProcessResponse(BaseModel):
+    doc_id: str
+    stage: str
+    message: str
+
+
+class PipelineProgressEvent(BaseModel):
+    doc_id: str
+    stage: str
+    progress: float
+    message: str = ""
+    error: Optional[str] = None
 
 
 class GlossaryEntry(BaseModel):

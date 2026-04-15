@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   milvus-etcd:
     image: quay.io/coreos/etcd:v3.5.5
@@ -17,10 +15,11 @@ services:
     command: minio server /minio_data
 
   milvus:
-    image: milvusdb/milvus:v2.4-latest
+    image: milvusdb/milvus:v2.4.17
     depends_on:
       - milvus-etcd
       - milvus-minio
+    command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
@@ -36,14 +35,14 @@ services:
     ports:
       - "9200:9200"
 
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    depends_on:
-      - milvus
-      - elasticsearch
-    env_file: .env
-    volumes:
-      - ./data:/app/data
-    command: uvicorn server.main:app --host 0.0.0.0 --port 8080
+#  app:
+#    build: .
+#    ports:
+#      - "8080:8080"
+#    depends_on:
+#      - milvus
+#      - elasticsearch
+#    env_file: .env
+#    volumes:
+#      - ./data:/app/data
+#    command: uvicorn server.main:app --host 0.0.0.0 --port 8080

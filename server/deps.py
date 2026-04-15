@@ -26,6 +26,17 @@ def get_retriever() -> HybridRetriever:
     return HybridRetriever(get_config())
 
 
+async def invalidate_retriever_cache() -> None:
+    """关闭旧 retriever 并清除缓存，使新文档数据立即可查询。"""
+    if get_retriever.cache_info().currsize > 0:
+        try:
+            retriever = get_retriever()
+            await retriever.close()
+        except Exception:
+            pass
+    get_retriever.cache_clear()
+
+
 @lru_cache
 def get_glossary() -> dict[str, str]:
     config = get_config()

@@ -4,13 +4,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.api.debug_pipeline import router as debug_router
 from server.api.v1.router import router as v1_router
 from server.deps import get_retriever
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from server.services.task_manager import get_task_manager
+    task_manager = get_task_manager()
+    await task_manager.start()
     yield
+    await task_manager.stop()
     retriever = get_retriever()
     await retriever.close()
 
@@ -30,3 +35,4 @@ app.add_middleware(
 )
 
 app.include_router(v1_router)
+app.include_router(debug_router)

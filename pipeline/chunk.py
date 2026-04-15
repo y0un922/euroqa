@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pipeline.structure import DocumentNode
 from pipeline.structure import ElementType as StructElementType
+from shared.reference_graph import build_object_id
+from shared.reference_graph import classify_reference_label
+from shared.reference_graph import extract_clause_key
+from shared.reference_graph import normalize_reference_label
 from server.models.schemas import Chunk, ChunkMetadata
 from server.models.schemas import ElementType as ChunkElementType
 
@@ -47,6 +52,14 @@ _ELEMENT_TYPE_MAP: dict[StructElementType, ChunkElementType] = {
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class _ChunkBuildResult:
+    """递归构建结果，包含当前子树的所有块及本节点代表文本块。"""
+
+    chunks: list[Chunk]
+    representative_text_chunk: Chunk | None = None
+
+
 def create_chunks(tree: DocumentNode, source_title: str = "") -> list[Chunk]:
     """将文档树转换为混合分块列表。
 
@@ -62,9 +75,35 @@ def create_chunks(tree: DocumentNode, source_title: str = "") -> list[Chunk]:
     list[Chunk]
         包含 parent 文本块、child 文本块和独立特殊元素块的列表。
     """
-    chunks: list[Chunk] = []
-    _walk_sections(tree, [], source_title, chunks)
-    return chunks
+    result = _walk_sections(
+        tree,
+        ancestor_path=[],
+        node_identity=(),
+        source_title=source_title,
+    )
+    validate_unique_chunk_ids(result.chunks)
+    return result.chunks
+
+
+def validate_unique_chunk_ids(chunks: list[Chunk]) -> None:
+    """Fail fast when chunk IDs are not unique within a stage output."""
+    seen: dict[str, Chunk] = {}
+    duplicates: list[str] = []
+
+    for chunk in chunks:
+        if chunk.chunk_id in seen:
+            duplicates.append(chunk.chunk_id)
+            continue
+        seen[chunk.chunk_id] = chunk
+
+    if not duplicates:
+        return
+
+    sample = ", ".join(duplicates[:5])
+    raise ValueError(
+        f"Duplicate chunk IDs detected ({len(duplicates)} collisions). "
+        f"Sample IDs: {sample}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -75,79 +114,115 @@ def create_chunks(tree: DocumentNode, source_title: str = "") -> list[Chunk]:
 def _walk_sections(
     node: DocumentNode,
     ancestor_path: list[str],
+    node_identity: tuple[int, ...],
     source_title: str,
-    out: list[Chunk],
-) -> None:
+ ) -> _ChunkBuildResult:
     """深度优先遍历文档树，在合适的层级生成块。"""
-    # 获取当前节点的 section 路径
     current_path = (
         ancestor_path + [node.title] if node.title != "root" else ancestor_path
     )
 
-    # 筛选子节点中的 section 子节点和特殊元素子节点
     section_children = [
-        c for c in node.children if c.element_type == StructElementType.SECTION
+        (index, child)
+        for index, child in enumerate(node.children)
+        if child.element_type == StructElementType.SECTION
     ]
     special_children = [
-        c for c in node.children if c.element_type != StructElementType.SECTION
+        (index, child)
+        for index, child in enumerate(node.children)
+        if child.element_type != StructElementType.SECTION
     ]
 
     if section_children:
-        # 非叶节点：先递归处理所有 section 子节点
+        chunks: list[Chunk] = []
         child_text_chunks: list[Chunk] = []
-        for child in section_children:
-            _walk_sections(child, current_path, source_title, out)
-            # 收集刚刚添加的、属于该子节点的 TEXT 类型 child chunk
-            # （用于构建 parent 块）
 
-        # 收集该 section 下所有直接子 section 生成的文本块
-        child_text_chunks = [
-            c
-            for c in out
-            if c.metadata.element_type == ChunkElementType.TEXT
-            and len(c.metadata.section_path) == len(current_path) + 1
-            and c.metadata.section_path[: len(current_path)] == current_path
-        ]
+        for index, child in section_children:
+            child_result = _walk_sections(
+                child,
+                ancestor_path=current_path,
+                node_identity=node_identity + (index,),
+                source_title=source_title,
+            )
+            chunks.extend(child_result.chunks)
+            if child_result.representative_text_chunk is not None:
+                child_text_chunks.append(child_result.representative_text_chunk)
 
-        # 仅当存在子文本块时，才生成 parent 块
+        parent_chunk: Chunk | None = None
         if child_text_chunks and node.title != "root":
             parent_chunk = _build_parent_chunk(
-                node, current_path, source_title, child_text_chunks
+                node,
+                current_path,
+                node_identity,
+                source_title,
+                child_text_chunks,
             )
-            out.append(parent_chunk)
+            chunks.append(parent_chunk)
 
-            # 将子文本块的 parent_chunk_id 指向 parent 块
             for child_chunk in child_text_chunks:
                 child_chunk.metadata.parent_chunk_id = parent_chunk.chunk_id
 
-        # 非叶节点自身也可能有直接附属的特殊元素（罕见但可能）
         if special_children and node.title != "root":
-            text_chunk_id = (
-                child_text_chunks[0].chunk_id if child_text_chunks else None
+            parent_text_chunk_id = (
+                parent_chunk.chunk_id if parent_chunk is not None else None
             )
-            for special in special_children:
-                out.append(
+            type_positions: dict[StructElementType, int] = {}
+            for index, special in special_children:
+                same_type_index = type_positions.get(special.element_type, 0)
+                type_positions[special.element_type] = same_type_index + 1
+                chunks.append(
                     _build_special_chunk(
-                        special, current_path, source_title, node, text_chunk_id
+                        special,
+                        current_path,
+                        node_identity + (index,),
+                        source_title,
+                        node,
+                        parent_text_chunk_id,
+                        same_type_index=same_type_index,
                     )
                 )
-    else:
-        # 叶节点（subsection）：生成 child 文本块 + 特殊元素块
-        if node.title == "root":
-            return
 
-        text_chunk = _build_child_text_chunk(
-            node, current_path, source_title, special_children
+        return _ChunkBuildResult(
+            chunks=chunks,
+            representative_text_chunk=parent_chunk,
         )
-        out.append(text_chunk)
 
-        # 为每个特殊元素生成独立块，链回文本块
-        for special in special_children:
-            out.append(
-                _build_special_chunk(
-                    special, current_path, source_title, node, text_chunk.chunk_id
-                )
+    if node.title == "root":
+        return _ChunkBuildResult(chunks=[])
+
+    special_nodes = [child for _, child in special_children]
+    text_chunk = _build_child_text_chunk(
+        node,
+        current_path,
+        node_identity,
+        source_title,
+        special_nodes,
+    )
+    if text_chunk is None:
+        return _ChunkBuildResult(chunks=[])
+
+    chunks = [text_chunk]
+
+    type_positions: dict[StructElementType, int] = {}
+    for index, special in special_children:
+        same_type_index = type_positions.get(special.element_type, 0)
+        type_positions[special.element_type] = same_type_index + 1
+        chunks.append(
+            _build_special_chunk(
+                special,
+                current_path,
+                node_identity + (index,),
+                source_title,
+                node,
+                text_chunk.chunk_id,
+                same_type_index=same_type_index,
             )
+        )
+
+    return _ChunkBuildResult(
+        chunks=chunks,
+        representative_text_chunk=text_chunk,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -158,14 +233,22 @@ def _walk_sections(
 def _build_child_text_chunk(
     node: DocumentNode,
     section_path: list[str],
+    node_identity: tuple[int, ...],
     source_title: str,
     special_children: list[DocumentNode],
-) -> Chunk:
+) -> Chunk | None:
     """为叶 section 节点构建子文本块。"""
     # 在文本内容中为特殊元素插入占位符
     content = _insert_placeholders(node.content, special_children)
+    if not content.strip():
+        return None
 
-    chunk_id = _make_chunk_id(node.source, section_path, "child")
+    chunk_id = _make_chunk_id(
+        source=node.source,
+        node_identity=node_identity,
+        role="child",
+        content=content,
+    )
     return Chunk(
         chunk_id=chunk_id,
         content=content,
@@ -179,9 +262,12 @@ def _build_child_text_chunk(
             clause_ids=node.clause_ids,
             element_type=ChunkElementType.TEXT,
             cross_refs=node.cross_refs,
+            ref_labels=list(node.cross_refs),
+            ref_object_ids=_build_ref_object_ids(node.source, node.cross_refs),
             parent_chunk_id=None,  # 稍后由 parent 构建时回填
             bbox=list(node.bbox),
             bbox_page_idx=node.bbox_page_idx,
+            **_build_clause_object_fields(node.source, node.title),
         ),
     )
 
@@ -189,6 +275,7 @@ def _build_child_text_chunk(
 def _build_parent_chunk(
     node: DocumentNode,
     section_path: list[str],
+    node_identity: tuple[int, ...],
     source_title: str,
     child_chunks: list[Chunk],
 ) -> Chunk:
@@ -198,11 +285,16 @@ def _build_parent_chunk(
     for child in child_chunks:
         parts.append(child.content)
     combined = "\n\n".join(parts)
+    full_combined = combined
 
-    # 超长截断
     combined = _truncate_by_tokens(combined, _PARENT_MAX_TOKENS)
-
-    chunk_id = _make_chunk_id(node.source, section_path, "parent")
+    chunk_id = _make_chunk_id(
+        source=node.source,
+        node_identity=node_identity,
+        role="parent",
+        content=full_combined,
+        extra_parts=tuple(child.chunk_id for child in child_chunks),
+    )
 
     # 汇总子节点的元数据
     all_pages: list[int] = []
@@ -254,9 +346,12 @@ def _build_parent_chunk(
             clause_ids=all_clause_ids,
             element_type=ChunkElementType.TEXT,
             cross_refs=all_cross_refs,
+            ref_labels=list(all_cross_refs),
+            ref_object_ids=_build_ref_object_ids(node.source, all_cross_refs),
             parent_chunk_id=None,  # parent 块自身无父块
             bbox=first_bbox,
             bbox_page_idx=first_bbox_page_idx,
+            **_build_clause_object_fields(node.source, node.title),
         ),
     )
 
@@ -264,16 +359,23 @@ def _build_parent_chunk(
 def _build_special_chunk(
     special_node: DocumentNode,
     section_path: list[str],
+    node_identity: tuple[int, ...],
     source_title: str,
     parent_section: DocumentNode,
     parent_text_chunk_id: str | None,
+    same_type_index: int = 0,
 ) -> Chunk:
     """为表格/公式/图片构建独立块。"""
     element_type = _ELEMENT_TYPE_MAP.get(
         special_node.element_type, ChunkElementType.TEXT
     )
-    suffix = f"{element_type.value}_{special_node.title}"
-    chunk_id = _make_chunk_id(parent_section.source, section_path, suffix)
+    chunk_id = _make_chunk_id(
+        source=parent_section.source,
+        node_identity=node_identity,
+        role=f"special:{element_type.value}",
+        content=special_node.content,
+        extra_parts=(special_node.title,),
+    )
 
     # 优先使用特殊节点自身的 bbox；若无则回退到父 section 的 bbox
     bbox = list(special_node.bbox) if special_node.bbox else list(parent_section.bbox)
@@ -296,9 +398,18 @@ def _build_special_chunk(
             clause_ids=_extract_special_clause_ids(special_node),
             element_type=element_type,
             cross_refs=special_node.cross_refs,
+            ref_labels=list(special_node.cross_refs),
+            ref_object_ids=_build_ref_object_ids(parent_section.source, special_node.cross_refs),
             parent_text_chunk_id=parent_text_chunk_id,
             bbox=bbox,
             bbox_page_idx=bbox_page_idx,
+            **_build_special_object_fields(
+                parent_section.source,
+                special_node,
+                element_type,
+                parent_section.content,
+                same_type_index=same_type_index,
+            ),
         ),
     )
 
@@ -307,11 +418,25 @@ def _build_special_chunk(
 # 工具函数
 # ---------------------------------------------------------------------------
 
+def _make_chunk_id(
+    source: str,
+    node_identity: tuple[int, ...],
+    role: str,
+    content: str,
+    extra_parts: tuple[str, ...] = (),
+) -> str:
+    normalized_content = _normalize_for_hash(content)
+    content_hash = hashlib.sha256(
+        normalized_content.encode("utf-8")
+    ).hexdigest()
+    identity = ".".join(str(part) for part in node_identity) or "root"
+    raw = "|".join([source, identity, role, *extra_parts, content_hash])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
-def _make_chunk_id(source: str, section_path: list[str], suffix: str) -> str:
-    """基于来源、章节路径和后缀生成确定性块 ID。"""
-    raw = f"{source}|{'|'.join(section_path)}|{suffix}"
-    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+def _normalize_for_hash(text: str) -> str:
+    """Normalize content before hashing to reduce whitespace-only churn."""
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _estimate_tokens(text: str) -> int:
@@ -358,3 +483,96 @@ def _extract_special_clause_ids(special_node: DocumentNode) -> list[str]:
     if match:
         return [match.group(1)]
     return []
+
+
+def _build_clause_object_fields(source: str, title: str) -> dict[str, object]:
+    normalized_title = normalize_reference_label(title)
+    ref_type = classify_reference_label(normalized_title)
+    if ref_type and ref_type != "clause":
+        return {}
+
+    clause_key = extract_clause_key(title)
+    if not clause_key:
+        return {}
+
+    aliases = [clause_key, f"Clause {clause_key}", f"Section {clause_key}"]
+    raw_title = title.strip()
+    if raw_title and raw_title not in aliases:
+        aliases.append(raw_title)
+
+    return {
+        "object_type": "clause",
+        "object_label": clause_key,
+        "object_id": build_object_id(source, "clause", clause_key),
+        "object_aliases": aliases,
+    }
+
+
+def _build_special_object_fields(
+    source: str,
+    special_node: DocumentNode,
+    element_type: ChunkElementType,
+    parent_content: str,
+    same_type_index: int = 0,
+) -> dict[str, object]:
+    label = ""
+    object_type: str | None = None
+
+    if element_type == ChunkElementType.TABLE:
+        label = _extract_special_clause_ids(special_node)[0] if _extract_special_clause_ids(special_node) else ""
+        object_type = "table" if label else None
+    elif element_type == ChunkElementType.IMAGE:
+        labels = re.findall(r"\bFigure\s+[A-Z]?\d+(?:\.\d+)*\b", parent_content, re.IGNORECASE)
+        if same_type_index < len(labels):
+            label = labels[same_type_index]
+            object_type = "figure"
+        else:
+            match = re.search(r"\b(Figure\s+[A-Z]?\d+(?:\.\d+)*)\b", special_node.title, re.IGNORECASE)
+            if match:
+                label = match.group(1)
+                object_type = "figure"
+    elif element_type == ChunkElementType.FORMULA:
+        labels = re.findall(
+            r"\bExpression\s*\(\s*\d+(?:\.\d+)*\s*\)",
+            parent_content,
+            re.IGNORECASE,
+        )
+        if same_type_index < len(labels):
+            label = re.sub(r"\s+", " ", labels[same_type_index]).replace("( ", "(").replace(" )", ")")
+            object_type = "expression"
+        else:
+            match = re.search(r"\b(Expression\s*\(\s*\d+(?:\.\d+)*\s*\))\b", special_node.title, re.IGNORECASE)
+            if match:
+                label = re.sub(r"\s+", " ", match.group(1)).replace("( ", "(").replace(" )", ")")
+                object_type = "expression"
+
+    if not label or object_type is None:
+        return {}
+
+    aliases = [label]
+    normalized_title = special_node.title.strip()
+    if normalized_title and normalized_title not in aliases:
+        aliases.append(normalized_title)
+
+    return {
+        "object_type": object_type,
+        "object_label": label,
+        "object_id": build_object_id(source, object_type, label),
+        "object_aliases": aliases,
+    }
+
+
+def _build_ref_object_ids(source: str, refs: list[str]) -> list[str]:
+    object_ids: list[str] = []
+    seen: set[str] = set()
+
+    for ref in refs:
+        object_type = classify_reference_label(ref)
+        if object_type is None:
+            continue
+        object_id = build_object_id(source, object_type, ref)
+        if object_id not in seen:
+            seen.add(object_id)
+            object_ids.append(object_id)
+
+    return object_ids

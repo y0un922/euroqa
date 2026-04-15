@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "motion/react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -6,9 +7,8 @@ import {
   bboxToOverlayStyle,
   clampPdfPage,
   hasUsablePdfBbox,
-  normalizePdfText,
+  hasUsableLocatorText,
   resolvePdfHighlightMatch,
-  resolvePdfLocationStatus,
   type PdfLocationStatus
 } from "../lib/pdfLocator";
 
@@ -20,59 +20,50 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 type PdfEvidenceViewerProps = {
   fileUrl: string;
   page: number;
-  elementType?: "text" | "table" | "formula" | "image";
   bbox?: number[];
-  highlightText: string;
-  locatorText: string;
+  highlightText?: string;
+  locatorText?: string;
   onLocationResolved?: (status: PdfLocationStatus) => void;
 };
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function PdfEvidenceViewer({
   fileUrl,
   page,
-  elementType = "text",
   bbox = [],
-  highlightText,
-  locatorText,
+  highlightText = "",
+  locatorText = "",
   onLocationResolved
 }: PdfEvidenceViewerProps) {
   const [totalPages, setTotalPages] = useState<number | null>(null);
-  const [pageViewport, setPageViewport] = useState<{ width: number; height: number } | null>(
-    null
-  );
+  const [pageTextItems, setPageTextItems] = useState<string[]>([]);
   const safePage = clampPdfPage(page, totalPages);
   const useBboxOverlay = hasUsablePdfBbox(bbox);
-  const normalizedTarget = useMemo(
-    () => normalizePdfText(highlightText || locatorText),
-    [highlightText, locatorText]
-  );
-  const matchedTextItemsRef = useRef<string[]>([]);
-  const highlightedItemIndexesRef = useRef<Set<number>>(new Set());
+  const useTextHighlight =
+    !useBboxOverlay &&
+    (hasUsableLocatorText(highlightText) || hasUsableLocatorText(locatorText));
   const hasFatalErrorRef = useRef(false);
-  const textLayerFailedRef = useRef(false);
   const lastReportedStatusRef = useRef<PdfLocationStatus>("idle");
   const onLocationResolvedRef = useRef(onLocationResolved);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onLocationResolvedRef.current = onLocationResolved;
   }, [onLocationResolved]);
 
   useEffect(() => {
-    matchedTextItemsRef.current = [];
-    highlightedItemIndexesRef.current = new Set();
     hasFatalErrorRef.current = false;
-    textLayerFailedRef.current = false;
     lastReportedStatusRef.current = "idle";
-    setPageViewport(null);
+    setPageTextItems([]);
     onLocationResolvedRef.current?.("idle");
   }, [bbox, fileUrl, highlightText, locatorText, safePage]);
 
@@ -95,19 +86,50 @@ export function PdfEvidenceViewer({
     return bboxToOverlayStyle(bbox);
   }, [bbox, useBboxOverlay]);
 
+  // 文本匹配高亮：当没有 bbox 时，利用 pdfLocator 的文本匹配能力
+  const textHighlightMatch = useMemo(() => {
+    if (!useTextHighlight || pageTextItems.length === 0) {
+      return { itemIndexes: [] as number[], status: "page_only" as PdfLocationStatus };
+    }
+    return resolvePdfHighlightMatch({
+      textItems: pageTextItems,
+      highlightText,
+      locatorText
+    });
+  }, [highlightText, locatorText, pageTextItems, useTextHighlight]);
+
+  const highlightedIndexSet = useMemo(
+    () => new Set(textHighlightMatch.itemIndexes),
+    [textHighlightMatch.itemIndexes]
+  );
+
   useEffect(() => {
     if (!useBboxOverlay || !overlayStyle || hasFatalErrorRef.current) {
       return;
     }
     reportStatus("highlighted");
+    requestAnimationFrame(() => {
+      overlayRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }, [overlayStyle, useBboxOverlay]);
 
+  // 保持 ref 同步以便在 onRenderTextLayerSuccess 回调中访问最新匹配结果
+  const textHighlightMatchRef = useRef(textHighlightMatch);
+  textHighlightMatchRef.current = textHighlightMatch;
+
   return (
-    <div className="flex h-full w-full items-start justify-center overflow-auto">
+    <div ref={scrollContainerRef} className="flex h-full w-full items-start justify-center overflow-auto">
       <Document
         key={fileUrl}
         file={fileUrl}
-        loading={<div className="p-4 text-sm text-neutral-500">Loading PDF...</div>}
+        loading={
+          <div className="flex flex-col items-center gap-3 p-6">
+            <p className="text-xs text-stone-400">正在加载文档…</p>
+            <div className="h-48 w-full animate-pulse rounded bg-stone-200/60" />
+            <div className="h-4 w-3/4 animate-pulse rounded bg-stone-200/60" />
+            <div className="h-4 w-1/2 animate-pulse rounded bg-stone-200/60" />
+          </div>
+        }
         onLoadSuccess={(pdf) => {
           setTotalPages(pdf.numPages);
         }}
@@ -122,75 +144,79 @@ export function PdfEvidenceViewer({
       >
         <div className="relative inline-block">
           <Page
-            key={`${fileUrl}:${safePage}:${normalizedTarget}:${elementType}:${bbox.join(",")}`}
+            key={`${fileUrl}:${safePage}:${bbox.join(",")}`}
             pageNumber={safePage}
             renderAnnotationLayer={false}
             renderTextLayer
+            customTextRenderer={
+              useTextHighlight
+                ? ({ str, itemIndex }) => {
+                    const escaped = escapeHtml(str);
+                    return highlightedIndexSet.has(itemIndex)
+                      ? `<mark>${escaped}</mark>`
+                      : escaped;
+                  }
+                : undefined
+            }
+            onGetTextSuccess={(textContent) => {
+              if (!useTextHighlight) {
+                return;
+              }
+              const items = textContent.items.flatMap((item) =>
+                "str" in item && typeof item.str === "string" ? [item.str] : []
+              );
+              setPageTextItems((prev) => {
+                const sig = items.join("\0");
+                const prevSig = prev.join("\0");
+                return sig === prevSig ? prev : items;
+              });
+            }}
             onLoadError={() => {
               hasFatalErrorRef.current = true;
               reportStatus("error");
             }}
-            onLoadSuccess={(pdfPage) => {
-              const viewport = pdfPage.getViewport({ scale: 1 });
-              setPageViewport({ width: viewport.width, height: viewport.height });
+            onRenderSuccess={() => {
+              if (!useBboxOverlay && !useTextHighlight && !hasFatalErrorRef.current) {
+                reportStatus("page_only");
+              }
             }}
-            onGetTextSuccess={({ items }) => {
-              const textItems = items.map((item) => ("str" in item ? item.str : ""));
-              matchedTextItemsRef.current = textItems;
-              const match = resolvePdfHighlightMatch({
-                textItems,
-                highlightText,
-                locatorText
-              });
-              highlightedItemIndexesRef.current = new Set(match.itemIndexes);
-            }}
-            onGetTextError={() => {
-              textLayerFailedRef.current = true;
-              reportStatus("page_only");
+            onRenderTextLayerSuccess={() => {
+              if (useBboxOverlay || hasFatalErrorRef.current) {
+                return;
+              }
+              if (!useTextHighlight) {
+                reportStatus("page_only");
+                return;
+              }
+              // 此时 text layer DOM 已渲染完成，可以安全查询 <mark> 元素
+              const match = textHighlightMatchRef.current;
+              reportStatus(match.status);
+              if (match.status === "highlighted") {
+                requestAnimationFrame(() => {
+                  const highlightNode = scrollContainerRef.current?.querySelector("mark");
+                  if (highlightNode instanceof HTMLElement) {
+                    highlightNode.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }
+                });
+              }
             }}
             onRenderTextLayerError={() => {
-              textLayerFailedRef.current = true;
-              reportStatus("page_only");
+              if (!useBboxOverlay && !hasFatalErrorRef.current) {
+                reportStatus("page_only");
+              }
             }}
             onRenderError={() => {
               hasFatalErrorRef.current = true;
               reportStatus("error");
             }}
-            onRenderTextLayerSuccess={() => {
-              if (textLayerFailedRef.current) {
-                reportStatus("page_only");
-                return;
-              }
-              const match = resolvePdfHighlightMatch({
-                textItems: matchedTextItemsRef.current,
-                highlightText,
-                locatorText
-              });
-              if (match.status === "highlighted") {
-                reportStatus("highlighted");
-                return;
-              }
-              reportStatus(
-                resolvePdfLocationStatus({
-                  locatorText: highlightText || locatorText,
-                  matchedTextItems: [],
-                  hasError: hasFatalErrorRef.current
-                })
-              );
-            }}
-            customTextRenderer={({ itemIndex, str }) => {
-              if (!str) {
-                return str;
-              }
-              if (!highlightedItemIndexesRef.current.has(itemIndex)) {
-                return escapeHtml(str);
-              }
-              return `<mark>${escapeHtml(str)}</mark>`;
-            }}
           />
           {overlayStyle ? (
-            <div
-              className="pointer-events-none absolute rounded border-2 border-cyan-500/80 bg-cyan-300/25 shadow-[0_0_0_1px_rgba(8,145,178,0.2)]"
+            <motion.div
+              ref={overlayRef}
+              className="pointer-events-none absolute rounded border-2 border-cyan-500/60 bg-cyan-300/20 shadow-[0_0_0_1px_rgba(8,145,178,0.15)]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
               style={overlayStyle}
             />
           ) : null}
