@@ -8,7 +8,6 @@ import pytest
 
 from server.config import ServerConfig
 from server.core.generation import (
-    _SYSTEM_PROMPT,
     _collect_exact_evidence_candidates,
     _build_exact_evidence_pack,
     build_exact_not_grounded_system_prompt,
@@ -42,104 +41,116 @@ class TestBuildPrompt:
         prompt = build_prompt("test", [sample_text_chunk], [], glossary_terms=glossary)
         assert "design working life" in prompt
 
+    def test_includes_metadata_and_guide_context(
+        self, sample_text_chunk, sample_table_chunk
+    ):
+        guide_chunk = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "guide-1",
+                "content": "Guide example for load combinations.",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "source": "DG EN1990",
+                        "source_title": "DG_EN1990 设计基本 指南",
+                        "section_path": ["Example 2.1"],
+                        "clause_ids": ["Example 2.1"],
+                    }
+                ),
+            }
+        )
+        guide_example_chunk = guide_chunk.model_copy(
+            update={
+                "chunk_id": "guide-example-1",
+                "content": "Worked example for design value calculation.",
+                "metadata": guide_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Worked example 2.1"],
+                        "clause_ids": ["Worked example 2.1"],
+                    }
+                ),
+            }
+        )
+
+        prompt = build_prompt(
+            "怎么计算设计值？",
+            [sample_text_chunk],
+            [sample_table_chunk],
+            guide_chunks=[guide_chunk],
+            guide_example_chunks=[guide_example_chunk],
+        )
+
+        assert "用户问题：" in prompt
+        assert "已检索到的规范证据片段：" in prompt
+        assert "证据元数据：" in prompt
+        assert "指南文档检索结果：" in prompt
+        assert "指南算例检索结果：" in prompt
+        assert "DG EN1990" in prompt
+
 
 class TestAnswerPrompts:
-    def test_system_prompt_prefers_supported_answer_before_missing_info(self):
-        assert "先给出基于当前片段可以直接确认的答案" in _SYSTEM_PROMPT
-        assert "只有在当前片段连部分答案都无法支持时" in _SYSTEM_PROMPT
-
-    def test_parameter_template_sections(self):
+    def test_open_system_prompt_uses_evidence_organizer_role(self):
         prompt = build_open_system_prompt(question_type="parameter")
-        assert "### 直接结果" in prompt
-        assert "### 怎么查到的" in prompt
-        assert "### 使用限制" in prompt
+        assert "回答整理助手" in prompt
+        assert "只能依据输入证据作答" in prompt
+        assert "直接结论" in prompt
+        assert "依据与说明" in prompt
+        assert "依据位置格式要求" in prompt
 
-    def test_rule_template_sections(self):
-        prompt = build_open_system_prompt(question_type="rule")
-        assert "### 规定内容" in prompt
-        assert "### 适用范围与限制" in prompt
-        assert "### 工程上怎么做" in prompt
-
-    def test_calculation_template_sections(self):
+    def test_calculation_prompt_mentions_steps_and_guide_case(self):
         prompt = build_open_system_prompt(question_type="calculation")
-        assert "### 逐步计算" in prompt
-        assert "### 输入条件" in prompt
-        assert "### 计算结果摘要" in prompt
-        assert "### 使用限制" in prompt
-
-    def test_mechanism_template_sections(self):
-        prompt = build_open_system_prompt(question_type="mechanism")
-        assert "### 结论" in prompt
-        assert "### 原理解释" in prompt
-        assert "### 工程影响" in prompt
+        assert "计算目标是什么" in prompt
+        assert "参数应从哪里取值" in prompt
+        assert "指南参考案例" in prompt
 
     def test_unknown_question_type_falls_back_to_rule(self):
         prompt = build_open_system_prompt(question_type=None)
-        assert "### 规定内容" in prompt
-        assert "### 适用范围与限制" in prompt
-        assert "### 工程上怎么做" in prompt
+        assert "直接结论" in prompt
+        assert "依据与说明" in prompt
 
     def test_invalid_question_type_falls_back_to_rule(self):
         prompt = build_open_system_prompt(question_type="nonsense_type")
-        assert "### 规定内容" in prompt
-
-    _OLD_SECTION_HEADERS = [
-        "### 先说结论",
-        "### 这条规则在说什么",
-        "### 适用条件与边界",
-        "### 工程上怎么用",
-        "### 容易出错的点",
-        "### 当前依据",
-        "### 还需要补充确认的内容",
-    ]
-
-    @pytest.mark.parametrize("qt", ["parameter", "rule", "calculation", "mechanism", None])
-    def test_old_section_headers_absent(self, qt):
-        prompt = build_open_system_prompt(question_type=qt)
-        for header in self._OLD_SECTION_HEADERS:
-            assert header not in prompt, f"Old header '{header}' still in {qt} template"
+        assert "直接结论" in prompt
 
     @pytest.mark.parametrize("qt", ["parameter", "rule", "calculation", "mechanism"])
-    def test_anti_vagueness_rules_in_open_templates(self, qt):
+    def test_evidence_only_rules_in_open_templates(self, qt):
         prompt = build_open_system_prompt(question_type=qt)
-        assert "禁止输出以下模式的空话" in prompt
+        assert "不得编造条款号、页码、公式、参数或案例" in prompt
 
-    def test_anti_vagueness_rules_in_exact_template(self):
+    def test_exact_template_uses_same_evidence_organizer_contract(self):
         prompt = build_exact_system_prompt()
-        assert "禁止输出不含实际信息" in prompt
+        assert "回答整理助手" in prompt
+        assert "只能依据输入证据作答" in prompt
+        assert "依据位置格式要求" in prompt
 
-    def test_exact_value_citation_rule(self):
+    def test_exact_template_requires_binding_key_conclusions_to_sources(self):
         prompt = build_exact_system_prompt()
-        assert "每个具体数值" in prompt
-        assert "[Ref-N]" in prompt
+        assert "每一个关键结论都要尽量绑定出处" in prompt
+        assert "文档名" in prompt
+        assert "条款号/章节号" in prompt
 
     def test_exact_system_prompt_structure(self):
         prompt = build_exact_system_prompt()
-        assert "### 直接答案" in prompt
-        assert "### 关键依据" in prompt
-        assert "### 这条规定应如何理解和使用" in prompt
-        assert "### 使用时要再核对的条件" in prompt
-        assert "先直接回答" in prompt
-        assert "中度展开" in prompt or "必要解释" in prompt
+        assert "直接结论" in prompt
+        assert "依据与说明" in prompt
+        assert "计算步骤" in prompt
+        assert "依据位置" in prompt
 
-    def test_exact_assumption_prompt_prefers_anchor_first_answer(self):
+    def test_exact_assumption_prompt_still_keeps_evidence_boundaries(self):
         prompt = build_exact_system_prompt(intent_label="assumption")
-        assert "assumption / definition / applicability" in prompt
-        assert "优先直接枚举主依据条款中的结论" in prompt
-        assert "不要因为检索里顺带包含表格" in prompt
+        assert "现有证据不足" in prompt
+        assert "不得强行补全" in prompt
 
     def test_exact_limit_prompt_keeps_numeric_extraction_requirement(self):
         prompt = build_exact_system_prompt(intent_label="limit")
-        assert "如果问题在问限值" in prompt
-        assert "必须直接提取并引用这些数值" in prompt
+        assert "先给出明确数值或规则" in prompt
+        assert "适用条件" in prompt
 
     def test_exact_not_grounded_system_prompt_has_guardrails(self):
         prompt = build_exact_not_grounded_system_prompt()
-        assert "### 当前能确认的内容" in prompt
-        assert "### 为什么还不能直接下结论" in prompt
-        assert "### 对工程决策的影响" in prompt
-        assert "### 下一步应优先补查什么" in prompt
-        assert "不能把相关材料包装成直接依据" in prompt
+        assert "根据当前检索结果无法确定" in prompt
+        assert "现有证据不足" in prompt
+        assert "不要输出猜测性内容" in prompt
+        assert "exact_not_grounded" not in prompt
 
     def test_engineering_context_injected_in_all_templates(self):
         from server.models.schemas import EngineeringContext
@@ -152,11 +163,11 @@ class TestAnswerPrompts:
         from server.models.schemas import EngineeringContext
         ctx = EngineeringContext(country="Germany")
         prompt = build_open_system_prompt(question_type="rule", engineering_context=ctx)
-        assert "还需要补充确认的内容" not in prompt
+        assert "Germany" in prompt
 
     def test_no_context_uses_generic_wording(self):
         prompt = build_open_system_prompt(question_type="rule")
-        assert "还需要补充确认的内容" not in prompt
+        assert "根据输入证据直接组织回答" in prompt
 
     def test_decide_generation_mode_prefers_groundedness(self):
         assert decide_generation_mode("exact", "grounded") == "exact"
@@ -167,7 +178,7 @@ class TestAnswerPrompts:
     @pytest.mark.parametrize("qt", ["parameter", "rule", "calculation", "mechanism"])
     def test_all_templates_target_chinese_engineers(self, qt):
         prompt = build_open_system_prompt(question_type=qt)
-        assert "中国工程师" in prompt
+        assert "使用中文提问的工程师" in prompt
 
 
 class TestParseLlmResponse:
@@ -226,6 +237,21 @@ class TestSourceTranslationFill:
         assert "The design working life should be specified." in sources[0].locator_text
         assert "The design working life should be specified." in sources[0].highlight_text
         assert "NOTE Indicative categories are given in Table 2.1." in sources[0].highlight_text
+
+    def test_build_sources_from_chunks_preserves_uploaded_doc_id_with_repeated_underscores(
+        self, sample_text_chunk
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={"source": "DG_EN1992-1-1__-1-2"}
+                )
+            }
+        )
+
+        sources = _build_sources_from_chunks([chunk])
+
+        assert sources[0].document_id == "DG_EN1992-1-1__-1-2"
 
     def test_build_sources_from_chunks_keeps_full_highlight_text_without_truncation(
         self, sample_text_chunk
@@ -733,14 +759,40 @@ class TestGenerateAnswer:
             )
 
         assert seen_system_prompts
-        assert "当前能确认的内容" in seen_system_prompts[0]
-        assert "为什么还不能直接下结论" in seen_system_prompts[0]
-        assert "下一步应优先补查什么" in seen_system_prompts[0]
+        assert "不要输出猜测性内容" in seen_system_prompts[0]
+        assert "不要在回答中暴露内部模式名" in seen_system_prompts[0]
+        assert "exact_not_grounded" not in seen_system_prompts[0]
 
     @pytest.mark.asyncio
     async def test_generate_answer_includes_retrieval_context_snapshot(
         self, sample_text_chunk, sample_table_chunk
     ):
+        guide_chunk = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "guide-1",
+                "content": "Guide example for load combinations.",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "source": "DG EN1990",
+                        "source_title": "DG_EN1990 设计基本 指南",
+                        "section_path": ["Example 2.1"],
+                        "clause_ids": ["Example 2.1"],
+                    }
+                ),
+            }
+        )
+        guide_example_chunk = guide_chunk.model_copy(
+            update={
+                "chunk_id": "guide-example-1",
+                "content": "Worked example for design value calculation.",
+                "metadata": guide_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Worked example 2.1"],
+                        "clause_ids": ["Worked example 2.1"],
+                    }
+                ),
+            }
+        )
         raw = json.dumps(
             {
                 "answer": "根据条文应予规定。",
@@ -768,6 +820,8 @@ class TestGenerateAnswer:
                 [sample_table_chunk],
                 scores=[0.91],
                 ref_chunks=[sample_table_chunk],
+                guide_chunks=[guide_chunk],
+                guide_example_chunks=[guide_example_chunk],
                 resolved_refs=["Table 2.1"],
                 unresolved_refs=["Annex A"],
             )
@@ -808,6 +862,30 @@ class TestGenerateAnswer:
                 "page": "28",
                 "clause": "Table 2.1",
                 "content": sample_table_chunk.content,
+            }
+        ]
+        assert result.retrieval_context.guide_chunks == [
+            {
+                "chunk_id": "guide-1",
+                "document_id": "DG_EN1990",
+                "file": "DG EN1990",
+                "title": "DG_EN1990 设计基本 指南",
+                "section": "Example 2.1",
+                "page": "28",
+                "clause": "Example 2.1",
+                "content": "Guide example for load combinations.",
+            }
+        ]
+        assert result.retrieval_context.guide_example_chunks == [
+            {
+                "chunk_id": "guide-example-1",
+                "document_id": "DG_EN1990",
+                "file": "DG EN1990",
+                "title": "DG_EN1990 设计基本 指南",
+                "section": "Worked example 2.1",
+                "page": "28",
+                "clause": "Worked example 2.1",
+                "content": "Worked example for design value calculation.",
             }
         ]
         assert result.retrieval_context.resolved_refs == ["Table 2.1"]
@@ -1172,7 +1250,8 @@ class TestGenerateAnswerStream:
                 events.append((event_type, data))
 
         assert seen_system_prompts
-        assert "### 规定内容" in seen_system_prompts[0]
+        assert "回答整理助手" in seen_system_prompts[0]
+        assert "直接结论" in seen_system_prompts[0]
         assert events[-1][0] == "done"
     @pytest.mark.asyncio
     async def test_generate_answer_stream_emits_reasoning_event(
@@ -1305,6 +1384,32 @@ class TestGenerateAnswerStream:
     async def test_generate_answer_stream_done_payload_includes_retrieval_context_snapshot(
         self, sample_text_chunk, sample_table_chunk
     ):
+        guide_chunk = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "guide-1",
+                "content": "Guide example for load combinations.",
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "source": "DG EN1990",
+                        "source_title": "DG_EN1990 设计基本 指南",
+                        "section_path": ["Example 2.1"],
+                        "clause_ids": ["Example 2.1"],
+                    }
+                ),
+            }
+        )
+        guide_example_chunk = guide_chunk.model_copy(
+            update={
+                "chunk_id": "guide-example-1",
+                "content": "Worked example for design value calculation.",
+                "metadata": guide_chunk.metadata.model_copy(
+                    update={
+                        "section_path": ["Worked example 2.1"],
+                        "clause_ids": ["Worked example 2.1"],
+                    }
+                ),
+            }
+        )
         class _FakeStreamClient:
             def __init__(self, *args, **kwargs):
                 self.chat = SimpleNamespace(
@@ -1330,6 +1435,8 @@ class TestGenerateAnswerStream:
                 [sample_text_chunk],
                 [sample_table_chunk],
                 scores=[0.91],
+                guide_chunks=[guide_chunk],
+                guide_example_chunks=[guide_example_chunk],
             ):
                 events.append((event_type, data))
 
@@ -1359,6 +1466,30 @@ class TestGenerateAnswerStream:
                     "page": "28",
                     "clause": "Table 2.1",
                     "content": sample_table_chunk.content,
+                }
+            ],
+            "guide_chunks": [
+                {
+                    "chunk_id": "guide-1",
+                    "document_id": "DG_EN1990",
+                    "file": "DG EN1990",
+                    "title": "DG_EN1990 设计基本 指南",
+                    "section": "Example 2.1",
+                    "page": "28",
+                    "clause": "Example 2.1",
+                    "content": "Guide example for load combinations.",
+                }
+            ],
+            "guide_example_chunks": [
+                {
+                    "chunk_id": "guide-example-1",
+                    "document_id": "DG_EN1990",
+                    "file": "DG EN1990",
+                    "title": "DG_EN1990 设计基本 指南",
+                    "section": "Worked example 2.1",
+                    "page": "28",
+                    "clause": "Worked example 2.1",
+                    "content": "Worked example for design value calculation.",
                 }
             ],
             "ref_chunks": [],

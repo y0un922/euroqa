@@ -24,6 +24,7 @@ def _analysis_stub(
     requested_objects: list[str] | None = None,
     question_type: object = None,
     engineering_context: object = None,
+    guide_hint: object = None,
 ):
     return SimpleNamespace(
         expanded_queries=[question],
@@ -37,6 +38,7 @@ def _analysis_stub(
         requested_objects=requested_objects or [],
         question_type=question_type,
         engineering_context=engineering_context,
+        guide_hint=guide_hint,
         preferred_element_type=None,
     )
 
@@ -362,6 +364,8 @@ class TestQueryEndpoint:
                 "filters": {},
                 "answer_mode": "exact",
                 "intent_label": "assumption",
+                "question_type": None,
+                "guide_hint": None,
                 "target_hint": SimpleNamespace(
                     document="EN 1992-1-1",
                     clause="6.1",
@@ -432,6 +436,30 @@ class TestQueryEndpoint:
                         }
                     ],
                     parent_chunks=[],
+                    guide_chunks=[
+                        {
+                            "chunk_id": "guide-1",
+                            "document_id": "DG_EN1990",
+                            "file": "DG EN1990",
+                            "title": "DG_EN1990 设计基本 指南",
+                            "section": "Example 2.1",
+                            "page": "28",
+                            "clause": "Example 2.1",
+                            "content": "Guide example for load combinations.",
+                        }
+                    ],
+                    guide_example_chunks=[
+                        {
+                            "chunk_id": "guide-example-1",
+                            "document_id": "DG_EN1990",
+                            "file": "DG EN1990",
+                            "title": "DG_EN1990 设计基本 指南",
+                            "section": "Worked example 2.1",
+                            "page": "28",
+                            "clause": "Worked example 2.1",
+                            "content": "Worked example for design value calculation.",
+                        }
+                    ],
                 ),
             )
 
@@ -449,6 +477,8 @@ class TestQueryEndpoint:
         assert resp.status_code == 200
         assert seen_scores == [[0.91]]
         assert resp.json()["retrieval_context"]["chunks"][0]["score"] == 0.91
+        assert resp.json()["retrieval_context"]["guide_chunks"][0]["document_id"] == "DG_EN1990"
+        assert resp.json()["retrieval_context"]["guide_example_chunks"][0]["chunk_id"] == "guide-example-1"
         assert resp.json()["answer_mode"] == "exact"
         assert resp.json()["groundedness"] == "grounded"
 
@@ -577,6 +607,30 @@ class TestQueryEndpoint:
                             }
                         ],
                         "parent_chunks": [],
+                        "guide_chunks": [
+                            {
+                                "chunk_id": "guide-1",
+                                "document_id": "DG_EN1990",
+                                "file": "DG EN1990",
+                                "title": "DG_EN1990 设计基本 指南",
+                                "section": "Example 2.1",
+                                "page": "28",
+                                "clause": "Example 2.1",
+                                "content": "Guide example for load combinations.",
+                            }
+                        ],
+                        "guide_example_chunks": [
+                            {
+                                "chunk_id": "guide-example-1",
+                                "document_id": "DG_EN1990",
+                                "file": "DG EN1990",
+                                "title": "DG_EN1990 设计基本 指南",
+                                "section": "Worked example 2.1",
+                                "page": "28",
+                                "clause": "Worked example 2.1",
+                                "content": "Worked example for design value calculation.",
+                            }
+                        ],
                     },
                 },
             )
@@ -602,8 +656,117 @@ class TestQueryEndpoint:
         assert resp.status_code == 200
         assert '"retrieval_context"' in resp.text
         assert '"score": 0.91' in resp.text
+        assert '"guide_chunks"' in resp.text
+        assert '"guide_example_chunks"' in resp.text
         assert '"answer_mode": "exact"' in resp.text
         assert '"groundedness": "grounded"' in resp.text
+
+    def test_query_stream_emits_user_friendly_progress_events(self, client):
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                return RetrievalResult(
+                    chunks=[],
+                    parent_chunks=[],
+                    scores=[],
+                    resolved_refs=["Table 3.1"],
+                    guide_chunks=[],
+                    guide_example_chunks=[],
+                )
+
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(
+                question,
+                answer_mode="open",
+                intent_label="limit",
+                question_type=SimpleNamespace(value="parameter"),
+                target_hint=SimpleNamespace(document="EN 1990", clause="2.3", object=None),
+            )
+
+        async def _fake_generate_answer_stream(**kwargs):
+            yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
+
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch(
+                "server.api.v1.query.generate_answer_stream",
+                _fake_generate_answer_stream,
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"question": "设计使用年限怎么确定？", "stream": True},
+            )
+
+        assert resp.status_code == 200
+        assert "event: progress" in resp.text
+        assert '"title": "理解问题"' in resp.text
+        assert "识别为参数/限值类问题" in resp.text
+        assert '"title": "补齐引用"' in resp.text
+        assert "已补齐 Table 3.1" in resp.text
+        assert '"title": "生成回答"' in resp.text
+
+    def test_query_endpoint_threads_question_type_to_retriever(self, client):
+        seen_retrieval_kwargs = {}
+
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                seen_retrieval_kwargs.update(kwargs)
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
+
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        async def _fake_generate_answer(**kwargs):
+            return QueryResponse(
+                answer="ok",
+                sources=[],
+                related_refs=[],
+                confidence="low",
+                degraded=False,
+                conversation_id="conv-1",
+            )
+
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(
+                question,
+                answer_mode="open",
+                intent_label="calculation",
+                question_type=SimpleNamespace(value="calculation"),
+                guide_hint=SimpleNamespace(
+                    need_example=True,
+                    example_query="design value worked example",
+                    example_kind="worked_example",
+                ),
+            )
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+        ):
+            resp = client.post("/api/v1/query", json={"question": "怎么计算组合值？"})
+
+        assert resp.status_code == 200
+        assert seen_retrieval_kwargs["question_type"] == "calculation"
+        assert seen_retrieval_kwargs["guide_hint"].need_example is True
 
     def test_query_endpoint_returns_answer_mode_and_groundedness(self, client):
         class _FakeRetriever:
@@ -678,7 +841,10 @@ class TestQueryEndpoint:
             resp = client.post("/api/v1/query/stream", json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True})
 
         assert resp.status_code == 200
-        done_payload = json.loads(resp.text.split("data: ", 1)[1].strip())
+        done_event = next(
+            segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
+        )
+        done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
         assert done_payload["answer_mode"] == "exact"
         assert done_payload["groundedness"] == "grounded"
 
@@ -869,9 +1035,15 @@ class TestDocumentsEndpoint:
             es_url="http://127.0.0.1:1",
         )
 
+        checked_sources: list[str] = []
+
+        async def fake_document_has_indexed_chunks(source_name, *_args):
+            checked_sources.append(source_name)
+            return source_name == "DG EN1990"
+
         with patch(
             "server.api.v1.documents._document_has_indexed_chunks",
-            AsyncMock(return_value=True),
+            fake_document_has_indexed_chunks,
         ):
             resp = client.get("/api/v1/documents")
 
@@ -880,6 +1052,7 @@ class TestDocumentsEndpoint:
         assert len(body) == 1
         assert body[0]["id"] == "DG_EN1990"
         assert body[0]["status"] == "ready"
+        assert checked_sources == ["DG_EN1990", "DG EN1990"]
 
     def test_get_document_file_returns_pdf_bytes(self, client, tmp_path: Path):
         pdf_path = tmp_path / "EN1990_2002.pdf"
@@ -891,6 +1064,23 @@ class TestDocumentsEndpoint:
         app.dependency_overrides[deps.get_config] = lambda: ServerConfig(pdf_dir=str(tmp_path))
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+
+    def test_get_document_file_preserves_repeated_underscore_doc_id(
+        self, client, tmp_path: Path
+    ):
+        pdf_path = tmp_path / "DG_EN1992-1-1__-1-2.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(pdf_dir=str(tmp_path))
+
+        resp = client.get("/api/v1/documents/DG_EN1992-1-1__-1-2/file")
 
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/pdf"
@@ -912,6 +1102,42 @@ class TestDocumentsEndpoint:
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
         assert resp.status_code == 404
+
+    def test_delete_document_removes_current_and_legacy_index_sources(
+        self, client, tmp_path: Path
+    ):
+        doc_id = "DG_EN1992-1-1__-1-2"
+        pdf_dir = tmp_path / "pdfs"
+        parsed_dir = tmp_path / "parsed"
+        pdf_dir.mkdir()
+        (parsed_dir / doc_id).mkdir(parents=True)
+        (pdf_dir / f"{doc_id}.pdf").write_bytes(b"%PDF-1.4 demo")
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(parsed_dir),
+        )
+
+        deleted_sources: list[str] = []
+
+        async def fake_delete_document_chunks(source_name, _config):
+            deleted_sources.append(source_name)
+            return {"milvus": 1, "elasticsearch": 2}
+
+        with (
+            patch("pipeline.index.delete_document_chunks", fake_delete_document_chunks),
+            patch(
+                "server.api.v1.documents.invalidate_retriever_cache",
+                AsyncMock(),
+            ),
+        ):
+            resp = client.delete(f"/api/v1/documents/{doc_id}")
+
+        assert resp.status_code == 200
+        assert resp.json()["deleted_milvus"] == 2
+        assert resp.json()["deleted_elasticsearch"] == 4
+        assert deleted_sources == [doc_id, doc_id.replace("_", " ")]
+        assert not (pdf_dir / f"{doc_id}.pdf").exists()
+        assert not (parsed_dir / doc_id).exists()
 
 
 class TestSourcesEndpoint:
@@ -1019,12 +1245,27 @@ class TestGlossaryEndpoint:
         assert "hot_questions" in data
         assert "domains" in data
         assert data["hot_questions"] == [
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+            "请给出混凝土材料的强度与变形的相关定义、相互关系及如何计算。",
+            "有哪些因素会对混凝土的徐变与收缩产生影响?",
+            "钢筋的主要特性有哪些?并给出相应总结。",
+            "请问都有那些环境暴露等级?",
+            "保护层都与什么因素相关，该怎么计算?",
             "结构分析的目的是什么?",
             "在哪些部位当线性应变分布的假设不成立时，可能需要进行局部分析?",
             "根据性质和功能，结构构件包括哪些类型?",
             "什么是单向板?",
-            "长细比是如何定义的?",
-            "有效长度是如何定义的?",
+            "欧标的截面计算的基本假设前提是什么？",
+            "混凝土受压区应变-应力分布假设是什么？",
+            "混凝土压碎应变限值是多少？",
+            "极限受力状态下混凝土受压区高度限值为多少？",
+            "弯矩重分布限值为多少？",
+            "fcd 如何计算",
+            "截面计算中材料分项安全系数为多少？",
+            "混凝土抗压强度标准值、设计值与平均强度之间是什么关系？",
+            "钢筋的锚固长度与搭接长度受哪些因素影响？",
+            "什么情况下需要考虑二阶效应？",
+            "受弯构件正截面承载力计算的一般步骤是什么？",
         ]
         assert data["domains"] == [
             {"id": "EN 1992-1-1", "name": "混凝土结构设计"},

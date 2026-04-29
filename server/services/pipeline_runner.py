@@ -29,6 +29,24 @@ logger = structlog.get_logger()
 
 _INDEX_READY_SENTINEL = ".indexed"
 
+
+def _source_names_for_cleanup(doc_id: str) -> list[str]:
+    """Return current and legacy source keys used for indexed chunks."""
+
+    return list(dict.fromkeys([doc_id, doc_id.replace("_", " ")]))
+
+
+async def _delete_document_chunks_for_doc_id(
+    doc_id: str,
+    pipeline_config: PipelineConfig,
+) -> dict[str, int]:
+    deleted = {"milvus": 0, "elasticsearch": 0}
+    for source_name in _source_names_for_cleanup(doc_id):
+        result = await delete_document_chunks(source_name, pipeline_config)
+        deleted["milvus"] += result["milvus"]
+        deleted["elasticsearch"] += result["elasticsearch"]
+    return deleted
+
 ProgressCallback = Callable[[str, float, str], Awaitable[None] | None]
 
 
@@ -66,7 +84,7 @@ async def run_single_document(
     pdf_path = pdf_dir / f"{doc_id}.pdf"
     output_dir = Path(pipeline_config.parsed_dir) / doc_id
     ready_marker = output_dir / _INDEX_READY_SENTINEL
-    source_name = doc_id.replace("_", " ")
+    display_source_name = doc_id.replace("_", " ")
 
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
@@ -84,14 +102,14 @@ async def run_single_document(
     meta_path = output_dir / f"{doc_id}_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     content_list = _load_content_list(md_path, meta)
-    source_title = str(meta.get("title") or source_name)
+    source_title = str(meta.get("title") or display_source_name)
 
     pruning_config = TreePruningConfig.from_pipeline_settings(
         enabled=pipeline_config.tree_pruning_enabled,
         body_start_titles=pipeline_config.tree_pruning_body_start_titles,
     )
     raw_tree = parse_markdown_to_tree(
-        markdown, source=source_name, content_list=content_list,
+        markdown, source=doc_id, content_list=content_list,
     )
     tree = prune_document_tree(raw_tree, pruning_config)
 
@@ -122,7 +140,7 @@ async def run_single_document(
 
     # Stage 4: 索引（先删旧再插新）
     await _emit(on_progress, "indexing", 0.88, "正在清理旧索引并写入新数据")
-    deleted = await delete_document_chunks(source_name, pipeline_config)
+    deleted = await _delete_document_chunks_for_doc_id(doc_id, pipeline_config)
     milvus_count = await index_to_milvus(chunks, pipeline_config)
     es_count = await index_to_elasticsearch(chunks, pipeline_config)
 

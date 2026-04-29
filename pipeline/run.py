@@ -74,7 +74,6 @@ def _load_chunks_from_run(
     artifact_filename: str,
 ) -> list[Chunk]:
     """从指定 run 的产物中反序列化 Chunk 列表。"""
-    store = PipelineDebugStore(debug_dir)
     run_dir = Path(debug_dir) / run_id / "artifacts"
     all_chunks: list[Chunk] = []
 
@@ -196,12 +195,13 @@ async def _run_pipeline(
 
             for md_path in md_paths:
                 doc_id = md_path.stem
-                source_name = doc_id.replace("_", " ")
+                source_name = doc_id
+                display_source_name = doc_id.replace("_", " ")
                 markdown = md_path.read_text(encoding="utf-8")
                 meta_path = md_path.parent / f"{doc_id}_meta.json"
                 meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
                 content_list = _load_content_list(md_path, meta)
-                source_title = meta.get("title", source_name)
+                source_title = meta.get("title", display_source_name)
 
                 # Stage 2: Structure
                 if start_stage <= 2:

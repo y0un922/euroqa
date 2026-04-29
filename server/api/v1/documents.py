@@ -47,6 +47,12 @@ def _sanitize_doc_id(filename: str) -> str:
     return re.sub(r"[^A-Za-z0-9_\-]", "_", stem).strip("_")
 
 
+def _source_names_for_doc_id(doc_id: str) -> list[str]:
+    """Return current and legacy source keys for this uploaded document."""
+
+    return list(dict.fromkeys([doc_id, doc_id.replace("_", " ")]))
+
+
 async def _document_has_indexed_chunks(
     source_name: str,
     es_url: str,
@@ -79,12 +85,14 @@ async def _get_document_status(doc_id: str, config) -> DocumentStatus:
     parsed_path = Path(config.parsed_dir) / doc_id
     if (parsed_path / _INDEX_READY_SENTINEL).is_file():
         return DocumentStatus.READY
-    if parsed_path.is_dir() and await _document_has_indexed_chunks(
-        doc_id.replace("_", " "),
-        config.es_url,
-        config.es_index,
-    ):
-        return DocumentStatus.READY
+    if parsed_path.is_dir():
+        for source_name in _source_names_for_doc_id(doc_id):
+            if await _document_has_indexed_chunks(
+                source_name,
+                config.es_url,
+                config.es_index,
+            ):
+                return DocumentStatus.READY
     return DocumentStatus.UPLOADED
 
 
@@ -221,12 +229,14 @@ async def delete_document(doc_id: str, config=Depends(get_config)):
     if not pdf_path.is_file():
         raise HTTPException(404, f"文档 {doc_id} 不存在")
 
-    source_name = doc_id.replace("_", " ")
-
     from pipeline.config import PipelineConfig
     from pipeline.index import delete_document_chunks
     pipeline_config = PipelineConfig()
-    deleted = await delete_document_chunks(source_name, pipeline_config)
+    deleted = {"milvus": 0, "elasticsearch": 0}
+    for source_name in _source_names_for_doc_id(doc_id):
+        result = await delete_document_chunks(source_name, pipeline_config)
+        deleted["milvus"] += result["milvus"]
+        deleted["elasticsearch"] += result["elasticsearch"]
 
     parsed_dir = Path(config.parsed_dir) / doc_id
     if parsed_dir.is_dir():

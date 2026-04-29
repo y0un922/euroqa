@@ -53,7 +53,7 @@ def _collect_pending_source_indexes(sources: list[Source]) -> list[int]:
 def _build_document_id(source: str) -> str:
     """Build a stable document identifier from source metadata."""
     normalized = re.sub(r"(?<=[A-Za-z])\s+(?=\d)", "", source.strip())
-    normalized = re.sub(r"[^A-Za-z0-9\-]+", "_", normalized)
+    normalized = re.sub(r"[^A-Za-z0-9_\-]+", "_", normalized)
     return normalized.strip("_")
 
 
@@ -257,6 +257,8 @@ def _build_retrieval_context_entry(
 def _build_retrieval_context(
     chunks: list[Chunk],
     parent_chunks: list[Chunk],
+    guide_chunks: list[Chunk] | None = None,
+    guide_example_chunks: list[Chunk] | None = None,
     ref_chunks: list[Chunk] | None = None,
     scores: list[float] | None = None,
     resolved_refs: list[str] | None = None,
@@ -273,12 +275,20 @@ def _build_retrieval_context(
     parent_chunk_items = [
         _build_retrieval_context_entry(chunk) for chunk in parent_chunks
     ]
+    guide_chunk_items = [
+        _build_retrieval_context_entry(chunk) for chunk in (guide_chunks or [])
+    ]
+    guide_example_chunk_items = [
+        _build_retrieval_context_entry(chunk) for chunk in (guide_example_chunks or [])
+    ]
     ref_chunk_items = [
         _build_retrieval_context_entry(chunk) for chunk in (ref_chunks or [])
     ]
     return RetrievalContext(
         chunks=chunk_items,
         parent_chunks=parent_chunk_items,
+        guide_chunks=guide_chunk_items,
+        guide_example_chunks=guide_example_chunk_items,
         ref_chunks=ref_chunk_items,
         resolved_refs=list(resolved_refs or []),
         unresolved_refs=list(unresolved_refs or []),
@@ -648,66 +658,122 @@ def _normalize_engineering_context(
     return None
 
 
+def _build_question_type_guidance(question_type: str | QuestionType | None) -> list[str]:
+    qt = _normalize_question_type(question_type) or "rule"
+    if qt == "calculation":
+        return [
+            "若问题是“如何计算 / 怎么求 / 步骤是什么”类：优先输出可直接使用的计算说明，顺序尽量为：",
+            "1. 计算目标是什么",
+            "2. 适用条款/公式",
+            "3. 公式中各参数含义",
+            "4. 参数应从哪里取值",
+            "5. 计算步骤如何展开",
+            "6. 结果应如何理解或校核",
+            "如果《DG_EN1990 设计基本 指南》存在明显相关的算例或演算过程，应增加“指南参考案例”小节。",
+            "“指南参考案例”只用于帮助理解计算路径，应说明案例在算什么、核心步骤是什么，以及它与当前问题对应在哪一步；不能用指南案例替代规范条文结论。",
+        ]
+    if qt == "parameter":
+        return [
+            "若问题是“参数取值 / 条款要求 / 限值”类：先给出明确数值或规则，再说明适用条件、前提和限制。",
+            "如数值、条件、例外分别来自不同证据，应综合说明，不要分散堆砌。",
+        ]
+    if qt == "mechanism":
+        return [
+            "若问题是“定义 / 概念 / 分类 / 总结”类：先直接回答核心结论，再按需要补充边界和归纳。",
+        ]
+    return [
+        "若问题需要跨多个条款或多个文档综合回答：先给出整合后的直接结论，再说明各证据分别支撑哪一部分。",
+    ]
+
+
+def _build_engineering_context_guidance(
+    engineering_context: EngineeringContext | dict[str, Any] | None,
+) -> str:
+    ctx = _normalize_engineering_context(engineering_context)
+    if not ctx:
+        return "工程上下文未识别。请根据输入证据直接组织回答，并在必要时提醒用户仍需补充的项目条件。"
+
+    known = {
+        key: value
+        for key, value in ctx.model_dump().items()
+        if value is not None and not (isinstance(value, str) and not value.strip())
+    }
+    if not known:
+        return "工程上下文未识别。请根据输入证据直接组织回答，并在必要时提醒用户仍需补充的项目条件。"
+
+    items = ", ".join(
+        f"{key}={'是' if value is True else '否' if value is False else value}"
+        for key, value in known.items()
+    )
+    return f"已识别工程上下文：{items}"
+
+
+def _build_evidence_organizer_system_prompt(
+    mode: str,
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
+    intent_label: str | None = None,
+) -> str:
+    lines: list[str] = [
+        "你是“欧洲工程规范智能问答系统”的回答整理助手，服务对象是使用中文提问的工程师。",
+        "你的任务不是自由聊天，而是：基于系统已经检索到的规范原文证据，整理出一份可供工程师直接使用、且可核查的中文回答。",
+        "",
+        "核心要求：",
+        "1. 只能依据输入证据作答，不得凭常识补充规范中未出现的结论，不得编造条款号、页码、公式、参数或案例。",
+        "2. 每一个关键结论都要尽量绑定出处，至少给出文档名、条款号/章节号、页码（若有）。",
+        "3. 若现有证据不足，必须明确写出“根据当前检索结果无法确定”或“现有证据不足”，不要输出猜测性内容，不得强行补全。",
+        "4. 若存在适用条件、前提假设、国家附录可选值或适用范围限制，必须明确提醒用户。",
+        "5. 指南文档只能作为帮助理解或参考计算过程的补充，不能替代规范条文本身。",
+        "",
+        "多证据整合原则：",
+        "1. 先识别问题包含的子问题，再从多个证据中分别提取对应信息，最后整合成一份面向工程师可直接使用的答案。",
+        "2. 只能整合彼此一致、互补的内容；若证据之间有适用范围或前提差异，必须明确指出。",
+        "",
+        "回答组织原则：",
+        "1. 优先采用以下结构：直接结论、依据与说明、计算步骤（如适用）、指南参考案例（如找到）、依据位置。",
+        "2. 不要机械套模板，但输出必须体现整合后的业务逻辑，而不是简单摘录多个片段。",
+        "3. 依据位置格式要求：尽量统一写成《文档名》, 条款/章节: XXX, 页码: XXX；缺少条款号或页码时如实保留已有信息，不得补造。",
+        "",
+        "模式补充：",
+    ]
+    if mode == "exact_not_grounded":
+        lines.append("当现有证据不足以支撑完整结论时，应明确说明缺少哪类信息，不要输出猜测性内容。")
+        lines.append("不要在回答中暴露内部模式名、路由状态或 groundedness 判断。")
+    elif mode == "exact":
+        lines.append("当前模式是 exact：若证据足够，直接给出结论并绑定依据位置；只补必要解释，不扩写成长篇泛论。")
+    else:
+        lines.append("当前模式是 open：在保证证据约束的前提下，允许做多证据整合与结构化整理。")
+
+    normalized_intent = _normalize_intent_label(intent_label)
+    if mode == "exact" and normalized_intent in {"assumption", "definition", "applicability"}:
+        lines.append("意图补充：优先直接枚举主依据条款中的结论，不要因为检索里顺带包含表格或辅助条文，就把答案重心转移。")
+    if mode == "exact" and normalized_intent == "limit":
+        lines.append("意图补充：若问题在问限值或取值，先给出明确数值或规则，再补充适用条件。")
+    exact_intent_guidance = _build_exact_intent_guidance(intent_label) if mode == "exact" else ""
+    if exact_intent_guidance:
+        lines.extend(["", exact_intent_guidance])
+
+    lines.extend([
+        "",
+        * _build_question_type_guidance(question_type),
+        "",
+        _build_engineering_context_guidance(engineering_context),
+        "",
+        "输出风格要求：使用中文，语言清晰、专业、简洁；不要大段照抄原文；不要输出与问题无关的背景知识。",
+    ])
+    return "\n".join(lines)
+
+
 def build_open_system_prompt(
     question_type: str | QuestionType | None = None,
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
 ) -> str:
-    """根据问题类型路由到专属模板，构建流式系统提示词。"""
-    qt = _normalize_question_type(question_type) or "rule"
-    ctx = _normalize_engineering_context(engineering_context)
-    template = _OPEN_TEMPLATES[qt]
-
-    # Part A: 角色 + 基础规则（含反空话和极度保守规则）
-    lines: list[str] = [
-        "你是一位精通欧洲建筑规范（Eurocode）的专家，"
-        "正在帮助不熟悉 Eurocode 的中国工程师理解规范要求，并把结论安全地用于真实工程项目。",
-        "",
-        "基础规则：",
-    ]
-    for i, rule in enumerate(_STREAM_BASE_RULES, 1):
-        lines.append(f"{i}. {rule}")
-
-    # Part B: 问题类型专属模板
-    section_count = len(template["sections"])
-    section_names = "、".join(name for _, name in template["sections"])
-    lines.extend([
-        "",
-        f"问题类型：{qt}。",
-        f"回答结构要求：严格使用以下 {section_count} 个三级标题（### ）并按顺序输出（{section_names}）。",
-    ])
-    for key, zh_name in template["sections"]:
-        guidance = template["guidance"][key]
-        lines.append(f"### {zh_name}")
-        lines.append(f"   {guidance}")
-
-    # Part C: 工程上下文与条件化答案
-    lines.append("")
-    if ctx:
-        known = {
-            k: v for k, v in ctx.model_dump().items()
-            if v is not None and not (isinstance(v, str) and not v.strip())
-        }
-        missing = ctx.missing_fields
-        if known:
-            items = ", ".join(
-                f"{k}={'是' if v is True else '否' if v is False else v}"
-                for k, v in known.items()
-            )
-            lines.append(f"已识别工程上下文：{items}")
-        if missing:
-            lines.append(
-                "以下工程背景未提供：" + "、".join(missing) + "。"
-                "请先给出一般原则下的回答，然后在最后一个段落末尾列出"
-                "「若需确定性答案，还需提供：……」。"
-            )
-    else:
-        lines.append(
-            "工程上下文未识别。请给出通用原则回答，"
-            "并在最后一个段落末尾提示工程师需要补充哪些项目信息。"
-        )
-
-    lines.extend(["", "目标：输出适合前端直接渲染的高质量 Markdown 中文答案。"])
-    return "\n".join(lines)
+    """构建开放式整理回答的统一系统提示词。"""
+    return _build_evidence_organizer_system_prompt(
+        "open",
+        question_type=question_type,
+        engineering_context=engineering_context,
+    )
 
 
 def _build_exact_intent_guidance(intent_label: str | None) -> str:
@@ -756,70 +822,67 @@ def _build_exact_answer_focus_note(intent_label: str | None) -> str:
     return ""
 
 
-def build_exact_system_prompt(intent_label: str | None = None) -> str:
-    """精确型 grounded 问题使用条款/表图优先模板。"""
-    lines = [
-        "你是一位精通欧洲建筑规范（Eurocode）的专家，帮助中国工程师精确定位规范依据，并把精确结论安全地用于工程判断。",
-        "",
-        "规则：",
-        "1. 仅基于已检索到的直接证据作答；如果证据不足，只能说明当前已确认到的范围，不要把未检索到的内容写成确定结论。",
-        "2. 读者默认是不熟悉 Eurocode 的中国工程师，所以在精确回答后，仍需补一层必要解释，说明这条规定应如何理解和使用，但不要扩写成培训讲义。",
-        "3. 引用时只能使用检索片段中实际出现的 [Ref-N] 标签。",
-        "4. 保持四个小节结构，不要使用固定 8 段长模板，不要输出泛化的长篇工程建议，不要强行补充国家附录讨论。",
-        "5. 如果检索片段中包含表格数据，且其中的数值与问题直接相关，你必须在答案中引用这些具体数值（如限值、系数、参数），绝不能只说\"请查阅表格\"或\"需参见表 X\"。将关键行/列提取为 Markdown 表格或列表呈现给用户。",
-        "6. 如果问题涉及定义、假设、公式、限值或条款定位，应先直接回答该点，再补充必要的限定条件和交叉引用。",
-        "7. 禁止输出不含实际信息的句子，包括但不限于：「请查阅表 X」— 如果检索到了表 X 的数据，必须直接提取数值；「需参见规范」— 必须指出具体哪条规范的哪个条款；「根据规范要求应…」— 必须说明是哪条规范的哪条具体要求；「建议结合项目实际情况」— 必须说明哪些具体的项目参数会影响结论。",
-        "8. 回答中出现的每个具体数值（系数、限值、参数值、判断阈值）都必须标注 [Ref-N]。没有 [Ref-N] 支撑的数值不允许出现在回答中。",
-    ]
-    intent_guidance = _build_exact_intent_guidance(intent_label)
-    if intent_guidance:
-        lines.extend(["", intent_guidance])
-    lines.extend([
-        "",
-        "请严格按以下四个小节输出：",
-        "### 直接答案",
-        "先直接回答用户的问题；如果片段中有具体数值、公式或判断条件，应在这里先说清楚。",
-        "",
-        "### 关键依据",
-        "列出最关键的条款、表格、公式或 [Ref-N]，不要泛泛罗列无关内容。",
-        "",
-        "### 这条规定应如何理解和使用",
-        "只做中度展开，解释这条规定在工程上意味着什么、应如何理解和使用；必要时解释术语，但不要扩写成长篇泛论。",
-        "",
-        "### 使用时要再核对的条件",
-        "列出仍需核对的适用条件、项目参数、National Annex、构件类别或边界前提。",
-        "",
-        "目标：输出适合前端直接渲染的 Markdown 中文答案，篇幅以把证据链、关键参数和交叉引用说明清楚为准。",
-    ])
-    return "\n".join(lines)
+def build_exact_system_prompt(
+    intent_label: str | None = None,
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
+) -> str:
+    """构建精确型回答的统一系统提示词。"""
+    return _build_evidence_organizer_system_prompt(
+        "exact",
+        question_type=(
+            "parameter"
+            if _normalize_intent_label(intent_label) == "limit"
+            else question_type or "rule"
+        ),
+        engineering_context=engineering_context,
+        intent_label=intent_label,
+    )
 
 
-def build_exact_not_grounded_system_prompt() -> str:
-    """精确型但证据不足时，输出保守教学式 guardrail 模板。"""
-    return """你是一位精通欧洲建筑规范（Eurocode）的专家，帮助中国工程师判断当前证据是否足以支持精确回答。
-
-规则：
-1. 当前模式是 exact_not_grounded：只能基于当前片段说明"已确认到哪里"，不能把相关材料包装成直接依据。
-2. 读者是不熟悉 Eurocode 的中国工程师，所以你要把“不足以直接下结论”的原因讲清楚，但不要扩写成开放式讲解或替代证据下结论。
-3. 只能使用检索片段中实际出现的 [Ref-N] 标签引用。
-4. 明确区分"当前能确认的内容"和"为什么还不能直接下结论"。
-5. 说明这种证据缺口会怎样影响工程决策，并给出下一步应优先补查什么。
-
-请严格按以下四个小节输出：
-### 当前能确认的内容
-### 为什么还不能直接下结论
-### 对工程决策的影响
-### 下一步应优先补查什么
-"""
+def build_exact_not_grounded_system_prompt(
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
+) -> str:
+    """构建证据不足时的统一系统提示词。"""
+    return _build_evidence_organizer_system_prompt(
+        "exact_not_grounded",
+        question_type=question_type,
+        engineering_context=engineering_context,
+    )
 
 
-def _build_json_system_prompt(mode: str, intent_label: str | None = None) -> str:
+def _build_json_system_prompt(
+    mode: str,
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
+    intent_label: str | None = None,
+) -> str:
     """为非流式 JSON 回答选择 system prompt。"""
     if mode == "exact":
-        return build_exact_system_prompt(intent_label=intent_label) + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
+        return (
+            build_exact_system_prompt(
+                intent_label=intent_label,
+                question_type=question_type,
+                engineering_context=engineering_context,
+            )
+            + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
+        )
     if mode == "exact_not_grounded":
-        return build_exact_not_grounded_system_prompt() + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
-    return _SYSTEM_PROMPT
+        return (
+            build_exact_not_grounded_system_prompt(
+                question_type=question_type,
+                engineering_context=engineering_context,
+            )
+            + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
+        )
+    return (
+        build_open_system_prompt(
+            question_type=question_type,
+            engineering_context=engineering_context,
+        )
+        + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
+    )
 
 
 def _build_stream_mode_system_prompt(
@@ -830,9 +893,16 @@ def _build_stream_mode_system_prompt(
 ) -> str:
     """为流式 Markdown 回答选择 system prompt。"""
     if mode == "exact":
-        return build_exact_system_prompt(intent_label=intent_label)
+        return build_exact_system_prompt(
+            intent_label=intent_label,
+            question_type=question_type,
+            engineering_context=engineering_context,
+        )
     if mode == "exact_not_grounded":
-        return build_exact_not_grounded_system_prompt()
+        return build_exact_not_grounded_system_prompt(
+            question_type=question_type,
+            engineering_context=engineering_context,
+        )
     return build_open_system_prompt(question_type, engineering_context)
 
 
@@ -873,6 +943,34 @@ def _build_stream_completion_kwargs(config: ServerConfig) -> dict[str, Any]:
     return kwargs
 
 
+def _format_prompt_chunk_block(chunk: Chunk, label: str) -> str:
+    """Format one chunk as a prompt evidence block."""
+    meta = chunk.metadata
+    page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
+    section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
+    clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
+    return (
+        f"{label}\n"
+        f"文档名: {meta.source}\n"
+        f"章节: {section_str}\n"
+        f"条款: {clause_str}\n"
+        f"页码: {page_str}\n"
+        f"内容:\n{chunk.content}\n"
+    )
+
+
+def _format_prompt_metadata_line(chunk: Chunk, label: str) -> str:
+    """Format one chunk as a compact metadata row."""
+    meta = chunk.metadata
+    section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
+    clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
+    page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
+    return (
+        f"- {label} 文档名: {meta.source}; 条款/章节: {clause_str} / {section_str}; "
+        f"页码: {page_str}; 元素类型: {meta.element_type.value}"
+    )
+
+
 def build_prompt(
     question: str,
     chunks: list[Chunk],
@@ -880,6 +978,8 @@ def build_prompt(
     glossary_terms: dict[str, str] | None = None,
     conversation_history: list[dict] | None = None,
     ref_chunks: list[Chunk] | None = None,
+    guide_chunks: list[Chunk] | None = None,
+    guide_example_chunks: list[Chunk] | None = None,
     generation_mode: str | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
@@ -894,6 +994,8 @@ def build_prompt(
         glossary_terms: 中英术语对照表
         conversation_history: 历史对话记录（多轮会话场景）
         ref_chunks: 交叉引用补充片段（主检索片段中提到但未检索到的 Table/Figure 等）
+        guide_chunks: 指南文档补充片段（仅相关问题时提供）
+        guide_example_chunks: 指南中的算例/演算过程片段（仅命中时提供）
 
     Returns:
         组装完成的提示词字符串
@@ -903,6 +1005,13 @@ def build_prompt(
     if glossary_terms:
         terms = ", ".join(f"{zh}={en}" for zh, en in glossary_terms.items())
         parts.append(f"相关术语对照：{terms}\n")
+
+    if conversation_history:
+        parts.append("历史对话摘要：\n")
+        for history in conversation_history[-2:]:
+            parts.append(f"- Q: {history['question']}\n  A: {history['answer'][:500]}\n")
+
+    parts.append(f"用户问题：\n{question}\n")
 
     if generation_mode in {"exact", "exact_not_grounded"}:
         exact_candidates = _collect_exact_evidence_candidates(
@@ -973,7 +1082,6 @@ def build_prompt(
             for ref in unresolved_refs:
                 parts.append(f"- {ref}\n")
 
-    # 主要检索片段
     ordered_citable = _build_prioritized_source_chunks(
         chunks,
         parent_chunks,
@@ -982,55 +1090,60 @@ def build_prompt(
         question=question,
         intent_label=intent_label,
     )
+    parts.append("已检索到的规范证据片段：\n")
     if generation_mode in {"exact", "exact_not_grounded"}:
         parts.append("检索到的规范内容（按回答优先级排序）：\n")
-    else:
-        parts.append("检索到的规范内容：\n")
     for i, chunk in enumerate(ordered_citable, 1):
-        meta = chunk.metadata
-        page_str = ",".join(map(str, meta.page_numbers))
-        section_str = " > ".join(meta.section_path)
-        clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else ""
-        source_info = f"{meta.source}, Page {page_str}, {section_str}"
-        if clause_str:
-            source_info += f", Clause {clause_str}"
-        parts.append(f"[Ref-{i}] {source_info}\n{chunk.content}\n")
+        parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]"))
 
-    # 扩展上下文：去重后的父 chunk 全量纳入，不截断、不限数量
+    deduped_parents: list[Chunk] = []
     if parent_chunks:
         seen_parent_ids: set[str] = set()
-        deduped_parents: list[Chunk] = []
         for pc in parent_chunks:
             if pc.chunk_id not in seen_parent_ids:
                 seen_parent_ids.add(pc.chunk_id)
                 deduped_parents.append(pc)
-        if deduped_parents:
-            parts.append("\n扩展上下文（章节级）：\n")
-            for pc in deduped_parents:
-                section_str = " > ".join(pc.metadata.section_path)
-                parts.append(f"[Parent] {section_str}\n{pc.content}\n")
+    if deduped_parents:
+        parts.append("补充上下文（章节级父片段）：\n")
+        for index, parent_chunk in enumerate(deduped_parents, 1):
+            parts.append(_format_prompt_chunk_block(parent_chunk, f"[Parent-{index}]"))
 
-    # 交叉引用补充内容（开放式模式下单独保留）
     if ref_chunks and generation_mode not in {"exact", "exact_not_grounded"}:
-        ref_start = len(chunks) + 1
-        parts.append("\n交叉引用补充（主检索片段中提及的表格/图表/公式的实际内容）：\n")
-        for j, rc in enumerate(ref_chunks, ref_start):
-            meta = rc.metadata
-            page_str = ",".join(map(str, meta.page_numbers))
-            section_str = " > ".join(meta.section_path)
-            clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else ""
-            source_info = f"{meta.source}, Page {page_str}, {section_str}"
-            if clause_str:
-                source_info += f", Clause {clause_str}"
-            parts.append(f"[Ref-{j}] {source_info}\n{rc.content}\n")
+        parts.append("交叉引用补充：\n")
+        for index, ref_chunk in enumerate(ref_chunks, 1):
+            parts.append(_format_prompt_chunk_block(ref_chunk, f"[CrossRef-{index}]"))
 
-    # 历史对话（仅保留最近两轮，避免上下文膨胀）
-    if conversation_history:
-        parts.append("\n之前的对话：\n")
-        for h in conversation_history[-2:]:
-            parts.append(f"Q: {h['question']}\nA: {h['answer'][:500]}\n")
+    parts.append("证据元数据：\n")
+    for i, chunk in enumerate(ordered_citable, 1):
+        parts.append(f"{_format_prompt_metadata_line(chunk, f'[Ref-{i}]')}\n")
+    for index, parent_chunk in enumerate(deduped_parents, 1):
+        parts.append(f"{_format_prompt_metadata_line(parent_chunk, f'[Parent-{index}]')}\n")
+    for index, guide_chunk in enumerate(guide_chunks or [], 1):
+        parts.append(f"{_format_prompt_metadata_line(guide_chunk, f'[Guide-{index}]')}\n")
+    for index, guide_example_chunk in enumerate(guide_example_chunks or [], 1):
+        parts.append(
+            f"{_format_prompt_metadata_line(guide_example_chunk, f'[GuideExample-{index}]')}\n"
+        )
 
-    parts.append(f"\n用户问题：{question}")
+    if guide_chunks:
+        parts.append("指南文档检索结果：\n")
+        for index, guide_chunk in enumerate(guide_chunks, 1):
+            parts.append(_format_prompt_chunk_block(guide_chunk, f"[Guide-{index}]"))
+    else:
+        parts.append("指南文档检索结果：\n（当前无相关指南证据）\n")
+
+    if guide_example_chunks:
+        parts.append("指南算例检索结果：\n")
+        for index, guide_example_chunk in enumerate(guide_example_chunks, 1):
+            parts.append(
+                _format_prompt_chunk_block(
+                    guide_example_chunk,
+                    f"[GuideExample-{index}]",
+                )
+            )
+    else:
+        parts.append("指南算例检索结果：\n（当前无相关指南算例证据）\n")
+
     return "\n".join(parts)
 
 
@@ -1244,9 +1357,16 @@ async def _call_source_translation_llm(
 ) -> str:
     """调用 LLM 生成 source 中文翻译。"""
     cfg = config or ServerConfig()
-    client = AsyncOpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url)
+    api_key = cfg.translation_llm_api_key or cfg.llm_api_key
+    base_url = cfg.translation_llm_base_url or cfg.llm_base_url
+    model = cfg.translation_llm_model or cfg.llm_model
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=httpx.Timeout(timeout=30.0, connect=5.0),
+    )
     response = await client.chat.completions.create(
-        model=cfg.llm_model,
+        model=model,
         messages=[
             {"role": "system", "content": _SOURCE_TRANSLATION_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
@@ -1417,6 +1537,8 @@ async def generate_answer_stream(
     conversation_history: list[dict] | None = None,
     config: ServerConfig | None = None,
     ref_chunks: list[Chunk] | None = None,
+    guide_chunks: list[Chunk] | None = None,
+    guide_example_chunks: list[Chunk] | None = None,
     question_type: str | QuestionType | None = None,
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
     answer_mode: str | None = None,
@@ -1444,6 +1566,8 @@ async def generate_answer_stream(
         glossary_terms,
         conversation_history,
         ref_chunks=ref_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
         generation_mode=generation_mode,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
@@ -1525,6 +1649,8 @@ async def generate_answer_stream(
         retrieval_context = _build_retrieval_context(
             chunks,
             parent_chunks,
+            guide_chunks=guide_chunks,
+            guide_example_chunks=guide_example_chunks,
             ref_chunks=ref_chunks,
             scores=scores,
             resolved_refs=resolved_refs,
@@ -1552,6 +1678,10 @@ async def generate_answer(
     conversation_history: list[dict] | None = None,
     config: ServerConfig | None = None,
     ref_chunks: list[Chunk] | None = None,
+    guide_chunks: list[Chunk] | None = None,
+    guide_example_chunks: list[Chunk] | None = None,
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
     answer_mode: str | None = None,
     groundedness: str | None = None,
     resolved_refs: list[str] | None = None,
@@ -1576,15 +1706,21 @@ async def generate_answer(
     retrieval_context = _build_retrieval_context(
         chunks,
         parent_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
         ref_chunks=ref_chunks,
         scores=scores,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
     )
+    qt_normalized = _normalize_question_type(question_type)
+    ctx_normalized = _normalize_engineering_context(engineering_context)
     generation_mode = decide_generation_mode(answer_mode, groundedness)
     prompt = build_prompt(
         question, chunks, parent_chunks, glossary_terms, conversation_history,
         ref_chunks=ref_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
         generation_mode=generation_mode,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
@@ -1604,6 +1740,8 @@ async def generate_answer(
                     "role": "system",
                     "content": _build_json_system_prompt(
                         generation_mode,
+                        question_type=qt_normalized,
+                        engineering_context=ctx_normalized,
                         intent_label=intent_label,
                     ),
                 },
@@ -1641,6 +1779,10 @@ async def generate_answer(
             update={
                 "sources": canonical_sources,
                 "retrieval_context": retrieval_context,
+                "question_type": qt_normalized,
+                "engineering_context": (
+                    ctx_normalized.model_dump() if ctx_normalized else None
+                ),
             }
         )
     except Exception:
@@ -1651,4 +1793,6 @@ async def generate_answer(
             confidence=Confidence.LOW,
             degraded=True,
             retrieval_context=retrieval_context,
+            question_type=qt_normalized,
+            engineering_context=ctx_normalized.model_dump() if ctx_normalized else None,
         )
