@@ -9,7 +9,33 @@ wheels/
 # Virtual environments
 .venv
 
+# Frontend dependencies/build outputs
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
 # Environment secrets
 .env
+
+# Runtime data and generated artifacts
+data/debug_runs/
+data/parsed/*
+!data/parsed/.gitkeep
+data/pdfs/*
+!data/pdfs/.gitkeep
+
+# Local agent/tooling state
+.agents/
+.claude/
+.codex/
+.trellis/workspace/
+.trellis/tasks/
+.helloagents/.helloagents/
+.helloagents/archive/
+
+# Deployment/package artifacts
+*.tar.gz
+*.zip
+
 .ace-tool/
 .worktrees/

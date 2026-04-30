@@ -5,7 +5,7 @@ import pytest
 
 from server.config import ServerConfig
 from server.core.retrieval import HybridRetriever
-from server.models.schemas import Chunk, ChunkMetadata, ElementType
+from server.models.schemas import Chunk, ChunkMetadata, ElementType, GuideHint
 
 
 @pytest.fixture
@@ -91,6 +91,183 @@ class TestCrossDocAggregation:
         )
 
         assert aggregated == results
+
+
+class TestGuideRetrieval:
+    def test_should_fetch_guide_chunks_uses_question_type_or_guide_hint(self, retriever):
+        assert retriever._should_fetch_guide_chunks("calculation") is True
+        assert retriever._should_fetch_guide_chunks("parameter") is True
+        assert retriever._should_fetch_guide_chunks("rule") is False
+        assert retriever._should_fetch_guide_chunks(
+            "rule",
+            GuideHint(need_example=True, example_query="worked example", example_kind="worked_example"),
+        ) is True
+
+    def test_identifies_guide_chunks_from_generic_metadata(self, retriever):
+        guide_chunk = _make_chunk(
+            "uploaded-guide",
+            "Commentary for load combinations.",
+            source="Bridge Designers Guide 2024",
+            source_title="Designers Guide to Eurocode load combinations",
+        )
+        spec_chunk = _make_chunk(
+            "uploaded-spec",
+            "Normative load combination rules.",
+            source="EN 1990 uploaded",
+            source_title="Eurocode - Basis of structural design",
+        )
+
+        assert retriever._is_guide_chunk(guide_chunk) is True
+        assert retriever._is_guide_chunk(spec_chunk) is False
+
+    @pytest.mark.asyncio
+    async def test_retrieve_keeps_guide_chunks_out_of_normative_evidence(self, retriever):
+        retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=3, bm25_top_k=3)
+        spec_chunk = _make_chunk(
+            "spec-rule",
+            "Normative rule for design value of load combinations.",
+            source="EN 1990 uploaded",
+            source_title="Eurocode - Basis of structural design",
+            section_path=["6.4 Ultimate limit states"],
+            clause_ids=["6.4.3"],
+        )
+        guide_chunk = _make_chunk(
+            "guide-example",
+            "Worked example for design value of load combinations.",
+            source="Bridge Designers Guide 2024",
+            source_title="Designers Guide to Eurocode load combinations",
+            section_path=["Worked example 2.1"],
+            clause_ids=["Worked example 2.1"],
+        )
+        chunk_map = {
+            "spec-rule": spec_chunk,
+            "guide-example": guide_chunk,
+        }
+
+        async def _fake_search(*_args, **_kwargs):
+            return [
+                {"chunk_id": "guide-example", "source": guide_chunk.metadata.source},
+                {"chunk_id": "spec-rule", "source": spec_chunk.metadata.source},
+            ]
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks[:top_n])]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        retriever._vector_search = _fake_search
+        retriever._bm25_search = _fake_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+
+        result = await retriever.retrieve(
+            queries=["design value load combinations"],
+            original_query="怎么计算组合后的设计值？",
+            question_type="calculation",
+        )
+
+        assert [chunk.chunk_id for chunk in result.chunks] == ["spec-rule"]
+        assert result.scores == [0.8]
+        assert [chunk.chunk_id for chunk in result.guide_chunks] == ["guide-example"]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_guide_example_chunks_prioritizes_example_like_sections(self, retriever):
+        retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=3, bm25_top_k=3)
+        intro_chunk = _make_chunk(
+            "guide-intro",
+            "General commentary on load combinations.",
+            source="Bridge Designers Guide 2024",
+            source_title="Designers Guide to Eurocode load combinations",
+            section_path=["2.3 Commentary"],
+            clause_ids=["2.3"],
+        )
+        procedure_chunk = _make_chunk(
+            "guide-procedure",
+            "Step 1: determine the leading action. Step 2: apply combination factors.",
+            source="Bridge Designers Guide 2024",
+            source_title="Designers Guide to Eurocode load combinations",
+            section_path=["2.3 Procedure"],
+            clause_ids=["2.3"],
+        )
+        example_chunk = _make_chunk(
+            "guide-example",
+            "Worked example for design value of load combinations.",
+            source="Bridge Designers Guide 2024",
+            source_title="Designers Guide to Eurocode load combinations",
+            section_path=["Example 2.1"],
+            clause_ids=["Example 2.1"],
+        )
+        spec_chunk = _make_chunk(
+            "spec-rule",
+            "Normative rule for design value of load combinations.",
+            source="EN 1990 uploaded",
+            source_title="Eurocode - Basis of structural design",
+            section_path=["6.4 Ultimate limit states"],
+            clause_ids=["6.4.3"],
+        )
+
+        async def _fake_vector_search(query: str, top_k: int, filters: dict):
+            assert filters == {}
+            return [
+                {"chunk_id": "spec-rule", "source": "EN 1990 uploaded", "score": 0.95},
+                {"chunk_id": "guide-intro", "source": "Bridge Designers Guide 2024", "score": 0.92},
+                {"chunk_id": "guide-example", "source": "Bridge Designers Guide 2024", "score": 0.78},
+            ]
+
+        async def _fake_bm25_search(
+            query: str,
+            top_k: int,
+            filters: dict,
+            fields: list[str] | None = None,
+            **kwargs,
+        ):
+            assert filters == {}
+            assert fields and "source_title^3" in fields
+            return [
+                {"chunk_id": "guide-procedure", "source": "Bridge Designers Guide 2024", "score": 8.0},
+                {"chunk_id": "guide-example", "source": "Bridge Designers Guide 2024", "score": 6.5},
+            ]
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            chunk_map = {
+                "spec-rule": spec_chunk,
+                "guide-intro": intro_chunk,
+                "guide-procedure": procedure_chunk,
+                "guide-example": example_chunk,
+            }
+            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [
+                (intro_chunk, 0.99),
+                (procedure_chunk, 0.95),
+                (example_chunk, 0.88),
+            ]
+
+        retriever._vector_search = _fake_vector_search
+        retriever._bm25_search = _fake_bm25_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+
+        result = await retriever._retrieve_guide_example_chunks(
+            queries=["design value load combinations"],
+            original_query="怎么计算组合后的设计值，最好给个算例",
+            guide_hint=GuideHint(
+                need_example=True,
+                example_query="design value load combination worked example",
+                example_kind="worked_example",
+            ),
+        )
+
+        assert [chunk.chunk_id for chunk in result] == [
+            "guide-example",
+            "guide-procedure",
+        ]
 
 
 class TestCrossRefConstraints:

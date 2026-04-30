@@ -118,6 +118,39 @@ class TestParseExpansionResult:
         assert result.engineering_context is not None
         assert result.engineering_context.concrete_class == "C30/37"
 
+    def test_parses_guide_hint(self):
+        raw = json.dumps({
+            "semantic": "design value calculation example",
+            "concepts": "load combination design value",
+            "terms": "gamma psi combination",
+            "question_type": "calculation",
+            "guide_hint": {
+                "need_example": True,
+                "example_query": "design value load combination worked example",
+                "example_kind": "worked_example",
+            },
+        })
+        result = _parse_expansion_result(raw)
+        assert result is not None
+        assert result.guide_hint is not None
+        assert result.guide_hint.need_example is True
+        assert result.guide_hint.example_query == "design value load combination worked example"
+        assert result.guide_hint.example_kind == "worked_example"
+
+    def test_invalid_guide_hint_degrades_to_none(self):
+        raw = json.dumps({
+            "semantic": "design value calculation example",
+            "concepts": "load combination design value",
+            "terms": "gamma psi combination",
+            "guide_hint": {
+                "need_example": "yes",
+                "example_query": ["not", "a", "string"],
+            },
+        })
+        result = _parse_expansion_result(raw)
+        assert result is not None
+        assert result.guide_hint is None
+
     def test_parses_routing_metadata(self):
         raw = json.dumps({
             "semantic": "basic assumptions for section design",
@@ -365,3 +398,27 @@ class TestAnalyzeQuery:
         assert result.target_hint.document == "EN 1992-1-1"
         assert result.target_hint.clause == "6.1"
         assert result.reason_short == "asks for direct normative assumptions"
+
+    @pytest.mark.asyncio
+    async def test_preserves_guide_hint(self):
+        llm_response = json.dumps({
+            "semantic": "design value calculation example",
+            "concepts": "load combination design value",
+            "terms": "gamma psi combination",
+            "question_type": "calculation",
+            "guide_hint": {
+                "need_example": True,
+                "example_query": "design value load combination worked example",
+                "example_kind": "worked_example",
+            },
+        })
+        mock_llm = AsyncMock(return_value=llm_response)
+
+        with patch("server.core.query_understanding._call_llm", mock_llm):
+            result = await analyze_query("怎么计算组合后的设计值，最好给个算例", {})
+
+        assert result.question_type is not None
+        assert result.question_type.value == "calculation"
+        assert result.guide_hint is not None
+        assert result.guide_hint.need_example is True
+        assert result.guide_hint.example_kind == "worked_example"

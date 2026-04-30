@@ -1,6 +1,6 @@
 import {
   BookMarked,
-  Library,
+  History,
   MessageSquarePlus,
   Search,
   Trash2
@@ -10,11 +10,21 @@ import type { DocumentInfo, DocumentStatus, GlossaryEntry } from "../lib/types";
 import DocumentStatusBadge from "./DocumentStatusBadge";
 import DocumentUpload from "./DocumentUpload";
 
+type HistorySessionSummary = {
+  id: string;
+  title: string;
+  messageCount: number;
+  lastUpdatedLabel: string;
+};
+
 type SidebarProps = {
   documents: DocumentInfo[];
   glossary: GlossaryEntry[];
+  historySessions?: HistorySessionSummary[];
   hotQuestions: string[];
+  activeSessionId?: string | null;
   onNewSession: () => void;
+  onSelectHistorySession?: (sessionId: string) => void;
   onSelectHotQuestion: (question: string) => void;
   onUploadFile?: (file: File) => void;
   onDeleteDocument?: (docId: string) => void;
@@ -23,18 +33,21 @@ type SidebarProps = {
   pipelineProgress?: number;
 };
 
-export default function Sidebar({
-  documents,
-  glossary,
-  hotQuestions,
-  onNewSession,
-  onSelectHotQuestion,
-  onUploadFile,
-  onDeleteDocument,
-  processingDocId,
-  pipelineStage,
-  pipelineProgress = 0
-}: SidebarProps) {
+export default function Sidebar(props: SidebarProps) {
+  const {
+    documents,
+    historySessions = [],
+    hotQuestions,
+    activeSessionId = null,
+    onNewSession,
+    onSelectHistorySession,
+    onSelectHotQuestion,
+    onUploadFile,
+    onDeleteDocument,
+    processingDocId,
+    pipelineStage,
+    pipelineProgress = 0
+  } = props;
   const isProcessing = Boolean(processingDocId);
 
   return (
@@ -51,6 +64,46 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto px-3 py-2">
+        <section>
+          <h3 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-stone-400">
+            历史会话
+          </h3>
+          {historySessions.length > 0 ? (
+            <ul className="space-y-1">
+              {historySessions.map((session) => {
+                const isActive = session.id === activeSessionId;
+                return (
+                  <li key={session.id}>
+                    <button
+                      className={`flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors ${
+                        isActive
+                          ? "bg-stone-200/80 text-stone-900"
+                          : "text-stone-600 hover:bg-stone-200/50 hover:text-stone-900"
+                      }`}
+                      onClick={() => onSelectHistorySession?.(session.id)}
+                      type="button"
+                    >
+                      <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-stone-400" />
+                      <span className="min-w-0 flex-1">
+                        <span className="line-clamp-2 block text-sm">
+                          {session.title}
+                        </span>
+                        <span className="mt-1 block text-[11px] text-stone-400">
+                          {session.messageCount} 条问答 · {session.lastUpdatedLabel}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="rounded-md border border-dashed border-stone-200 bg-white/70 px-3 py-3 text-xs leading-5 text-stone-400">
+              新建检索会话后，旧会话会归档到这里。
+            </div>
+          )}
+        </section>
+
         <section>
           <h3 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-stone-400">
             已载入文档
@@ -117,7 +170,7 @@ export default function Sidebar({
             热门问题
           </h3>
           <ul className="space-y-0.5">
-            {hotQuestions.slice(0, 4).map((question) => (
+            {hotQuestions.slice(0, 10).map((question) => (
               <li key={question}>
                 <button
                   className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-stone-600 transition-colors hover:bg-stone-200/50 hover:text-stone-900"
@@ -127,28 +180,6 @@ export default function Sidebar({
                   <Search className="mt-0.5 h-3.5 w-3.5 shrink-0 text-stone-400" />
                   <span className="line-clamp-2">{question}</span>
                 </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section>
-          <h3 className="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-stone-400">
-            术语预览
-          </h3>
-          <ul className="space-y-1.5">
-            {glossary.slice(0, 5).map((entry) => (
-              <li
-                key={`${entry.en}-${entry.zh[0]}`}
-                className="rounded-md border border-stone-200 bg-white px-3 py-2 text-xs shadow-sm"
-              >
-                <div className="mb-1 flex items-center gap-1.5 text-stone-700">
-                  <Library className="h-3.5 w-3.5 text-cyan-700" />
-                  <span className="font-medium">{entry.zh[0]}</span>
-                </div>
-                <div className="font-mono text-[11px] text-stone-500">
-                  {entry.en}
-                </div>
               </li>
             ))}
           </ul>

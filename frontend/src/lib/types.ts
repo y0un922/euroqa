@@ -103,6 +103,33 @@ export type StreamReasoningPayload = {
   text?: string;
 };
 
+export type QueryProgressStage =
+  | "understanding"
+  | "retrieving"
+  | "references"
+  | "guide"
+  | "generating";
+
+export type QueryProgressStatus = "running" | "completed" | "skipped";
+
+export type QueryProgressEvent = {
+  stage: QueryProgressStage;
+  status: QueryProgressStatus;
+  title: string;
+  summary: string;
+  elapsed_ms?: number;
+  facts?: {
+    question_type?: string;
+    target?: string;
+    evidence_count?: number;
+    source_count?: number;
+    resolved_refs?: string[];
+    unresolved_refs?: string[];
+    guide_count?: number;
+    example_count?: number;
+  };
+};
+
 export type DocumentStatus =
   | "uploaded"
   | "pending"
@@ -177,4 +204,5 @@ export type ChatTurn = {
   retrievalContext?: RetrievalContext | null;
   questionType?: QuestionType | null;
   engineeringContext?: Record<string, unknown> | null;
+  progressEvents?: QueryProgressEvent[];
 };

@@ -91,6 +91,16 @@ function getCitationText(children: ReactNode): string {
   return String(children ?? "");
 }
 
+export function resolveThinkingPanelVisibility({
+  manualPreference,
+  shouldAutoExpand,
+}: {
+  manualPreference: boolean | undefined;
+  shouldAutoExpand: boolean;
+}): boolean {
+  return manualPreference ?? shouldAutoExpand;
+}
+
 /** Tailwind 内联样式——替代 @tailwindcss/typography 的 prose 类 */
 const markdownClassName = [
   "max-w-none text-[15px] leading-7 text-stone-800",
@@ -110,6 +120,71 @@ const markdownClassName = [
   "[&_td]:border [&_td]:border-stone-200 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
   "[&_.katex-display]:my-4 [&_.katex-display]:overflow-x-auto [&_.katex]:text-[1.02em]",
 ].join(" ");
+
+function RetrievalProgressPanel({ message }: { message: ChatTurn }) {
+  const events = message.progressEvents ?? [];
+  if (events.length === 0) {
+    return null;
+  }
+
+  const resolveStatus = (event: { stage: string; status: string }) =>
+    event.stage === "generating" && message.status === "done"
+      ? "completed"
+      : event.status;
+
+  const finalEvidenceCount =
+    message.sources.length ||
+    events
+      .map((event) => event.facts?.evidence_count ?? 0)
+      .reduce((max, value) => Math.max(max, value), 0);
+  const finalGuideCount = events
+    .map((event) => (event.facts?.guide_count ?? 0) + (event.facts?.example_count ?? 0))
+    .reduce((max, value) => Math.max(max, value), 0);
+
+  if (message.status === "done") {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-stone-500">
+        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+        <span>
+          已基于 {finalEvidenceCount} 条规范证据
+          {finalGuideCount > 0 ? `、${finalGuideCount} 条指南参考` : ""}
+          生成回答
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+      {events.map((event, i) => {
+        const status = resolveStatus(event);
+        return (
+          <span key={event.stage} className="inline-flex items-center">
+            {i > 0 ? <span className="mr-1.5 text-stone-300">›</span> : null}
+            <span
+              className={`inline-flex items-center gap-1 rounded-full py-0.5 ${
+                status === "running"
+                  ? "bg-cyan-50 px-2 font-medium text-cyan-800"
+                  : status === "completed"
+                    ? "text-stone-500"
+                    : "text-stone-400"
+              }`}
+            >
+              {status === "completed" ? (
+                <Check className="h-3 w-3 shrink-0 text-emerald-600" />
+              ) : status === "running" ? (
+                <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
+              ) : (
+                <div className="h-2.5 w-2.5 shrink-0 rounded-full border border-stone-300" />
+              )}
+              {event.title}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function MainWorkspace({
   activeReferenceId,
@@ -207,7 +282,7 @@ export default function MainWorkspace({
                     已载入文档热门问题
                   </div>
                   <div className="space-y-2">
-                    {hotQuestions.slice(0, 4).map((question) => (
+                    {hotQuestions.slice(0, 6).map((question) => (
                       <button
                         key={question}
                         className="block w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-left text-sm text-stone-700 transition-colors hover:border-cyan-300 hover:text-stone-900"
@@ -257,7 +332,13 @@ export default function MainWorkspace({
               references
             );
             const hasReasoning = message.reasoning.trim().length > 0;
-            const isThinkingExpanded = expandedThinkingIds[message.id] ?? false;
+            const manualThinkingPreference = expandedThinkingIds[message.id];
+            const shouldAutoExpandThinking =
+              message.status === "streaming" && !displayAnswer && hasReasoning;
+            const showThinkingPanel = resolveThinkingPanelVisibility({
+              manualPreference: manualThinkingPreference,
+              shouldAutoExpand: shouldAutoExpandThinking,
+            });
             const isCopyable = isChatTurnExportable(message);
             const copyTone =
               copyFeedback.messageId === message.id ? copyFeedback.tone : "idle";
@@ -359,14 +440,17 @@ export default function MainWorkspace({
                   </div>
 
                   <div className="w-full max-w-[95%] space-y-6 text-[15px] leading-relaxed text-stone-800">
+                    <RetrievalProgressPanel message={message} />
+
                     {hasReasoning ? (
                       <section className="overflow-hidden rounded-2xl border border-amber-200/70 bg-amber-50/80 shadow-sm">
                         <button
+                          aria-expanded={showThinkingPanel}
                           className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
                           onClick={() =>
                             setExpandedThinkingIds((current) => ({
                               ...current,
-                              [message.id]: !isThinkingExpanded
+                              [message.id]: !showThinkingPanel
                             }))
                           }
                           type="button"
@@ -382,11 +466,11 @@ export default function MainWorkspace({
                           </div>
                           <ChevronDown
                             className={`h-4 w-4 text-amber-700 transition-transform ${
-                              isThinkingExpanded ? "rotate-180" : ""
+                              showThinkingPanel ? "rotate-180" : ""
                             }`}
                           />
                         </button>
-                        {isThinkingExpanded ? (
+                        {showThinkingPanel ? (
                           <div className="border-t border-amber-200/70 bg-white/60 px-4 py-4">
                             <div className="whitespace-pre-wrap text-[13px] leading-6 text-stone-700">
                               {message.reasoning}
@@ -397,23 +481,25 @@ export default function MainWorkspace({
                     ) : null}
 
                     {displayAnswer ? (
-                      <>
-                        <div className={markdownClassName}>
-                          <ReactMarkdown
-                            components={markdownComponents}
-                            rehypePlugins={markdownRehypePlugins}
-                            remarkPlugins={markdownRemarkPlugins}
-                            urlTransform={markdownUrlTransform}
-                          >
-                            {displayAnswer}
-                          </ReactMarkdown>
-                        </div>
-                      </>
-                    ) : (
+                      <div className={markdownClassName}>
+                        <ReactMarkdown
+                          components={markdownComponents}
+                          rehypePlugins={markdownRehypePlugins}
+                          remarkPlugins={markdownRemarkPlugins}
+                          urlTransform={markdownUrlTransform}
+                        >
+                          {displayAnswer}
+                        </ReactMarkdown>
+                      </div>
+                    ) : hasReasoning ? (
+                      <div className="rounded-lg border border-cyan-100 bg-cyan-50/60 p-4 text-cyan-900">
+                        模型正在深度思考，已收到推理过程；正文会在生成后显示。
+                      </div>
+                    ) : (message.progressEvents?.length ?? 0) === 0 ? (
                       <div className="rounded-lg border border-cyan-100 bg-cyan-50/60 p-4 text-cyan-900">
                         正在等待后端返回首个文本块…
                       </div>
-                    )}
+                    ) : null}
 
                     {message.errorMessage ? (
                       <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">

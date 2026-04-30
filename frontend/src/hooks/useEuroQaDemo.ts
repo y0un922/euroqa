@@ -22,7 +22,11 @@ import {
   translateSource,
   type DemoDocumentInfo
 } from "../lib/api";
-import { savePersistedDemoSession } from "../lib/session";
+import {
+  loadPersistedDemoSession,
+  savePersistedDemoSession,
+  type PersistedSessionRecord
+} from "../lib/session";
 import type {
   ChatTurn,
   DocumentInfo,
@@ -30,11 +34,18 @@ import type {
   LlmRequestOverride,
   LlmSettings,
   LlmSettingsResponse,
+  QueryProgressEvent,
   ReferenceRecord
 } from "../lib/types";
 
 type ApiState = "loading" | "ready" | "degraded";
 type PdfLocationStatus = "idle" | "highlighted" | "page_only" | "error";
+type HistorySessionSummary = {
+  id: string;
+  title: string;
+  messageCount: number;
+  lastUpdatedLabel: string;
+};
 
 const DEFAULT_BOOT_ERROR = "正在连接后端服务，请稍后重试。";
 const FALLBACK_LLM_SETTINGS: LlmSettings = {
@@ -91,21 +102,111 @@ function toLlmRequestOverride(
   };
 }
 
+function createSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `session-${Date.now()}`;
+}
+
+function createEmptySessionRecord(): PersistedSessionRecord {
+  return {
+    id: createSessionId(),
+    conversationId: null,
+    activeReferenceId: null,
+    draftQuestion: "",
+    messages: [],
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function isMeaningfulSession(session: PersistedSessionRecord): boolean {
+  return session.messages.length > 0 || session.draftQuestion.trim().length > 0;
+}
+
+function formatUpdatedAt(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return "刚刚";
+  }
+
+  const now = new Date();
+  const isSameDay = timestamp.toDateString() === now.toDateString();
+  return isSameDay
+    ? timestamp.toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit"
+      })
+    : timestamp.toLocaleDateString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit"
+      });
+}
+
+function buildHistorySessionSummary(
+  session: PersistedSessionRecord
+): HistorySessionSummary {
+  const title =
+    session.messages[0]?.question?.trim() ||
+    session.draftQuestion.trim() ||
+    "未命名会话";
+
+  return {
+    id: session.id,
+    title,
+    messageCount: session.messages.length,
+    lastUpdatedLabel: formatUpdatedAt(session.updatedAt)
+  };
+}
+
+function upsertProgressEvent(
+  events: QueryProgressEvent[] | undefined,
+  nextEvent: QueryProgressEvent
+): QueryProgressEvent[] {
+  const current = events ?? [];
+  const index = current.findIndex((event) => event.stage === nextEvent.stage);
+  if (index === -1) {
+    return [...current, nextEvent];
+  }
+
+  return current.map((event, eventIndex) =>
+    eventIndex === index ? nextEvent : event
+  );
+}
+
 export function useEuroQaDemo() {
+  const restoredSession = useMemo(() => loadPersistedDemoSession(), []);
+  const initialSession = useMemo(
+    () => restoredSession?.currentSession ?? createEmptySessionRecord(),
+    [restoredSession]
+  );
   const [apiState, setApiState] = useState<ApiState>("loading");
   const [bootError, setBootError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [hotQuestions, setHotQuestions] = useState<string[]>([]);
-  const [draftQuestion, setDraftQuestion] = useState("");
-  const [messages, setMessages] = useState<ChatTurn[]>([]);
-  const [sourceTranslationEnabled, setSourceTranslationEnabled] = useState(false);
-  const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
+  const [draftQuestion, setDraftQuestion] = useState(initialSession.draftQuestion);
+  const [messages, setMessages] = useState<ChatTurn[]>(initialSession.messages);
+  const [history, setHistory] = useState<PersistedSessionRecord[]>(
+    restoredSession?.history ?? []
+  );
+  const [sourceTranslationEnabled, setSourceTranslationEnabled] = useState(
+    restoredSession?.sourceTranslationEnabled ?? false
+  );
+  const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(
+    restoredSession?.llmSettings ?? null
+  );
   const [llmSettingsDefaults, setLlmSettingsDefaults] =
     useState<LlmSettingsResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [activeReferenceId, setActiveReferenceId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(
+    initialSession.conversationId
+  );
+  const [activeReferenceId, setActiveReferenceId] = useState<string | null>(
+    initialSession.activeReferenceId
+  );
   const [pdfLocationStatus, setPdfLocationStatus] =
     useState<PdfLocationStatus>("idle");
   const [sourceTranslationCache, setSourceTranslationCache] = useState<
@@ -183,19 +284,38 @@ export function useEuroQaDemo() {
     };
   }, []);
 
-  useEffect(() => {
-    savePersistedDemoSession({
+  function buildCurrentSessionSnapshot(): PersistedSessionRecord {
+    return {
+      id: activeSessionId,
       conversationId,
       activeReferenceId,
       draftQuestion,
       messages,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function restoreSession(session: PersistedSessionRecord) {
+    setActiveSessionId(session.id);
+    setConversationId(session.conversationId);
+    setActiveReferenceId(session.activeReferenceId);
+    setDraftQuestion(session.draftQuestion);
+    setMessages(session.messages);
+  }
+
+  useEffect(() => {
+    savePersistedDemoSession({
+      currentSession: buildCurrentSessionSnapshot(),
+      history,
       sourceTranslationEnabled,
       llmSettings
     });
   }, [
+    activeSessionId,
     activeReferenceId,
     conversationId,
     draftQuestion,
+    history,
     llmSettings,
     messages,
     sourceTranslationEnabled
@@ -204,6 +324,10 @@ export function useEuroQaDemo() {
   const llmDefaultSettings = useMemo(
     () => toEditableLlmSettings(llmSettingsDefaults),
     [llmSettingsDefaults]
+  );
+  const historySessions = useMemo(
+    () => history.map((session) => buildHistorySessionSummary(session)),
+    [history]
   );
 
   const references = useMemo(() => {
@@ -411,6 +535,21 @@ export function useEuroQaDemo() {
               )
             );
           },
+          onProgress: (payload) => {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === turnId
+                  ? {
+                      ...message,
+                      progressEvents: upsertProgressEvent(
+                        message.progressEvents,
+                        payload
+                      )
+                    }
+                  : message
+              )
+            );
+          },
           onDone: (payload) => {
             setMessages((current) =>
               current.map((message) =>
@@ -542,7 +681,8 @@ export function useEuroQaDemo() {
         sources: [],
         status: "streaming",
         conversationId: nextConversationId,
-        retrievalContext: null
+        retrievalContext: null,
+        progressEvents: []
       }
     ]);
 
@@ -598,7 +738,8 @@ export function useEuroQaDemo() {
               status: "streaming" as const,
               errorMessage: undefined,
               retrievalContext: null,
-              conversationId: nextConversationId
+              conversationId: nextConversationId,
+              progressEvents: []
             }
           : message
       )
@@ -627,10 +768,37 @@ export function useEuroQaDemo() {
   }
 
   function newSession() {
-    setConversationId(null);
-    setMessages([]);
-    setActiveReferenceId(null);
-    setDraftQuestion("");
+    if (isSubmitting) {
+      return;
+    }
+
+    const currentSession = buildCurrentSessionSnapshot();
+    setHistory((current) =>
+      isMeaningfulSession(currentSession)
+        ? [currentSession, ...current.filter((entry) => entry.id !== currentSession.id)]
+        : current
+    );
+    restoreSession(createEmptySessionRecord());
+  }
+
+  function selectHistorySession(sessionId: string) {
+    if (isSubmitting) {
+      return;
+    }
+
+    const targetSession = history.find((session) => session.id === sessionId);
+    if (!targetSession) {
+      return;
+    }
+
+    const currentSession = buildCurrentSessionSnapshot();
+    setHistory((current) => {
+      const remaining = current.filter((entry) => entry.id !== sessionId);
+      return isMeaningfulSession(currentSession)
+        ? [currentSession, ...remaining]
+        : remaining;
+    });
+    restoreSession(targetSession);
   }
 
   function saveLlmSettings(nextSettings: LlmSettings) {
@@ -655,6 +823,7 @@ export function useEuroQaDemo() {
 
   return {
     activeReference,
+    activeSessionId,
     activeReferenceId,
     apiState,
     askQuestion,
@@ -663,6 +832,7 @@ export function useEuroQaDemo() {
     documents,
     draftQuestion,
     glossary,
+    historySessions,
     hotQuestions,
     isSubmitting,
     messages,
@@ -673,6 +843,7 @@ export function useEuroQaDemo() {
     regenerateAnswer,
     resetLlmSettings,
     saveLlmSettings,
+    selectHistorySession,
     pdfLocationStatus,
     setPdfLocationStatus,
     activeReferencePdfUrl,

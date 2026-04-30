@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/TextLayer.css";
 
 import {
-  bboxToOverlayStyle,
   clampPdfPage,
-  hasUsablePdfBbox,
-  hasUsableLocatorText,
-  resolvePdfHighlightMatch,
   type PdfLocationStatus
 } from "../lib/pdfLocator";
+import {
+  getPdfNavigationState,
+  resolvePdfPageState,
+  stepPdfPage,
+} from "../lib/pdfViewerPage";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -20,41 +20,26 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 type PdfEvidenceViewerProps = {
   fileUrl: string;
   page: number;
-  bbox?: number[];
-  highlightText?: string;
-  locatorText?: string;
   onLocationResolved?: (status: PdfLocationStatus) => void;
+  toolbarSlot?: ReactNode;
 };
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 export function PdfEvidenceViewer({
   fileUrl,
   page,
-  bbox = [],
-  highlightText = "",
-  locatorText = "",
-  onLocationResolved
+  onLocationResolved,
+  toolbarSlot = null
 }: PdfEvidenceViewerProps) {
   const [totalPages, setTotalPages] = useState<number | null>(null);
-  const [pageTextItems, setPageTextItems] = useState<string[]>([]);
-  const safePage = clampPdfPage(page, totalPages);
-  const useBboxOverlay = hasUsablePdfBbox(bbox);
-  const useTextHighlight =
-    !useBboxOverlay &&
-    (hasUsableLocatorText(highlightText) || hasUsableLocatorText(locatorText));
+  const [currentPage, setCurrentPage] = useState(() => clampPdfPage(page, null));
+  const [pageInput, setPageInput] = useState(() =>
+    String(clampPdfPage(page, null))
+  );
+  const safePage = clampPdfPage(currentPage, totalPages);
   const hasFatalErrorRef = useRef(false);
   const lastReportedStatusRef = useRef<PdfLocationStatus>("idle");
   const onLocationResolvedRef = useRef(onLocationResolved);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     onLocationResolvedRef.current = onLocationResolved;
@@ -63,13 +48,27 @@ export function PdfEvidenceViewer({
   useEffect(() => {
     hasFatalErrorRef.current = false;
     lastReportedStatusRef.current = "idle";
-    setPageTextItems([]);
+    const nextPage = clampPdfPage(page, null);
+    setCurrentPage(nextPage);
+    setPageInput(String(nextPage));
     onLocationResolvedRef.current?.("idle");
-  }, [bbox, fileUrl, highlightText, locatorText, safePage]);
+  }, [fileUrl, page]);
 
   useEffect(() => {
     setTotalPages(null);
   }, [fileUrl]);
+
+  useEffect(() => {
+    const nextState = resolvePdfPageState(page, currentPage, totalPages);
+    setCurrentPage(nextState.currentPage);
+    setPageInput(nextState.pageInput);
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }, [safePage]);
 
   function reportStatus(status: PdfLocationStatus) {
     if (lastReportedStatusRef.current === status) {
@@ -79,46 +78,70 @@ export function PdfEvidenceViewer({
     onLocationResolvedRef.current?.(status);
   }
 
-  const overlayStyle = useMemo(() => {
-    if (!useBboxOverlay) {
-      return null;
-    }
-    return bboxToOverlayStyle(bbox);
-  }, [bbox, useBboxOverlay]);
-
-  // 文本匹配高亮：当没有 bbox 时，利用 pdfLocator 的文本匹配能力
-  const textHighlightMatch = useMemo(() => {
-    if (!useTextHighlight || pageTextItems.length === 0) {
-      return { itemIndexes: [] as number[], status: "page_only" as PdfLocationStatus };
-    }
-    return resolvePdfHighlightMatch({
-      textItems: pageTextItems,
-      highlightText,
-      locatorText
-    });
-  }, [highlightText, locatorText, pageTextItems, useTextHighlight]);
-
-  const highlightedIndexSet = useMemo(
-    () => new Set(textHighlightMatch.itemIndexes),
-    [textHighlightMatch.itemIndexes]
+  const navigationState = useMemo(
+    () => getPdfNavigationState(safePage, totalPages),
+    [safePage, totalPages]
   );
 
-  useEffect(() => {
-    if (!useBboxOverlay || !overlayStyle || hasFatalErrorRef.current) {
-      return;
-    }
-    reportStatus("highlighted");
-    requestAnimationFrame(() => {
-      overlayRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }, [overlayStyle, useBboxOverlay]);
+  function commitPageInput(nextValue: string) {
+    const nextState = resolvePdfPageState(Number(nextValue), safePage, totalPages);
+    setCurrentPage(nextState.currentPage);
+    setPageInput(nextState.pageInput);
+  }
 
-  // 保持 ref 同步以便在 onRenderTextLayerSuccess 回调中访问最新匹配结果
-  const textHighlightMatchRef = useRef(textHighlightMatch);
-  textHighlightMatchRef.current = textHighlightMatch;
+  function stepDisplayedPage(direction: "prev" | "next") {
+    const requestedPage = stepPdfPage(safePage, direction, totalPages);
+    const nextState = resolvePdfPageState(requestedPage, safePage, totalPages);
+    setCurrentPage(nextState.currentPage);
+    setPageInput(nextState.pageInput);
+  }
 
   return (
-    <div ref={scrollContainerRef} className="flex h-full w-full items-start justify-center overflow-auto">
+    <div
+      ref={scrollContainerRef}
+      className="flex h-full w-full flex-col overflow-auto"
+    >
+      <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-stone-200 bg-white/95 px-3 py-2 backdrop-blur">
+        <div className="text-xs font-medium text-stone-500">PDF 全文</div>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="上一页"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-stone-200 text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!navigationState.canGoPrev}
+            onClick={() => stepDisplayedPage("prev")}
+            type="button"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <label className="flex items-center gap-1 text-xs text-stone-500">
+            <span>第</span>
+            <input
+              aria-label="页码"
+              className="w-14 rounded-md border border-stone-200 bg-white px-2 py-1 text-center text-xs text-stone-700 outline-none focus:border-cyan-300"
+              inputMode="numeric"
+              onBlur={(event) => commitPageInput(event.target.value)}
+              onChange={(event) => setPageInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  commitPageInput(pageInput);
+                }
+              }}
+              value={pageInput}
+            />
+            <span>/ {totalPages ?? "..."}</span>
+          </label>
+          <button
+            aria-label="下一页"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-stone-200 text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!navigationState.canGoNext}
+            onClick={() => stepDisplayedPage("next")}
+            type="button"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          {toolbarSlot}
+        </div>
+      </div>
       <Document
         key={fileUrl}
         file={fileUrl}
@@ -142,66 +165,18 @@ export function PdfEvidenceViewer({
           reportStatus("error");
         }}
       >
-        <div className="relative inline-block">
+        <div className="flex justify-center px-4 py-4">
           <Page
-            key={`${fileUrl}:${safePage}:${bbox.join(",")}`}
+            key={`${fileUrl}:${safePage}`}
             pageNumber={safePage}
             renderAnnotationLayer={false}
-            renderTextLayer
-            customTextRenderer={
-              useTextHighlight
-                ? ({ str, itemIndex }) => {
-                    const escaped = escapeHtml(str);
-                    return highlightedIndexSet.has(itemIndex)
-                      ? `<mark>${escaped}</mark>`
-                      : escaped;
-                  }
-                : undefined
-            }
-            onGetTextSuccess={(textContent) => {
-              if (!useTextHighlight) {
-                return;
-              }
-              const items = textContent.items.flatMap((item) =>
-                "str" in item && typeof item.str === "string" ? [item.str] : []
-              );
-              setPageTextItems((prev) => {
-                const sig = items.join("\0");
-                const prevSig = prev.join("\0");
-                return sig === prevSig ? prev : items;
-              });
-            }}
+            renderTextLayer={false}
             onLoadError={() => {
               hasFatalErrorRef.current = true;
               reportStatus("error");
             }}
             onRenderSuccess={() => {
-              if (!useBboxOverlay && !useTextHighlight && !hasFatalErrorRef.current) {
-                reportStatus("page_only");
-              }
-            }}
-            onRenderTextLayerSuccess={() => {
-              if (useBboxOverlay || hasFatalErrorRef.current) {
-                return;
-              }
-              if (!useTextHighlight) {
-                reportStatus("page_only");
-                return;
-              }
-              // 此时 text layer DOM 已渲染完成，可以安全查询 <mark> 元素
-              const match = textHighlightMatchRef.current;
-              reportStatus(match.status);
-              if (match.status === "highlighted") {
-                requestAnimationFrame(() => {
-                  const highlightNode = scrollContainerRef.current?.querySelector("mark");
-                  if (highlightNode instanceof HTMLElement) {
-                    highlightNode.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }
-                });
-              }
-            }}
-            onRenderTextLayerError={() => {
-              if (!useBboxOverlay && !hasFatalErrorRef.current) {
+              if (!hasFatalErrorRef.current) {
                 reportStatus("page_only");
               }
             }}
@@ -210,16 +185,6 @@ export function PdfEvidenceViewer({
               reportStatus("error");
             }}
           />
-          {overlayStyle ? (
-            <motion.div
-              ref={overlayRef}
-              className="pointer-events-none absolute rounded border-2 border-cyan-500/60 bg-cyan-300/20 shadow-[0_0_0_1px_rgba(8,145,178,0.15)]"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              style={overlayStyle}
-            />
-          ) : null}
         </div>
       </Document>
     </div>

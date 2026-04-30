@@ -24,6 +24,7 @@ import type {
   PipelineProgressEvent,
   QueryRequestPayload,
   QueryResponse,
+  QueryProgressEvent,
   Source,
   SourceTranslationRequest,
   SourceTranslationResponse,
@@ -31,6 +32,8 @@ import type {
   StreamReasoningPayload,
   SuggestResponse
 } from "./types";
+
+import { clearToken, dispatchAuthExpired, getToken } from "./auth";
 
 const normalize = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -149,17 +152,32 @@ function buildApiUrl(path: string): string {
   return new URL(path, getApiBaseUrl()).toString();
 }
 
+function withAuthHeaders(extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  const token = getToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+
+function handleAuthFailure(response: Response, sentToken: string | null): void {
+  if (response.status !== 401) return;
+  if (sentToken && getToken() !== sentToken) return;
+  clearToken();
+  dispatchAuthExpired();
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(buildApiUrl(path), {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
+  const sentToken = getToken();
+  const headers = withAuthHeaders(init?.headers);
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+
+  const response = await fetch(buildApiUrl(path), { ...init, headers });
 
   if (!response.ok) {
+    handleAuthFailure(response, sentToken);
     const detail = await response.text();
     throw new Error(detail || `Request failed: ${response.status}`);
   }
@@ -167,18 +185,44 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function checkAuthRequired(): Promise<boolean> {
+  const res = await fetch(buildApiUrl("/api/v1/auth/status"), {
+    headers: { Accept: "application/json" },
+  });
+  const data = (await res.json()) as { required: boolean };
+  return data.required;
+}
+
+export async function login(password: string): Promise<{ token: string }> {
+  return fetchJson<{ token: string }>("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+function appendTokenParam(url: string): string {
+  const token = getToken();
+  if (!token) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 export function buildDocumentPreviewUrl(
   documentId: string,
   page: number
 ): string {
-  return buildApiUrl(
-    `/api/v1/documents/${encodeURIComponent(documentId)}/page/${page}`
+  return appendTokenParam(
+    buildApiUrl(
+      `/api/v1/documents/${encodeURIComponent(documentId)}/page/${page}`
+    )
   );
 }
 
 export function buildDocumentFileUrl(documentId: string): string {
-  return buildApiUrl(
-    `/api/v1/documents/${encodeURIComponent(documentId)}/file`
+  return appendTokenParam(
+    buildApiUrl(
+      `/api/v1/documents/${encodeURIComponent(documentId)}/file`
+    )
   );
 }
 
@@ -260,21 +304,24 @@ export async function queryStream(
   handlers: {
     onReasoning: (text: string) => void;
     onChunk: (text: string) => void;
+    onProgress?: (payload: QueryProgressEvent) => void;
     onDone: (payload: StreamDonePayload) => void;
   },
   signal?: AbortSignal
 ): Promise<void> {
+  const sentToken = getToken();
   const response = await fetch(buildApiUrl("/api/v1/query/stream"), {
     method: "POST",
-    headers: {
+    headers: withAuthHeaders({
       Accept: "text/event-stream",
-      "Content-Type": "application/json"
-    },
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify({ ...payload, stream: true }),
     signal
   });
 
   if (!response.ok) {
+    handleAuthFailure(response, sentToken);
     const detail = await response.text();
     throw new Error(detail || `Stream request failed: ${response.status}`);
   }
@@ -294,6 +341,11 @@ export async function queryStream(
     if (message.event === "chunk") {
       const payload = JSON.parse(message.data) as { text?: string };
       handlers.onChunk(payload.text ?? "");
+      return;
+    }
+
+    if (message.event === "progress") {
+      handlers.onProgress?.(JSON.parse(message.data) as QueryProgressEvent);
       return;
     }
 
@@ -339,15 +391,18 @@ export function matchSourceToDocumentId(
 // -- 文档导入 API --
 
 export async function uploadDocument(file: File): Promise<DocumentUploadResponse> {
+  const sentToken = getToken();
   const formData = new FormData();
   formData.append("file", file);
 
   const response = await fetch(buildApiUrl("/api/v1/documents/upload"), {
     method: "POST",
+    headers: withAuthHeaders(),
     body: formData,
   });
 
   if (!response.ok) {
+    handleAuthFailure(response, sentToken);
     const detail = await response.text();
     throw new Error(detail || `Upload failed: ${response.status}`);
   }
@@ -356,22 +411,26 @@ export async function uploadDocument(file: File): Promise<DocumentUploadResponse
 }
 
 export async function processDocument(docId: string): Promise<void> {
+  const sentToken = getToken();
   const response = await fetch(
     buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}/process`),
-    { method: "POST", headers: { "Content-Type": "application/json" } }
+    { method: "POST", headers: withAuthHeaders({ "Content-Type": "application/json" }) }
   );
   if (!response.ok) {
+    handleAuthFailure(response, sentToken);
     const detail = await response.text();
     throw new Error(detail || `Process trigger failed: ${response.status}`);
   }
 }
 
 export async function deleteDocument(docId: string): Promise<void> {
+  const sentToken = getToken();
   const response = await fetch(
     buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}`),
-    { method: "DELETE" }
+    { method: "DELETE", headers: withAuthHeaders() }
   );
   if (!response.ok) {
+    handleAuthFailure(response, sentToken);
     const detail = await response.text();
     throw new Error(detail || `Delete failed: ${response.status}`);
   }
@@ -383,8 +442,8 @@ export function subscribeToPipelineStatus(
   onDone: (event: PipelineProgressEvent) => void,
   onError: (error: string) => void,
 ): () => void {
-  const url = buildApiUrl(
-    `/api/v1/documents/${encodeURIComponent(docId)}/status`
+  const url = appendTokenParam(
+    buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}/status`)
   );
   const source = new EventSource(url);
 

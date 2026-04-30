@@ -439,9 +439,9 @@ class TestQueryEndpoint:
                     guide_chunks=[
                         {
                             "chunk_id": "guide-1",
-                            "document_id": "DG_EN1990",
-                            "file": "DG EN1990",
-                            "title": "DG_EN1990 设计基本 指南",
+                            "document_id": "Bridge_Designers_Guide2024",
+                            "file": "Bridge Designers Guide 2024",
+                            "title": "Designers Guide to Eurocode load combinations",
                             "section": "Example 2.1",
                             "page": "28",
                             "clause": "Example 2.1",
@@ -451,9 +451,9 @@ class TestQueryEndpoint:
                     guide_example_chunks=[
                         {
                             "chunk_id": "guide-example-1",
-                            "document_id": "DG_EN1990",
-                            "file": "DG EN1990",
-                            "title": "DG_EN1990 设计基本 指南",
+                            "document_id": "Bridge_Designers_Guide2024",
+                            "file": "Bridge Designers Guide 2024",
+                            "title": "Designers Guide to Eurocode load combinations",
                             "section": "Worked example 2.1",
                             "page": "28",
                             "clause": "Worked example 2.1",
@@ -477,7 +477,10 @@ class TestQueryEndpoint:
         assert resp.status_code == 200
         assert seen_scores == [[0.91]]
         assert resp.json()["retrieval_context"]["chunks"][0]["score"] == 0.91
-        assert resp.json()["retrieval_context"]["guide_chunks"][0]["document_id"] == "DG_EN1990"
+        assert (
+            resp.json()["retrieval_context"]["guide_chunks"][0]["document_id"]
+            == "Bridge_Designers_Guide2024"
+        )
         assert resp.json()["retrieval_context"]["guide_example_chunks"][0]["chunk_id"] == "guide-example-1"
         assert resp.json()["answer_mode"] == "exact"
         assert resp.json()["groundedness"] == "grounded"
@@ -610,9 +613,9 @@ class TestQueryEndpoint:
                         "guide_chunks": [
                             {
                                 "chunk_id": "guide-1",
-                                "document_id": "DG_EN1990",
-                                "file": "DG EN1990",
-                                "title": "DG_EN1990 设计基本 指南",
+                                "document_id": "Bridge_Designers_Guide2024",
+                                "file": "Bridge Designers Guide 2024",
+                                "title": "Designers Guide to Eurocode load combinations",
                                 "section": "Example 2.1",
                                 "page": "28",
                                 "clause": "Example 2.1",
@@ -622,9 +625,9 @@ class TestQueryEndpoint:
                         "guide_example_chunks": [
                             {
                                 "chunk_id": "guide-example-1",
-                                "document_id": "DG_EN1990",
-                                "file": "DG EN1990",
-                                "title": "DG_EN1990 设计基本 指南",
+                                "document_id": "Bridge_Designers_Guide2024",
+                                "file": "Bridge Designers Guide 2024",
+                                "title": "Designers Guide to Eurocode load combinations",
                                 "section": "Worked example 2.1",
                                 "page": "28",
                                 "clause": "Worked example 2.1",

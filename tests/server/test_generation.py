@@ -50,8 +50,8 @@ class TestBuildPrompt:
                 "content": "Guide example for load combinations.",
                 "metadata": sample_text_chunk.metadata.model_copy(
                     update={
-                        "source": "DG EN1990",
-                        "source_title": "DG_EN1990 设计基本 指南",
+                        "source": "Bridge Designers Guide 2024",
+                        "source_title": "Designers Guide to Eurocode load combinations",
                         "section_path": ["Example 2.1"],
                         "clause_ids": ["Example 2.1"],
                     }
@@ -84,7 +84,7 @@ class TestBuildPrompt:
         assert "证据元数据：" in prompt
         assert "指南文档检索结果：" in prompt
         assert "指南算例检索结果：" in prompt
-        assert "DG EN1990" in prompt
+        assert "Bridge Designers Guide 2024" in prompt
 
 
 class TestAnswerPrompts:
@@ -101,6 +101,8 @@ class TestAnswerPrompts:
         assert "计算目标是什么" in prompt
         assert "参数应从哪里取值" in prompt
         assert "指南参考案例" in prompt
+        assert "DG_EN1990" not in prompt
+        assert "DG EN1990" not in prompt
 
     def test_unknown_question_type_falls_back_to_rule(self):
         prompt = build_open_system_prompt(question_type=None)
@@ -773,8 +775,8 @@ class TestGenerateAnswer:
                 "content": "Guide example for load combinations.",
                 "metadata": sample_text_chunk.metadata.model_copy(
                     update={
-                        "source": "DG EN1990",
-                        "source_title": "DG_EN1990 设计基本 指南",
+                        "source": "Bridge Designers Guide 2024",
+                        "source_title": "Designers Guide to Eurocode load combinations",
                         "section_path": ["Example 2.1"],
                         "clause_ids": ["Example 2.1"],
                     }
@@ -867,9 +869,9 @@ class TestGenerateAnswer:
         assert result.retrieval_context.guide_chunks == [
             {
                 "chunk_id": "guide-1",
-                "document_id": "DG_EN1990",
-                "file": "DG EN1990",
-                "title": "DG_EN1990 设计基本 指南",
+                "document_id": "Bridge_Designers_Guide2024",
+                "file": "Bridge Designers Guide 2024",
+                "title": "Designers Guide to Eurocode load combinations",
                 "section": "Example 2.1",
                 "page": "28",
                 "clause": "Example 2.1",
@@ -879,9 +881,9 @@ class TestGenerateAnswer:
         assert result.retrieval_context.guide_example_chunks == [
             {
                 "chunk_id": "guide-example-1",
-                "document_id": "DG_EN1990",
-                "file": "DG EN1990",
-                "title": "DG_EN1990 设计基本 指南",
+                "document_id": "Bridge_Designers_Guide2024",
+                "file": "Bridge Designers Guide 2024",
+                "title": "Designers Guide to Eurocode load combinations",
                 "section": "Worked example 2.1",
                 "page": "28",
                 "clause": "Worked example 2.1",
@@ -1390,8 +1392,8 @@ class TestGenerateAnswerStream:
                 "content": "Guide example for load combinations.",
                 "metadata": sample_text_chunk.metadata.model_copy(
                     update={
-                        "source": "DG EN1990",
-                        "source_title": "DG_EN1990 设计基本 指南",
+                        "source": "Bridge Designers Guide 2024",
+                        "source_title": "Designers Guide to Eurocode load combinations",
                         "section_path": ["Example 2.1"],
                         "clause_ids": ["Example 2.1"],
                     }
@@ -1471,9 +1473,9 @@ class TestGenerateAnswerStream:
             "guide_chunks": [
                 {
                     "chunk_id": "guide-1",
-                    "document_id": "DG_EN1990",
-                    "file": "DG EN1990",
-                    "title": "DG_EN1990 设计基本 指南",
+                    "document_id": "Bridge_Designers_Guide2024",
+                    "file": "Bridge Designers Guide 2024",
+                    "title": "Designers Guide to Eurocode load combinations",
                     "section": "Example 2.1",
                     "page": "28",
                     "clause": "Example 2.1",
@@ -1483,9 +1485,9 @@ class TestGenerateAnswerStream:
             "guide_example_chunks": [
                 {
                     "chunk_id": "guide-example-1",
-                    "document_id": "DG_EN1990",
-                    "file": "DG EN1990",
-                    "title": "DG_EN1990 设计基本 指南",
+                    "document_id": "Bridge_Designers_Guide2024",
+                    "file": "Bridge Designers Guide 2024",
+                    "title": "Designers Guide to Eurocode load combinations",
                     "section": "Worked example 2.1",
                     "page": "28",
                     "clause": "Worked example 2.1",

@@ -1,10 +1,11 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.api.debug_pipeline import router as debug_router
+from server.api.v1.auth import require_auth
 from server.api.v1.router import router as v1_router
 from server.deps import get_retriever
 
@@ -35,4 +36,4 @@ app.add_middleware(
 )
 
 app.include_router(v1_router)
-app.include_router(debug_router)
+app.include_router(debug_router, dependencies=[Depends(require_auth)])

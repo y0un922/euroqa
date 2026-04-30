@@ -74,6 +74,14 @@ class RoutingDecision(BaseModel):
     reason_short: str
 
 
+class GuideHint(BaseModel):
+    """查询理解阶段输出的指南算例提示。"""
+
+    need_example: bool = False
+    example_query: Optional[str] = None
+    example_kind: Optional[str] = None
+
+
 class ChunkMetadata(BaseModel):
     source: str
     source_title: str
@@ -152,6 +160,8 @@ class Source(BaseModel):
 class RetrievalContext(BaseModel):
     chunks: list[dict[str, object]] = Field(default_factory=list)
     parent_chunks: list[dict[str, object]] = Field(default_factory=list)
+    guide_chunks: list[dict[str, object]] = Field(default_factory=list)
+    guide_example_chunks: list[dict[str, object]] = Field(default_factory=list)
     ref_chunks: list[dict[str, object]] = Field(default_factory=list)
     resolved_refs: list[str] = Field(default_factory=list)
     unresolved_refs: list[str] = Field(default_factory=list)

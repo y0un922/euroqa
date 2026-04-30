@@ -11,7 +11,7 @@ from shared.elasticsearch_client import build_async_elasticsearch
 from shared.model_clients import build_embedding_client, build_rerank_client
 from shared.reference_graph import build_object_id, classify_reference_label, normalize_reference_label
 from server.config import ServerConfig
-from server.models.schemas import Chunk, ChunkMetadata
+from server.models.schemas import Chunk, ChunkMetadata, GuideHint, QuestionType
 
 if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
@@ -38,6 +38,45 @@ _SOURCE_DOC_RE = re.compile(
     r"\ben\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)(?:[\s:_-]*([0-9]{4}))?\b",
     re.IGNORECASE,
 )
+_GUIDE_EXAMPLE_MARKERS = (
+    "worked example",
+    "illustrative example",
+    "design example",
+    "calculation example",
+    "算例",
+)
+_GUIDE_PROCEDURE_MARKERS = (
+    "procedure",
+    "calculation procedure",
+    "calculation process",
+    "step",
+    "steps",
+    "演算",
+    "步骤",
+)
+_GUIDE_COMMENTARY_MARKERS = (
+    "commentary",
+    "explanation",
+    "commentary to clause",
+)
+_GUIDE_DOCUMENT_MARKERS = (
+    "designer's guide",
+    "designers guide",
+    "designers' guide",
+    "design guide",
+    "guide",
+    "guidance",
+    "commentary",
+    "handbook",
+    "manual",
+    "指南",
+)
+_GUIDE_SEARCH_FIELDS = [
+    "content",
+    "embedding_text",
+    "source_title^3",
+    "source^2",
+]
 
 
 @dataclass
@@ -47,6 +86,8 @@ class RetrievalResult:
     chunks: list[Chunk]
     parent_chunks: list[Chunk]
     scores: list[float]
+    guide_chunks: list[Chunk] = field(default_factory=list)
+    guide_example_chunks: list[Chunk] = field(default_factory=list)
     ref_chunks: list[Chunk] = field(default_factory=list)
     groundedness: str = "open"
     anchor_chunk_ids: list[str] = field(default_factory=list)
@@ -586,6 +627,283 @@ class HybridRetriever:
     @staticmethod
     def _is_exact_mode(answer_mode: str | None) -> bool:
         return isinstance(answer_mode, str) and answer_mode.strip().lower() == "exact"
+
+    @staticmethod
+    def _normalize_question_type(question_type: str | QuestionType | None) -> str | None:
+        if isinstance(question_type, QuestionType):
+            return question_type.value
+        if isinstance(question_type, str):
+            normalized = question_type.strip().lower()
+            return normalized or None
+        return None
+
+    @staticmethod
+    def _normalize_guide_hint(
+        guide_hint: GuideHint | dict[str, Any] | None,
+    ) -> GuideHint | None:
+        if isinstance(guide_hint, GuideHint):
+            return guide_hint
+        if isinstance(guide_hint, dict):
+            try:
+                return GuideHint.model_validate(guide_hint)
+            except Exception:
+                logger.warning("guide_hint_validation_failed", exc_info=True)
+        return None
+
+    @classmethod
+    def _should_fetch_guide_chunks(
+        cls,
+        question_type: str | QuestionType | None,
+        guide_hint: GuideHint | dict[str, Any] | None = None,
+    ) -> bool:
+        normalized_qt = cls._normalize_question_type(question_type)
+        normalized_hint = cls._normalize_guide_hint(guide_hint)
+        return normalized_qt in {"calculation", "parameter"} or bool(
+            normalized_hint and normalized_hint.need_example
+        )
+
+    @staticmethod
+    def _build_guide_queries(
+        queries: list[str],
+        original_query: str | None,
+        extra_queries: list[str] | None = None,
+    ) -> list[str]:
+        deduped: list[str] = []
+        for query in [*(extra_queries or []), original_query, *queries[:2]]:
+            normalized = (query or "").strip()
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
+        return deduped
+
+    @classmethod
+    def _is_guide_chunk(cls, chunk: Chunk) -> bool:
+        meta = chunk.metadata
+        haystacks = (
+            meta.source.lower(),
+            meta.source_title.lower(),
+            " ".join(meta.section_path).lower(),
+            " ".join(meta.clause_ids).lower(),
+        )
+        return any(
+            marker in haystack
+            for marker in _GUIDE_DOCUMENT_MARKERS
+            for haystack in haystacks
+        )
+
+    @classmethod
+    def _filter_guide_candidates(cls, chunks: list[Chunk]) -> list[Chunk]:
+        return [chunk for chunk in chunks if cls._is_guide_chunk(chunk)]
+
+    @classmethod
+    def _split_normative_and_guide_chunks(
+        cls,
+        chunks: list[Chunk],
+        scores: list[float],
+    ) -> tuple[list[Chunk], list[float], list[Chunk]]:
+        normative_chunks: list[Chunk] = []
+        normative_scores: list[float] = []
+        guide_chunks: list[Chunk] = []
+        for index, chunk in enumerate(chunks):
+            if cls._is_guide_chunk(chunk):
+                guide_chunks.append(chunk)
+                continue
+            normative_chunks.append(chunk)
+            normative_scores.append(scores[index] if index < len(scores) else 0.0)
+
+        return normative_chunks, normative_scores, guide_chunks
+
+    @staticmethod
+    def _append_unique_chunks(
+        existing_chunks: list[Chunk],
+        new_chunks: list[Chunk],
+    ) -> list[Chunk]:
+        seen = {chunk.chunk_id for chunk in existing_chunks}
+        merged = list(existing_chunks)
+        for chunk in new_chunks:
+            if chunk.chunk_id in seen:
+                continue
+            seen.add(chunk.chunk_id)
+            merged.append(chunk)
+        return merged
+
+    def _guide_search_top_k(self, minimum: int = 12, maximum: int = 30) -> int:
+        return min(max(self.config.vector_top_k * 3, minimum), maximum)
+
+    @classmethod
+    def _score_guide_example_chunk(
+        cls,
+        chunk: Chunk,
+        guide_hint: GuideHint | None = None,
+    ) -> int:
+        meta = chunk.metadata
+        section_text = " ".join(meta.section_path).lower()
+        clause_text = " ".join(meta.clause_ids).lower()
+        title_text = meta.source_title.lower()
+        content_text = chunk.content[:1200].lower()
+
+        strong_haystacks = (section_text, clause_text, title_text)
+        all_haystacks = (*strong_haystacks, content_text)
+        score = 0
+
+        if any(marker in hay for marker in _GUIDE_EXAMPLE_MARKERS for hay in strong_haystacks):
+            score += 8
+        elif any(marker in hay for marker in _GUIDE_EXAMPLE_MARKERS for hay in all_haystacks):
+            score += 5
+
+        if any(marker in hay for marker in _GUIDE_PROCEDURE_MARKERS for hay in strong_haystacks):
+            score += 4
+        elif any(marker in hay for marker in _GUIDE_PROCEDURE_MARKERS for hay in all_haystacks):
+            score += 2
+
+        if guide_hint and guide_hint.example_kind:
+            preferred_kind = guide_hint.example_kind.lower()
+            if preferred_kind == "worked_example" and score >= 5:
+                score += 2
+            elif preferred_kind == "procedure" and any(
+                marker in hay
+                for marker in _GUIDE_PROCEDURE_MARKERS
+                for hay in all_haystacks
+            ):
+                score += 2
+            elif preferred_kind == "commentary" and any(
+                marker in hay
+                for marker in _GUIDE_COMMENTARY_MARKERS
+                for hay in all_haystacks
+            ):
+                score += 1
+
+        return score
+
+    async def _retrieve_guide_chunks(
+        self,
+        queries: list[str],
+        original_query: str | None,
+    ) -> list[Chunk]:
+        guide_filters: dict[str, Any] = {}
+        candidate_results: list[dict] = []
+        guide_queries = self._build_guide_queries(queries, original_query)
+
+        if not guide_queries:
+            return []
+
+        for query in guide_queries:
+            try:
+                vec = await self._vector_search(
+                    query,
+                    self._guide_search_top_k(),
+                    guide_filters,
+                )
+                candidate_results = self._append_unique_results(candidate_results, vec)
+            except Exception:
+                logger.warning("guide_vector_search_failed", query=query[:80])
+
+            try:
+                bm25 = await self._bm25_search(
+                    query,
+                    min(max(self.config.bm25_top_k * 3, 12), 30),
+                    guide_filters,
+                    fields=_GUIDE_SEARCH_FIELDS,
+                )
+                candidate_results = self._append_unique_results(candidate_results, bm25)
+            except Exception:
+                logger.warning("guide_bm25_search_failed", query=query[:80])
+
+        if not candidate_results:
+            return []
+
+        guide_chunk_ids = [result["chunk_id"] for result in candidate_results]
+        guide_candidates = self._filter_guide_candidates(
+            await self._fetch_chunks(guide_chunk_ids)
+        )
+        if not guide_candidates:
+            return []
+
+        rerank_query = (original_query or guide_queries[0]).strip()
+        try:
+            reranked = await self._rerank(rerank_query, guide_candidates, min(3, len(guide_candidates)))
+            return [chunk for chunk, _ in reranked]
+        except Exception:
+            logger.warning("guide_rerank_failed", exc_info=True)
+            return guide_candidates[:3]
+
+    async def _retrieve_guide_example_chunks(
+        self,
+        queries: list[str],
+        original_query: str | None,
+        guide_hint: GuideHint | dict[str, Any] | None,
+    ) -> list[Chunk]:
+        normalized_hint = self._normalize_guide_hint(guide_hint)
+        if not normalized_hint or not normalized_hint.need_example:
+            return []
+
+        guide_filters: dict[str, Any] = {}
+        candidate_results: list[dict] = []
+        guide_queries = self._build_guide_queries(
+            queries,
+            original_query,
+            extra_queries=[normalized_hint.example_query] if normalized_hint.example_query else None,
+        )
+        if not guide_queries:
+            return []
+
+        for query in guide_queries:
+            try:
+                vec = await self._vector_search(
+                    query,
+                    self._guide_search_top_k(),
+                    guide_filters,
+                )
+                candidate_results = self._append_unique_results(candidate_results, vec)
+            except Exception:
+                logger.warning("guide_example_vector_search_failed", query=query[:80])
+
+            try:
+                bm25 = await self._bm25_search(
+                    query,
+                    min(max(self.config.bm25_top_k * 3, 12), 30),
+                    guide_filters,
+                    fields=_GUIDE_SEARCH_FIELDS,
+                )
+                candidate_results = self._append_unique_results(candidate_results, bm25)
+            except Exception:
+                logger.warning("guide_example_bm25_search_failed", query=query[:80])
+
+        if not candidate_results:
+            return []
+
+        guide_chunk_ids = [result["chunk_id"] for result in candidate_results]
+        guide_candidates = self._filter_guide_candidates(
+            await self._fetch_chunks(guide_chunk_ids)
+        )
+        if not guide_candidates:
+            return []
+
+        rerank_query = (
+            normalized_hint.example_query
+            or (original_query or "").strip()
+            or guide_queries[0]
+        )
+        rerank_scores: dict[str, float] = {}
+        try:
+            reranked = await self._rerank(rerank_query, guide_candidates, len(guide_candidates))
+            rerank_scores = {chunk.chunk_id: score for chunk, score in reranked}
+        except Exception:
+            logger.warning("guide_example_rerank_failed", exc_info=True)
+
+        ranked_candidates = sorted(
+            guide_candidates,
+            key=lambda chunk: (
+                self._score_guide_example_chunk(chunk, normalized_hint),
+                rerank_scores.get(chunk.chunk_id, 0.0),
+            ),
+            reverse=True,
+        )
+        filtered_candidates = [
+            chunk
+            for chunk in ranked_candidates
+            if self._score_guide_example_chunk(chunk, normalized_hint) > 0
+        ]
+        return filtered_candidates[:3]
 
     async def _run_exact_probe(
         self,
@@ -1262,6 +1580,8 @@ class HybridRetriever:
         filters: dict | None = None,
         answer_mode: str | None = None,
         intent_label: str | None = None,
+        question_type: str | QuestionType | None = None,
+        guide_hint: GuideHint | dict[str, Any] | None = None,
         target_hint: Any = None,
         requested_objects: list[str] | None = None,
         preferred_element_type: str | None = None,
@@ -1371,6 +1691,11 @@ class HybridRetriever:
             )
             final_chunks = final_chunks[: cfg.rerank_top_n]
             scores = scores[: cfg.rerank_top_n]
+
+        final_chunks, scores, guide_chunks_from_main = self._split_normative_and_guide_chunks(
+            final_chunks,
+            scores,
+        )
 
         # 获取父 chunk
         parent_chunks = await self._fetch_parent_chunks(final_chunks)
@@ -1504,10 +1829,28 @@ class HybridRetriever:
         if exact_probe_used and unresolved_required_keys:
             groundedness = "exact_not_grounded"
 
+        guide_chunks: list[Chunk] = []
+        if self._should_fetch_guide_chunks(question_type, guide_hint):
+            retrieved_guide_chunks = await self._retrieve_guide_chunks(
+                queries,
+                original_query,
+            )
+            guide_chunks = self._append_unique_chunks(
+                guide_chunks_from_main,
+                retrieved_guide_chunks,
+            )
+        guide_example_chunks = await self._retrieve_guide_example_chunks(
+            queries,
+            original_query,
+            guide_hint,
+        )
+
         return RetrievalResult(
             chunks=final_chunks,
             parent_chunks=parent_chunks,
             scores=scores,
+            guide_chunks=guide_chunks,
+            guide_example_chunks=guide_example_chunks,
             ref_chunks=ref_chunks,
             groundedness=groundedness,
             anchor_chunk_ids=anchor_chunk_ids,

@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+import httpx
 import structlog
 from openai import AsyncOpenAI
 
@@ -19,6 +20,7 @@ from server.config import ServerConfig
 from server.models.schemas import (
     AnswerMode,
     EngineeringContext,
+    GuideHint,
     QuestionType,
     RoutingDecision,
     RoutingTargetHint,
@@ -80,6 +82,7 @@ class ExpansionResult:
     queries: list[str]
     question_type: QuestionType | None = None
     engineering_context: EngineeringContext | None = None
+    guide_hint: GuideHint | None = None
     routing: RoutingDecision | None = None
 
 
@@ -94,6 +97,7 @@ class QueryAnalysis:
     requested_objects: list[str] = field(default_factory=list)
     question_type: QuestionType | None = None
     engineering_context: EngineeringContext | None = None
+    guide_hint: GuideHint | None = None
     answer_mode: AnswerMode | None = None
     intent_label: str | None = None
     intent_confidence: float | None = None
@@ -235,7 +239,7 @@ async def expand_queries(
 
     prompt = (
         "你是 Eurocode 规范检索专家。将以下中文工程问题扩展为三条英文检索查询，"
-        "同时判断问题类型并提取工程上下文。\n\n"
+        "同时判断问题类型、提取工程上下文，并判断是否需要去 Designers' Guide 中找算例。\n\n"
         "三条查询的视角：\n"
         "1. semantic: 一句自然语言英文短句，忠实表达问题核心含义\n"
         "2. concepts: 相关概念、同义词、上下位术语（空格分隔）\n"
@@ -257,16 +261,22 @@ async def expand_queries(
         "limit_state (ULS/SLS), load_combination (bool), "
         "concrete_class, rebar_grade, prestressed (bool), "
         "discontinuity_region (bool)\n\n"
+        "指南算例提示（guide_hint）：\n"
+        '- "need_example": true/false，只有当用户明显在问计算步骤、如何取值，或提供一个算例能显著帮助理解时才设为 true\n'
+        '- "example_query": 一句简短英文检索短语，用于在 Designers\' Guide 中检索相关算例；没有明确算例需求时填 null\n'
+        '- "example_kind": worked_example|procedure|commentary|null\n\n'
         "要求：\n"
         "- 不要猜测问题中未提及的条款号或表格号\n"
         "- semantic/concepts/terms 只输出英文\n"
         "- question_type 必须基于问题意图判断\n"
+        "- 是否需要指南算例主要由 question_type 和问题意图共同决定，不要机械地对所有问题都要求算例\n"
         "- answer_mode 仅在明确属于直接条文/定义/假设/公式/限值/条款定位时填 exact，否则填 open\n"
         "- confidence 反映你对 routing 的把握；不确定时给低分，不要编造 target_hint\n"
         "- context 中未明确出现的信息必须保留为 null，不要臆测\n"
         "- 严格按 JSON 格式输出：\n"
         '{"semantic":"...","concepts":"...","terms":"...",'
         '"question_type":"rule|parameter|calculation|mechanism",'
+        '"guide_hint":{"need_example":false,"example_query":null,"example_kind":null},'
         '"answer_mode":"exact|open","intent_label":"...",'
         '"confidence":0.0,"target_hint":{"document":null,"clause":null,"object":null},'
         '"reason_short":"...",'
@@ -283,8 +293,18 @@ async def expand_queries(
         result = _parse_expansion_result(raw)
         if result and result.queries:
             return result
-    except Exception:
-        logger.warning("query_expansion_failed_falling_back_to_original")
+        logger.warning(
+            "query_expansion_failed_falling_back_to_original",
+            reason="empty_or_invalid_expansion_result",
+        )
+    except Exception as exc:
+        logger.warning(
+            "query_expansion_failed_falling_back_to_original",
+            reason="llm_call_or_parse_exception",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            exc_info=True,
+        )
 
     return ExpansionResult(queries=[question])
 
@@ -336,13 +356,41 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
         except Exception:
             logger.warning("engineering_context_parse_failed", exc_info=True)
 
+    guide_hint = _parse_guide_hint(data.get("guide_hint"))
     routing = _parse_routing_decision(data)
 
     return ExpansionResult(
         queries=queries,
         question_type=parsed_type,
         engineering_context=eng_context,
+        guide_hint=guide_hint,
         routing=routing,
+    )
+
+
+def _parse_guide_hint(payload: object) -> GuideHint | None:
+    """解析 guide_hint；缺失或格式不合法时安全降级。"""
+    if not isinstance(payload, dict):
+        return None
+
+    raw_need_example = payload.get("need_example")
+    if not isinstance(raw_need_example, bool):
+        return None
+
+    raw_example_query = payload.get("example_query")
+    example_query = raw_example_query.strip() if isinstance(raw_example_query, str) else None
+    if example_query == "":
+        example_query = None
+
+    raw_example_kind = payload.get("example_kind")
+    example_kind = raw_example_kind.strip() if isinstance(raw_example_kind, str) else None
+    if example_kind == "":
+        example_kind = None
+
+    return GuideHint(
+        need_example=raw_need_example,
+        example_query=example_query,
+        example_kind=example_kind,
     )
 
 
@@ -435,6 +483,7 @@ async def analyze_query(
         requested_objects=requested_objects,
         question_type=expansion.question_type,
         engineering_context=expansion.engineering_context,
+        guide_hint=expansion.guide_hint,
         answer_mode=expansion.routing.answer_mode if expansion.routing else None,
         intent_label=expansion.routing.intent_label if expansion.routing else None,
         intent_confidence=expansion.routing.intent_confidence if expansion.routing else None,
@@ -450,11 +499,20 @@ async def analyze_query(
 async def _call_llm(prompt: str, config: ServerConfig | None = None) -> str:
     """调用 LLM 获取文本回复（内部使用，可被测试 mock）."""
     cfg = config or ServerConfig()
-    client = AsyncOpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url)
+    api_key = cfg.query_expansion_llm_api_key or cfg.llm_api_key
+    base_url = cfg.query_expansion_llm_base_url or cfg.llm_base_url
+    model = cfg.query_expansion_llm_model or cfg.llm_model
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=httpx.Timeout(timeout=30.0, connect=5.0),
+    )
+    logger.info("query_expansion_llm_start model=%s", model)
     resp = await client.chat.completions.create(
-        model=cfg.llm_model,
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         max_tokens=500,
     )
+    logger.info("query_expansion_llm_end")
     return resp.choices[0].message.content.strip()

@@ -30,6 +30,27 @@ Questions to answer:
 
 ## Required Patterns
 
+### Scenario: Retrieval Evidence Boundary
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to retrieval ranking, guide/example retrieval, prompt assembly, or response source construction.
+- Reason: answers must cite normative standard evidence for conclusions. Guide or commentary PDFs may help users understand a calculation path, but they must not become primary normative evidence.
+
+#### 2. Contracts
+
+- `RetrievalResult.chunks` must contain normative evidence only.
+- `RetrievalResult.guide_chunks` and `RetrievalResult.guide_example_chunks` are the only retrieval result fields for guide/commentary/example evidence.
+- Prompt builders must render normative evidence and guide evidence in separate sections.
+- Response `sources` must be built from citable normative chunks and cross-reference chunks, not guide-only chunks.
+- Guide retrieval must classify guide documents from generic uploaded-document metadata such as `source`, `source_title`, `section_path`, or `clause_ids`; it must not filter for a fixed uploaded PDF name.
+
+#### 3. Tests Required
+
+- Tests for guide retrieval must include an arbitrary guide-like uploaded document name, not a fixed project seed document.
+- Tests must prove guide-like chunks are excluded from `RetrievalResult.chunks`.
+- Tests must prove `guide_chunks` remains present in API retrieval context for backward compatibility.
+
 ### Scenario: PDF Parser Page Metadata Integrity
 
 #### 1. Scope / Trigger

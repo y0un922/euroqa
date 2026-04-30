@@ -318,6 +318,61 @@ test("queryStream forwards reasoning events to the caller", async () => {
   ]);
 });
 
+test("queryStream forwards retrieval progress events to the caller", async () => {
+  const encoder = new TextEncoder();
+  const progressEvents: Array<{ title: string; summary: string }> = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'event: progress\ndata: {"stage":"retrieving","status":"completed","title":"检索规范条文","summary":"找到 8 条相关规范证据。"}\n\n'
+              )
+            );
+            controller.enqueue(
+              encoder.encode(
+                'event: done\ndata: {"confidence":"low","sources":[],"related_refs":[]}\n\n'
+              )
+            );
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      );
+
+    await queryStream(
+      {
+        question: "桥梁设计使用年限是多少？",
+        stream: true
+      },
+      {
+        onReasoning: () => {},
+        onChunk: () => {},
+        onProgress: (payload) => {
+          progressEvents.push({
+            title: payload.title,
+            summary: payload.summary
+          });
+        },
+        onDone: () => {}
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(progressEvents, [
+    {
+      title: "检索规范条文",
+      summary: "找到 8 条相关规范证据。"
+    }
+  ]);
+});
+
 test("query sends llm overrides in the request body", async () => {
   const seenBodies: string[] = [];
   const originalFetch = globalThis.fetch;
