@@ -661,8 +661,8 @@ export function useEuroQaDemo() {
       return;
     }
 
-    const nextConversationId = crypto.randomUUID();
-    const turnId = crypto.randomUUID();
+    const nextConversationId = createSessionId();
+    const turnId = createSessionId();
 
     setConversationId(nextConversationId);
     setDraftQuestion("");
