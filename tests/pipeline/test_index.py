@@ -5,7 +5,11 @@ import pytest
 from pymilvus.exceptions import MilvusException
 
 from pipeline.config import PipelineConfig
-from pipeline.index import _init_milvus_collection, index_to_milvus
+from pipeline.index import (
+    _init_milvus_collection,
+    delete_document_from_milvus,
+    index_to_milvus,
+)
 from server.models.schemas import Chunk, ChunkMetadata, ElementType
 
 
@@ -13,9 +17,18 @@ class _FakeCollection:
     def __init__(self):
         self.inserted = None
         self.flushed = False
+        self.loaded = False
+        self.deleted_expr = None
 
     def insert(self, data):
         self.inserted = data
+
+    def load(self):
+        self.loaded = True
+
+    def delete(self, expr: str):
+        self.deleted_expr = expr
+        return type("DeleteResult", (), {"delete_count": 2})()
 
     def flush(self):
         self.flushed = True
@@ -65,6 +78,22 @@ async def test_index_to_milvus_uses_embedding_client(monkeypatch):
     assert client.calls == [["Embedding text"]]
     assert collection.inserted[0] == ["chunk-1"]
     assert collection.inserted[1] == [[0.1, 0.2]]
+    assert collection.flushed is True
+
+
+@pytest.mark.asyncio
+async def test_delete_document_from_milvus_loads_collection_before_delete(monkeypatch):
+    collection = _FakeCollection()
+    monkeypatch.setattr("pipeline.index._init_milvus_collection", lambda config: collection)
+
+    count = await delete_document_from_milvus(
+        'DG EN1990 "Guide"',
+        PipelineConfig(),
+    )
+
+    assert count == 2
+    assert collection.loaded is True
+    assert collection.deleted_expr == 'source == "DG EN1990 \\"Guide\\""'
     assert collection.flushed is True
 
 

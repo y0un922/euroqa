@@ -116,6 +116,7 @@ async def delete_document_from_milvus(
 ) -> int:
     """删除指定 source 在 Milvus 中的所有 chunks。"""
     collection = _init_milvus_collection(config)
+    collection.load()
     escaped = source_name.replace("\\", "\\\\").replace('"', '\\"')
     result = collection.delete(expr=f'source == "{escaped}"')
     collection.flush()
