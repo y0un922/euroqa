@@ -26,6 +26,7 @@ import {
   markdownRehypePlugins,
   markdownRemarkPlugins
 } from "../lib/markdown";
+import { copyMarkdownToClipboard } from "../lib/replyExport";
 import type { PdfLocationStatus } from "../lib/pdfLocator";
 import type { ReferenceRecord } from "../lib/types";
 import PdfEvidenceViewer from "./PdfEvidenceViewer";
@@ -131,7 +132,7 @@ export default function EvidencePanel({
       return;
     }
     try {
-      await navigator.clipboard.writeText(text);
+      await copyMarkdownToClipboard(text);
       setCopyTone("success");
     } catch {
       setCopyTone("error");

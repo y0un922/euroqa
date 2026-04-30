@@ -268,6 +268,29 @@ export function buildConversationExportFilename(
   return `euro-qa-conversation-${sanitizedId}-${sanitizedTimestamp}.md`;
 }
 
+function copyMarkdownWithTextarea(markdown: string): boolean {
+  if (typeof document === "undefined" || typeof document.execCommand !== "function") {
+    return false;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = markdown;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 export async function copyMarkdownToClipboard(
   markdown: string,
   clipboard: ClipboardLike | null = globalThis.navigator?.clipboard ?? null
@@ -276,11 +299,23 @@ export async function copyMarkdownToClipboard(
     throw new Error("Nothing to copy.");
   }
 
-  if (!clipboard?.writeText) {
-    throw new Error("Clipboard API is unavailable.");
+  if (clipboard?.writeText) {
+    try {
+      await clipboard.writeText(markdown);
+      return;
+    } catch (error) {
+      if (copyMarkdownWithTextarea(markdown)) {
+        return;
+      }
+      throw error;
+    }
   }
 
-  await clipboard.writeText(markdown);
+  if (copyMarkdownWithTextarea(markdown)) {
+    return;
+  }
+
+  throw new Error("Clipboard API is unavailable.");
 }
 
 export function downloadMarkdownFile(

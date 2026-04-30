@@ -54,6 +54,7 @@ const FALLBACK_LLM_SETTINGS: LlmSettings = {
   model: "deepseek-chat",
   enableThinking: true
 };
+let fallbackIdCounter = 0;
 
 function toEditableLlmSettings(
   defaults: LlmSettingsResponse | null
@@ -107,7 +108,10 @@ function createSessionId(): string {
     return crypto.randomUUID();
   }
 
-  return `session-${Date.now()}`;
+  fallbackIdCounter = (fallbackIdCounter + 1) % 1000000;
+  return `session-${Date.now()}-${fallbackIdCounter}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
 function createEmptySessionRecord(): PersistedSessionRecord {
@@ -718,8 +722,7 @@ export function useEuroQaDemo() {
       return;
     }
 
-    const nextConversationId =
-      crypto.randomUUID();
+    const nextConversationId = createSessionId();
 
     setConversationId(nextConversationId);
     setIsSubmitting(true);
