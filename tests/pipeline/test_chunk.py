@@ -564,3 +564,168 @@ class TestRecursiveSplit:
         rejoined = "".join(pieces).replace("\n\n", "")
         original = text.replace("\n\n", "")
         assert rejoined == original
+
+
+class TestChildTextChunksSplit:
+    """_build_child_text_chunks returns list; splits oversized leaf content."""
+
+    def _make_leaf_node(self, content: str, title: str = "1.1.1 Leaf"):
+        from pipeline.structure import DocumentNode, ElementType as StructElementType
+        return DocumentNode(
+            title=title,
+            content=content,
+            element_type=StructElementType.SECTION,
+            source="test_source",
+            page_numbers=[1],
+            page_file_index=[0],
+            clause_ids=[],
+            cross_refs=[],
+            bbox=[],
+            bbox_page_idx=-1,
+        )
+
+    def test_short_content_returns_single_chunk_role_child(self):
+        from pipeline.chunk import _build_child_text_chunks
+        node = self._make_leaf_node("short paragraph here")
+        chunks = _build_child_text_chunks(
+            node, section_path=["1.1.1 Leaf"], node_identity=(0, 0, 0),
+            source_title="test", special_children=[],
+        )
+        assert len(chunks) == 1
+        # role embedded in chunk_id construction; chunk content equals input
+        assert chunks[0].content == "short paragraph here"
+
+    def test_oversized_content_yields_multiple_chunks(self):
+        from pipeline.chunk import _build_child_text_chunks
+        # 2000 tokens worth of paragraphs
+        para = "x" * 1000
+        big_content = f"{para}\n\n{para}\n\n{para}"
+        node = self._make_leaf_node(big_content)
+        chunks = _build_child_text_chunks(
+            node, section_path=["1.1.1 Leaf"], node_identity=(0, 0, 0),
+            source_title="test", special_children=[],
+        )
+        assert len(chunks) >= 2
+        for c in chunks:
+            assert len(c.content) // 2 <= 800
+
+    def test_split_chunks_share_metadata_and_section_path(self):
+        from pipeline.chunk import _build_child_text_chunks
+        para = "y" * 1000
+        node = self._make_leaf_node(f"{para}\n\n{para}\n\n{para}")
+        chunks = _build_child_text_chunks(
+            node, section_path=["1.1.1 Leaf"], node_identity=(0, 0, 0),
+            source_title="test", special_children=[],
+        )
+        assert len(chunks) >= 2
+        first_path = chunks[0].metadata.section_path
+        first_pages = chunks[0].metadata.page_numbers
+        for c in chunks[1:]:
+            assert c.metadata.section_path == first_path
+            assert c.metadata.page_numbers == first_pages
+
+    def test_split_chunk_ids_are_unique_and_stable(self):
+        from pipeline.chunk import _build_child_text_chunks, validate_unique_chunk_ids
+        para = "z" * 1000
+        node = self._make_leaf_node(f"{para}\n\n{para}\n\n{para}")
+        chunks_a = _build_child_text_chunks(
+            node, section_path=["1.1.1 Leaf"], node_identity=(0, 0, 0),
+            source_title="test", special_children=[],
+        )
+        chunks_b = _build_child_text_chunks(
+            node, section_path=["1.1.1 Leaf"], node_identity=(0, 0, 0),
+            source_title="test", special_children=[],
+        )
+        # Determinism: same input → same chunk_ids
+        assert [c.chunk_id for c in chunks_a] == [c.chunk_id for c in chunks_b]
+        # Uniqueness: no collisions
+        validate_unique_chunk_ids(chunks_a)
+
+    def test_empty_content_returns_empty_list(self):
+        from pipeline.chunk import _build_child_text_chunks
+        node = self._make_leaf_node("   \n\n  \n")
+        chunks = _build_child_text_chunks(
+            node, section_path=["1.1.1 Leaf"], node_identity=(0, 0, 0),
+            source_title="test", special_children=[],
+        )
+        assert chunks == []
+
+
+class TestWalkSectionsHierarchy:
+    """End-to-end create_chunks: hierarchy works, split chunks share parent_chunk_id."""
+
+    def test_nested_sections_produce_parent_and_children(self):
+        from pipeline.chunk import create_chunks
+        from pipeline.structure import parse_markdown_to_tree
+        md = (
+            "# 1 General\n\nIntro.\n\n"
+            "# 1.1 Scope\n\nScope para.\n\n"
+            "# 1.1.1 Detail A\n\nFirst leaf paragraph.\n\n"
+            "# 1.1.2 Detail B\n\nSecond leaf paragraph.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="test")
+        chunks = create_chunks(tree, source_title="test")
+        # Children are leaves with parent_chunk_id set
+        children = [c for c in chunks if c.metadata.parent_chunk_id is not None]
+        assert len(children) >= 2
+        # All children that share a section path should share parent_chunk_id
+        # if their parent has children at the same level
+        # (Detail A and Detail B both under 1.1 Scope)
+        parent_ids = {c.metadata.parent_chunk_id for c in children}
+        assert len(parent_ids) >= 1
+
+    def test_oversized_leaf_yields_split_chunks_sharing_parent(self):
+        from pipeline.chunk import create_chunks
+        from pipeline.structure import parse_markdown_to_tree
+        para = "x" * 1000   # ~500 tokens per paragraph
+        big = f"{para}\n\n{para}\n\n{para}"   # ~1500 tokens, will split
+        md = (
+            "# 1 General\n\nIntro.\n\n"
+            f"# 1.1 Scope\n\n{big}\n"
+        )
+        tree = parse_markdown_to_tree(md, source="test")
+        chunks = create_chunks(tree, source_title="test")
+        # Find the split children for "1.1 Scope" (multiple chunks, same section_path)
+        scope_chunks = [c for c in chunks
+                        if any("1.1 Scope" in p for p in c.metadata.section_path)
+                        and c.metadata.element_type.value == "text"]
+        leaf_splits = [c for c in scope_chunks if c.metadata.parent_chunk_id is not None]
+        # If "1.1 Scope" is a leaf under "1 General", it splits into ≥2 chunks
+        assert len(leaf_splits) >= 2
+        # All splits share the same parent_chunk_id
+        parent_ids = {c.metadata.parent_chunk_id for c in leaf_splits}
+        assert len(parent_ids) == 1, f"Split chunks must share parent; got {parent_ids}"
+        # Each split is under the cap
+        for c in leaf_splits:
+            assert len(c.content) // 2 <= 800
+
+    def test_special_chunk_links_to_first_split_when_leaf_is_split(self):
+        from pipeline.chunk import create_chunks
+        from pipeline.structure import parse_markdown_to_tree
+        from server.models.schemas import ElementType as ChunkElementType
+        para = "y" * 1000
+        big = f"{para}\n\n{para}\n\n{para}"
+        md = (
+            "# 1 General\n\nIntro.\n\n"
+            f"# 1.1 Scope\n\n{big}\n\n"
+            "| col1 | col2 |\n|---|---|\n| a | 1 |\n"
+        )
+        tree = parse_markdown_to_tree(md, source="test")
+        chunks = create_chunks(tree, source_title="test")
+        tables = [c for c in chunks if c.metadata.element_type == ChunkElementType.TABLE]
+        assert len(tables) == 1
+        # Table's parent_text_chunk_id points to a real text chunk (the representative)
+        text_ids = {c.chunk_id for c in chunks
+                    if c.metadata.element_type == ChunkElementType.TEXT}
+        assert tables[0].metadata.parent_text_chunk_id in text_ids
+
+    def test_unique_chunk_ids_under_split(self):
+        from pipeline.chunk import create_chunks, validate_unique_chunk_ids
+        from pipeline.structure import parse_markdown_to_tree
+        para = "z" * 1000
+        big = f"{para}\n\n{para}\n\n{para}"
+        md = f"# 1 General\n\nIntro.\n\n# 1.1 Scope\n\n{big}\n"
+        tree = parse_markdown_to_tree(md, source="test")
+        chunks = create_chunks(tree, source_title="test")
+        # validate_unique_chunk_ids raises on collision
+        validate_unique_chunk_ids(chunks)

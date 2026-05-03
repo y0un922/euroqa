@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from dataclasses import field
 from typing import TYPE_CHECKING
 
 import structlog
@@ -59,10 +60,15 @@ _ELEMENT_TYPE_MAP: dict[StructElementType, ChunkElementType] = {
 
 @dataclass
 class _ChunkBuildResult:
-    """递归构建结果，包含当前子树的所有块及本节点代表文本块。"""
+    """递归构建结果，包含当前子树的所有块及本节点代表文本块。
+
+    ``split_text_chunks`` 收集本子树直接归属的 text chunks（含 split），便于父级在
+    建出 parent chunk 后统一回填 ``parent_chunk_id``。
+    """
 
     chunks: list[Chunk]
     representative_text_chunk: Chunk | None = None
+    split_text_chunks: list[Chunk] = field(default_factory=list)
 
 
 def create_chunks(tree: DocumentNode, source_title: str = "") -> list[Chunk]:
@@ -122,7 +128,12 @@ def _walk_sections(
     node_identity: tuple[int, ...],
     source_title: str,
  ) -> _ChunkBuildResult:
-    """深度优先遍历文档树，在合适的层级生成块。"""
+    """深度优先遍历文档树，在合适的层级生成块。
+
+    叶 section 可能产出多个 child chunks（``_build_child_text_chunks`` 决定），
+    但只有第一个被当作 representative_text_chunk 上交父级；其它 split chunks 也归属于
+    同一 parent，由本函数的 backfill 逻辑统一回填 ``parent_chunk_id``。
+    """
     current_path = (
         ancestor_path + [node.title] if node.title != "root" else ancestor_path
     )
@@ -140,7 +151,10 @@ def _walk_sections(
 
     if section_children:
         chunks: list[Chunk] = []
-        child_text_chunks: list[Chunk] = []
+        # 每个递归子结果带回 (representative, all_text_chunks_from_that_subtree)
+        child_representatives: list[Chunk] = []
+        # 收集 split sibling chunks 的引用以便 backfill
+        all_sibling_text_chunks: list[Chunk] = []
 
         for index, child in section_children:
             child_result = _walk_sections(
@@ -151,21 +165,24 @@ def _walk_sections(
             )
             chunks.extend(child_result.chunks)
             if child_result.representative_text_chunk is not None:
-                child_text_chunks.append(child_result.representative_text_chunk)
+                child_representatives.append(child_result.representative_text_chunk)
+                all_sibling_text_chunks.extend(child_result.split_text_chunks)
 
         parent_chunk: Chunk | None = None
-        if child_text_chunks and node.title != "root":
+        if child_representatives and node.title != "root":
             parent_chunk = _build_parent_chunk(
                 node,
                 current_path,
                 node_identity,
                 source_title,
-                child_text_chunks,
+                child_representatives,
             )
             chunks.append(parent_chunk)
 
-            for child_chunk in child_text_chunks:
-                child_chunk.metadata.parent_chunk_id = parent_chunk.chunk_id
+            # Backfill parent_chunk_id for all text chunks belonging to direct child sections
+            for sibling_chunk in all_sibling_text_chunks:
+                if sibling_chunk.metadata.parent_chunk_id is None:
+                    sibling_chunk.metadata.parent_chunk_id = parent_chunk.chunk_id
 
         if special_children and node.title != "root":
             parent_text_chunk_id = (
@@ -190,23 +207,26 @@ def _walk_sections(
         return _ChunkBuildResult(
             chunks=chunks,
             representative_text_chunk=parent_chunk,
+            split_text_chunks=[parent_chunk] if parent_chunk else [],
         )
 
+    # Leaf branch: node has NO section children
     if node.title == "root":
-        return _ChunkBuildResult(chunks=[])
+        return _ChunkBuildResult(chunks=[], split_text_chunks=[])
 
     special_nodes = [child for _, child in special_children]
-    text_chunk = _build_child_text_chunk(
+    text_chunks = _build_child_text_chunks(
         node,
         current_path,
         node_identity,
         source_title,
         special_nodes,
     )
-    if text_chunk is None:
-        return _ChunkBuildResult(chunks=[])
+    if not text_chunks:
+        return _ChunkBuildResult(chunks=[], split_text_chunks=[])
 
-    chunks = [text_chunk]
+    chunks = list(text_chunks)
+    representative = text_chunks[0]   # first split chunk represents this leaf upward
 
     type_positions: dict[StructElementType, int] = {}
     for index, special in special_children:
@@ -219,14 +239,15 @@ def _walk_sections(
                 node_identity + (index,),
                 source_title,
                 node,
-                text_chunk.chunk_id,
+                representative.chunk_id,
                 same_type_index=same_type_index,
             )
         )
 
     return _ChunkBuildResult(
         chunks=chunks,
-        representative_text_chunk=text_chunk,
+        representative_text_chunk=representative,
+        split_text_chunks=text_chunks,
     )
 
 
@@ -235,46 +256,59 @@ def _walk_sections(
 # ---------------------------------------------------------------------------
 
 
-def _build_child_text_chunk(
+def _build_child_text_chunks(
     node: DocumentNode,
     section_path: list[str],
     node_identity: tuple[int, ...],
     source_title: str,
     special_children: list[DocumentNode],
-) -> Chunk | None:
-    """为叶 section 节点构建子文本块。"""
-    # 在文本内容中为特殊元素插入占位符
+) -> list[Chunk]:
+    """为叶 section 节点构建子文本块（必要时按 ``_recursive_split`` 切多片）。"""
     content = _insert_placeholders(node.content, special_children)
     if not content.strip():
-        return None
+        return []
 
-    chunk_id = _make_chunk_id(
-        source=node.source,
-        node_identity=node_identity,
-        role="child",
-        content=content,
-    )
-    return Chunk(
-        chunk_id=chunk_id,
-        content=content,
-        embedding_text=content,
-        metadata=ChunkMetadata(
+    pieces = _recursive_split(content)
+    total = len(pieces)
+    chunks: list[Chunk] = []
+
+    for split_idx, piece in enumerate(pieces):
+        if total == 1:
+            role = "child"
+            extra_parts: tuple[str, ...] = ()
+        else:
+            role = "child:split"
+            extra_parts = (str(split_idx), str(total))
+
+        chunk_id = _make_chunk_id(
             source=node.source,
-            source_title=source_title,
-            section_path=section_path,
-            page_numbers=node.page_numbers,
-            page_file_index=node.page_file_index,
-            clause_ids=node.clause_ids,
-            element_type=ChunkElementType.TEXT,
-            cross_refs=node.cross_refs,
-            ref_labels=list(node.cross_refs),
-            ref_object_ids=_build_ref_object_ids(node.source, node.cross_refs),
-            parent_chunk_id=None,  # 稍后由 parent 构建时回填
-            bbox=list(node.bbox),
-            bbox_page_idx=node.bbox_page_idx,
-            **_build_clause_object_fields(node.source, node.title),
-        ),
-    )
+            node_identity=node_identity,
+            role=role,
+            content=piece,
+            extra_parts=extra_parts,
+        )
+        chunks.append(Chunk(
+            chunk_id=chunk_id,
+            content=piece,
+            embedding_text=piece,
+            metadata=ChunkMetadata(
+                source=node.source,
+                source_title=source_title,
+                section_path=section_path,
+                page_numbers=node.page_numbers,
+                page_file_index=node.page_file_index,
+                clause_ids=node.clause_ids,
+                element_type=ChunkElementType.TEXT,
+                cross_refs=node.cross_refs,
+                ref_labels=list(node.cross_refs),
+                ref_object_ids=_build_ref_object_ids(node.source, node.cross_refs),
+                parent_chunk_id=None,  # 由 _walk_sections 在 parent 构建后回填
+                bbox=list(node.bbox),
+                bbox_page_idx=node.bbox_page_idx,
+                **_build_clause_object_fields(node.source, node.title),
+            ),
+        ))
+    return chunks
 
 
 def _build_parent_chunk(
