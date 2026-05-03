@@ -103,6 +103,34 @@ class TreePruningConfig:
 # Markdown 标题行：至少一个 # 后跟空格和标题文字
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
+# 标题前缀的数字层级，例 "1.1", "1.1.1", "1.1.1.1"。
+# 至少需要一个点号；纯 "1" 不算（避免误把列表项编号当 heading 层级）。
+_NUMERIC_PREFIX_RE = re.compile(r"^\s*(\d+(?:\.\d+)+)\b")
+
+
+def _infer_level(markdown_hashes: str, title_text: str) -> int:
+    """根据标题前缀的数字深度推断 heading level。
+
+    无数字前缀的标题回退到 markdown ``#`` 的个数（保留 MinerU/作者的显式层级信号）。
+
+    Examples
+    --------
+    >>> _infer_level("#", "1.1 Scope")
+    2
+    >>> _infer_level("#", "1.1.1 Scope of Eurocode 2")
+    3
+    >>> _infer_level("#", "Introduction")
+    1
+    >>> _infer_level("##", "Introduction")
+    2
+    """
+    match = _NUMERIC_PREFIX_RE.match(title_text)
+    if match:
+        prefix = match.group(1)
+        # "1.1" → 2 (1 个点 + 1)；"1.1.1" → 3；"1.1.1.1" → 4
+        return prefix.count(".") + 1
+    return len(markdown_hashes) if markdown_hashes else 1
+
 # 行内数学公式块 $$...$$（可跨行）
 _FORMULA_BLOCK_RE = re.compile(
     r"(\$\$.+?\$\$)"           # 公式主体

@@ -428,3 +428,34 @@ class TestExtractCrossRefs:
         assert "Figure 3.3" in refs
         assert "Expression (3.14)" in refs
         assert "3.1.7" in refs
+
+
+class TestInferLevel:
+    """Heading level inference from numeric prefix in title text."""
+
+    @pytest.mark.parametrize(
+        "hashes, title, expected",
+        [
+            # Numeric prefix takes precedence
+            ("#", "1.1 Scope", 2),
+            ("#", "1.1.1 Scope of Eurocode 2", 3),
+            ("#", "1.1.1.1 Detailed scope", 4),
+            ("##", "1.1 Scope", 2),       # prefix overrides hashes
+            ("###", "1.1 Scope", 2),
+            # Whitespace tolerance before/within the prefix
+            ("#", "  1.1.1   Scope", 3),
+            # No prefix → fall back to markdown hashes
+            ("#", "Introduction", 1),
+            ("##", "Introduction", 2),
+            ("###", "Foreword", 3),
+            # Incomplete / non-matching prefixes → fall back
+            ("#", "1. Scope", 1),         # trailing dot, no further digits
+            ("#", "1 Scope", 1),          # no dot at all
+            ("#", "A.2.3 Annex", 1),      # alphabetic prefix unsupported
+            ("#", "(1)P A structure...", 1),
+            ("#", "", 1),                 # empty title (defensive)
+        ],
+    )
+    def test_infer_level(self, hashes, title, expected):
+        from pipeline.structure import _infer_level
+        assert _infer_level(hashes, title) == expected
