@@ -459,3 +459,61 @@ class TestInferLevel:
     def test_infer_level(self, hashes, title, expected):
         from pipeline.structure import _infer_level
         assert _infer_level(hashes, title) == expected
+
+
+class TestParseMarkdownLevels:
+    """parse_markdown_to_tree must derive section nesting from numeric prefixes."""
+
+    def test_flat_h1_with_numeric_prefixes_yields_nested_tree(self):
+        from pipeline.structure import parse_markdown_to_tree, ElementType
+        # MinerU output style: every heading is H1, hierarchy hidden in numeric prefixes
+        md = (
+            "# 1 General\n\nIntro paragraph.\n\n"
+            "# 1.1 Scope\n\nScope paragraph.\n\n"
+            "# 1.1.1 Scope of Eurocode 2\n\nDetail paragraph.\n\n"
+            "# 1.2 Definitions\n\nDef paragraph.\n\n"
+            "# Introduction\n\nNo-prefix top-level intro.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="test")
+
+        # Walk and collect (depth, title) pairs for SECTION nodes.
+        def _walk(node, depth=0):
+            for child in node.children:
+                if child.element_type == ElementType.SECTION:
+                    yield depth, child.title
+                    yield from _walk(child, depth + 1)
+
+        pairs = list(_walk(tree))
+        titles_by_depth = {}
+        for depth, title in pairs:
+            titles_by_depth.setdefault(depth, []).append(title)
+
+        # "1 General" is depth 0 (under root)
+        assert any("1 General" in t for t in titles_by_depth.get(0, []))
+        # "1.1 Scope" is one level deeper
+        assert any("1.1 Scope" in t for t in titles_by_depth.get(1, []))
+        # "1.1.1 Scope of Eurocode 2" is two levels deeper
+        assert any("1.1.1" in t for t in titles_by_depth.get(2, []))
+        # "Introduction" (no prefix) is at depth 0 alongside "1 General"
+        assert any("Introduction" in t for t in titles_by_depth.get(0, []))
+
+    def test_explicit_h2_h3_still_honored_when_no_prefix(self):
+        from pipeline.structure import parse_markdown_to_tree, ElementType
+        md = (
+            "# Foreword\n\nPreface.\n\n"
+            "## Background\n\nContext.\n\n"
+            "### Reasons\n\nWhy.\n"
+        )
+        tree = parse_markdown_to_tree(md, source="test")
+
+        def _walk(node, depth=0):
+            for child in node.children:
+                if child.element_type == ElementType.SECTION:
+                    yield depth, child.title
+                    yield from _walk(child, depth + 1)
+
+        pairs = list(_walk(tree))
+        depths = {title: depth for depth, title in pairs}
+        assert depths["Foreword"] == 0
+        assert depths["Background"] == 1
+        assert depths["Reasons"] == 2

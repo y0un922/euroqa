@@ -213,7 +213,7 @@ def parse_markdown_to_tree(
     # 将文档拆分为 (level, title, body) 段落
     segments: list[tuple[int, str, str]] = []
     for i, match in enumerate(headings):
-        level = len(match.group(1))
+        level = _infer_level(match.group(1), match.group(2))
         title = match.group(2).strip()
         body_start = match.end()
         body_end = headings[i + 1].start() if i + 1 < len(headings) else len(markdown)
