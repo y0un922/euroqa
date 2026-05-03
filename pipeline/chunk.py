@@ -452,6 +452,17 @@ def _truncate_by_tokens(text: str, max_tokens: int) -> str:
     return text[:max_chars] + "…"
 
 
+def _split_by_tokens_hard(text: str, max_tokens: int) -> list[str]:
+    """无任何分隔符可用时按字符硬切；保证每片 ``_estimate_tokens(piece) <= max_tokens``。
+
+    对应 ``_estimate_tokens`` 的 2 字符 = 1 token 假设：每片最多 ``max_tokens * 2`` 字符。
+    """
+    max_chars = max_tokens * 2
+    if len(text) <= max_chars:
+        return [text]
+    return [text[i : i + max_chars] for i in range(0, len(text), max_chars)]
+
+
 def _insert_placeholders(
     text: str, special_children: list[DocumentNode]
 ) -> str:

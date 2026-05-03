@@ -450,3 +450,28 @@ class TestChunkIdentityAndUniqueness:
 
         with pytest.raises(ValueError, match="Duplicate chunk IDs detected"):
             validate_unique_chunk_ids(duplicate_chunks)
+
+
+class TestSplitByTokensHard:
+    """Last-resort hard splitter when no whitespace boundary is available."""
+
+    def test_short_text_returned_as_single_piece(self):
+        from pipeline.chunk import _split_by_tokens_hard
+        text = "abc" * 10  # 30 chars ≈ 15 tokens
+        pieces = _split_by_tokens_hard(text, max_tokens=100)
+        assert pieces == [text]
+
+    def test_long_text_split_into_multiple_pieces(self):
+        from pipeline.chunk import _split_by_tokens_hard
+        text = "x" * 5000  # 5000 chars ≈ 2500 tokens
+        pieces = _split_by_tokens_hard(text, max_tokens=800)
+        # max_chars = 800 * 2 = 1600 → 5000 / 1600 = 4 pieces (3 full + 1 tail)
+        assert len(pieces) == 4
+        assert all(len(p) <= 1600 for p in pieces)
+        assert "".join(pieces) == text  # no content loss
+
+    def test_exact_boundary(self):
+        from pipeline.chunk import _split_by_tokens_hard
+        text = "y" * 1600  # exactly max_chars
+        pieces = _split_by_tokens_hard(text, max_tokens=800)
+        assert pieces == [text]
