@@ -463,6 +463,28 @@ def _split_by_tokens_hard(text: str, max_tokens: int) -> list[str]:
     return [text[i : i + max_chars] for i in range(0, len(text), max_chars)]
 
 
+def _greedy_merge(parts: list[str], sep: str, target_tokens: int) -> list[str]:
+    """从左到右合并 ``parts``，每个累加块尽量靠近但不超 ``target_tokens``。
+
+    单个 part 自身就超 ``target_tokens`` 时，让它独占一个 chunk（后续递归切再处理）。
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    buf_tokens = 0
+    for part in parts:
+        part_tokens = _estimate_tokens(part)
+        if buf and buf_tokens + part_tokens > target_tokens:
+            out.append(sep.join(buf))
+            buf = [part]
+            buf_tokens = part_tokens
+        else:
+            buf.append(part)
+            buf_tokens += part_tokens
+    if buf:
+        out.append(sep.join(buf))
+    return out
+
+
 def _insert_placeholders(
     text: str, special_children: list[DocumentNode]
 ) -> str:

@@ -475,3 +475,41 @@ class TestSplitByTokensHard:
         text = "y" * 1600  # exactly max_chars
         pieces = _split_by_tokens_hard(text, max_tokens=800)
         assert pieces == [text]
+
+
+class TestGreedyMerge:
+    """Greedy merger packs parts up to (but not over) target_tokens, joining with sep."""
+
+    def test_short_parts_merged_into_one(self):
+        from pipeline.chunk import _greedy_merge
+        # Each part ~50 chars = ~25 tokens; target 600 tokens.
+        parts = ["a" * 50, "b" * 50, "c" * 50]
+        out = _greedy_merge(parts, sep="\n\n", target_tokens=600)
+        assert out == ["a" * 50 + "\n\n" + "b" * 50 + "\n\n" + "c" * 50]
+
+    def test_each_part_in_own_chunk_when_target_small(self):
+        from pipeline.chunk import _greedy_merge
+        parts = ["a" * 200, "b" * 200, "c" * 200]   # each ~100 tokens
+        out = _greedy_merge(parts, sep="\n", target_tokens=120)  # one part already exceeds
+        assert len(out) == 3
+        assert out[0] == "a" * 200
+        assert out[1] == "b" * 200
+        assert out[2] == "c" * 200
+
+    def test_partial_merge_when_two_fit_one_extra_overflows(self):
+        from pipeline.chunk import _greedy_merge
+        parts = ["a" * 200, "b" * 200, "c" * 200, "d" * 200]  # ~100 tokens each
+        out = _greedy_merge(parts, sep="\n", target_tokens=250)  # ~2 parts per chunk
+        assert len(out) == 2
+        assert out[0].count("a") + out[0].count("b") == 400
+        assert out[1].count("c") + out[1].count("d") == 400
+
+    def test_empty_parts_yields_empty_list(self):
+        from pipeline.chunk import _greedy_merge
+        assert _greedy_merge([], sep="\n\n", target_tokens=600) == []
+
+    def test_separator_preserved_in_joined_output(self):
+        from pipeline.chunk import _greedy_merge
+        parts = ["alpha", "beta"]
+        out = _greedy_merge(parts, sep=" || ", target_tokens=600)
+        assert out == ["alpha || beta"]
