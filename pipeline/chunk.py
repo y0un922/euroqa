@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import structlog
 from pipeline.structure import DocumentNode
 from pipeline.structure import ElementType as StructElementType
 from shared.reference_graph import build_object_id
@@ -19,6 +20,8 @@ from shared.reference_graph import extract_clause_key
 from shared.reference_graph import normalize_reference_label
 from server.models.schemas import Chunk, ChunkMetadata
 from server.models.schemas import ElementType as ChunkElementType
+
+logger = structlog.get_logger()
 
 if TYPE_CHECKING:
     pass
@@ -29,6 +32,8 @@ if TYPE_CHECKING:
 
 _CHILD_MAX_TOKENS = 800
 _PARENT_MAX_TOKENS = 4000
+_RECURSIVE_TARGET_TOKENS = 600    # greedy 合并目标，留 25% margin to _CHILD_MAX_TOKENS
+_RECURSIVE_SEPARATORS: tuple[str, ...] = ("\n\n", "\n", ". ", " ", "")
 
 # 特殊元素类型到占位符文本的映射
 _PLACEHOLDER_MAP: dict[StructElementType, str] = {
@@ -483,6 +488,35 @@ def _greedy_merge(parts: list[str], sep: str, target_tokens: int) -> list[str]:
     if buf:
         out.append(sep.join(buf))
     return out
+
+
+def _recursive_split(text: str) -> list[str]:
+    """按优先级递减的边界切分超长文本，贪心合并到接近 ``_RECURSIVE_TARGET_TOKENS``。
+
+    切分产物保证 ``_estimate_tokens(piece) <= _CHILD_MAX_TOKENS``。
+    无可用边界时按 token 硬切并 ``logger.warning("recursive_hard_split")``。
+    """
+    if _estimate_tokens(text) <= _CHILD_MAX_TOKENS:
+        return [text]
+
+    for sep in _RECURSIVE_SEPARATORS:
+        if sep == "":
+            logger.warning("recursive_hard_split", text_len=len(text))
+            return _split_by_tokens_hard(text, _CHILD_MAX_TOKENS)
+        if sep not in text:
+            continue
+        parts = text.split(sep)
+        merged = _greedy_merge(parts, sep, _RECURSIVE_TARGET_TOKENS)
+        result: list[str] = []
+        for piece in merged:
+            if _estimate_tokens(piece) <= _CHILD_MAX_TOKENS:
+                result.append(piece)
+            else:
+                # Single piece still over cap → recurse with finer separator
+                result.extend(_recursive_split(piece))
+        return result
+    # Should be unreachable (loop always returns when sep == "")
+    return [text]
 
 
 def _insert_placeholders(

@@ -513,3 +513,54 @@ class TestGreedyMerge:
         parts = ["alpha", "beta"]
         out = _greedy_merge(parts, sep=" || ", target_tokens=600)
         assert out == ["alpha || beta"]
+
+
+class TestRecursiveSplit:
+    """Recursive splitter cascades through paragraph → line → sentence → word → hard-cut."""
+
+    def test_short_text_not_split(self):
+        from pipeline.chunk import _recursive_split
+        text = "Short paragraph." * 5   # ~80 chars ≈ 40 tokens
+        assert _recursive_split(text) == [text]
+
+    def test_multi_paragraph_split_at_blank_line(self):
+        from pipeline.chunk import _recursive_split
+        para = "x" * 800   # ~400 tokens
+        text = "\n\n".join([para, para, para, para])   # ~1600 tokens total
+        pieces = _recursive_split(text)
+        assert len(pieces) >= 2
+        for p in pieces:
+            assert len(p) // 2 <= 800   # each piece under hard cap
+
+    def test_single_paragraph_falls_back_to_sentence(self):
+        from pipeline.chunk import _recursive_split
+        # One paragraph, multiple sentences, total ~2000 tokens
+        sentence = "x" * 400 + "."
+        text = (sentence + " ") * 10   # ~10 sentences, ~2000 tokens, no \n\n
+        pieces = _recursive_split(text)
+        assert len(pieces) >= 2
+        for p in pieces:
+            assert len(p) // 2 <= 800
+
+    def test_no_separators_falls_back_to_hard_split(self):
+        from pipeline.chunk import _recursive_split
+        from structlog.testing import capture_logs
+        text = "x" * 4000   # 2000 tokens, NO whitespace anywhere
+        with capture_logs() as captured:
+            pieces = _recursive_split(text)
+        assert len(pieces) >= 2
+        for p in pieces:
+            assert len(p) <= 1600
+        # Hard-split warning was emitted
+        assert any(entry.get("event") == "recursive_hard_split" for entry in captured), \
+            f"Expected recursive_hard_split event; got {[e.get('event') for e in captured]}"
+
+    def test_pieces_concatenation_preserves_content_modulo_separators(self):
+        from pipeline.chunk import _recursive_split
+        para = "a" * 1000
+        text = f"{para}\n\n{para}\n\n{para}"
+        pieces = _recursive_split(text)
+        # Content preserved ignoring separator collapse
+        rejoined = "".join(pieces).replace("\n\n", "")
+        original = text.replace("\n\n", "")
+        assert rejoined == original
