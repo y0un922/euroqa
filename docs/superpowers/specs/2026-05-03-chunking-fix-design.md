@@ -68,7 +68,7 @@ PDF outline 不能作为主层级源——3 篇文档中至少 1 篇没有 outli
 |----|------|----------------|------|
 | D1 | 直接在 `master` 上推进（**不开 feature 分支**）| 独立分支 `feature/chunking-fix` / 与 contextual retrieval 共用分支 | 用户判断 chunking 修复结构性收益高、风险可控，愿意接受 master 直接演进；contextual retrieval 是真正的测试性功能，单独 `feature/contextual-retrieval` 分支隔离 |
 | D2 | 仅基于标题数字前缀推断 level（P2a） | TOC 信号 / MinerU 配置改造 | TOC 覆盖率不足 1.5/3；MinerU 内部模型不可控；前缀 100% 覆盖 |
-| D3 | 超 800 token 叶 section 走递归切分（Q3-recursive） | 删常量承认无上限 / 硬截断 | 删常量保留质量问题；硬截断丢失内容；递归切分零信息丢失 |
+| D3 | 超 800 token 叶 section 走递归切分（Q3-recursive） | 删常量承认无上限 / 硬截断 | 删常量保留质量问题；硬截断丢失内容；递归切分保留语义文本，但跨 chunk 边界的分隔符可能规整化，对 embedding 影响可忽略 |
 | D4 | 递归边界优先级 `["\n\n", "\n", ". ", " ", ""]`，贪心目标 600 tokens，硬上限 800 tokens | 仅段落切（`\n\n`） | 段落切对单个长段落无效；递归 + 贪心合并兼顾大小均匀和语义边界 |
 | D5 | split chunks 之间 **不做 overlap** | 50-100 token overlap | 已有 `parent_chunk_id` + 父块补全机制提供等价上下文；overlap 涨索引 10-15% 且 debugging 困惑 |
 | D6 | 数字前缀正则仅支持 `\d+(\.\d+)+`，字母前缀（"A.2.3"）不支持 | 同时支持字母前缀 | grep 三篇 .md 未发现字母前缀 case；YAGNI |

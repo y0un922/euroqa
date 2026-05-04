@@ -514,6 +514,13 @@ class TestGreedyMerge:
         out = _greedy_merge(parts, sep=" || ", target_tokens=600)
         assert out == ["alpha || beta"]
 
+    def test_separator_tokens_count_toward_budget(self):
+        from pipeline.chunk import _greedy_merge
+        parts = ["a"] * 2000
+        out = _greedy_merge(parts, sep=". ", target_tokens=600)
+        assert len(out) > 1
+        assert all(len(piece) // 2 <= 600 for piece in out)
+
 
 class TestRecursiveSplit:
     """Recursive splitter cascades through paragraph → line → sentence → word → hard-cut."""
@@ -541,6 +548,13 @@ class TestRecursiveSplit:
         assert len(pieces) >= 2
         for p in pieces:
             assert len(p) // 2 <= 800
+
+    def test_many_tiny_sentences_do_not_recurse_forever(self):
+        from pipeline.chunk import _recursive_split
+        text = ". ".join(["a"] * 2000)
+        pieces = _recursive_split(text)
+        assert len(pieces) >= 2
+        assert all(len(p) // 2 <= 800 for p in pieces)
 
     def test_no_separators_falls_back_to_hard_split(self):
         from pipeline.chunk import _recursive_split

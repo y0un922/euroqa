@@ -508,19 +508,20 @@ def _greedy_merge(parts: list[str], sep: str, target_tokens: int) -> list[str]:
     单个 part 自身就超 ``target_tokens`` 时，让它独占一个 chunk（后续递归切再处理）。
     """
     out: list[str] = []
-    buf: list[str] = []
-    buf_tokens = 0
+    buf_text: str | None = None
     for part in parts:
-        part_tokens = _estimate_tokens(part)
-        if buf and buf_tokens + part_tokens > target_tokens:
-            out.append(sep.join(buf))
-            buf = [part]
-            buf_tokens = part_tokens
+        if buf_text is None:
+            buf_text = part
+            continue
+
+        candidate_text = f"{buf_text}{sep}{part}"
+        if _estimate_tokens(candidate_text) > target_tokens:
+            out.append(buf_text)
+            buf_text = part
         else:
-            buf.append(part)
-            buf_tokens += part_tokens
-    if buf:
-        out.append(sep.join(buf))
+            buf_text = candidate_text
+    if buf_text is not None:
+        out.append(buf_text)
     return out
 
 

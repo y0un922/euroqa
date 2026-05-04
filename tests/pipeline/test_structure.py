@@ -2,7 +2,6 @@
 import pytest
 from pipeline.content_list import resolve_section_page_metadata
 from pipeline.structure import (
-    DocumentNode,
     ElementType,
     TreePruningConfig,
     extract_cross_refs,
@@ -124,6 +123,55 @@ class TestParseMarkdownToTree:
         assert section.page_file_index == [4, 5, 6]
         assert subsection.page_numbers == [6, 7]
         assert subsection.page_file_index == [5, 6]
+
+    def test_assigns_page_metadata_when_inferred_level_differs_from_content_list(self):
+        md = (
+            "# 1 General\n\n"
+            "Intro paragraph.\n\n"
+            "# 1.1 Scope\n\n"
+            "Scope paragraph.\n\n"
+            "# 1.1.1 Detail\n\n"
+            "Detail paragraph.\n"
+        )
+        content_list = [
+            {"type": "text", "text": "1 General", "text_level": 1, "page_idx": 0},
+            {
+                "type": "text",
+                "text": "Intro paragraph.",
+                "text_level": 0,
+                "page_idx": 0,
+            },
+            {"type": "text", "text": "1.1 Scope", "text_level": 1, "page_idx": 8},
+            {
+                "type": "text",
+                "text": "Scope paragraph.",
+                "text_level": 0,
+                "page_idx": 8,
+            },
+            {"type": "text", "text": "1.1.1 Detail", "text_level": 1, "page_idx": 9},
+            {
+                "type": "text",
+                "text": "Detail paragraph.",
+                "text_level": 0,
+                "page_idx": 9,
+            },
+        ]
+
+        tree = parse_markdown_to_tree(
+            md,
+            source="test",
+            content_list=content_list,
+        )
+
+        section = tree.children[0]
+        scope = section.children[0]
+        detail = scope.children[0]
+        assert section.page_numbers == [1, 9, 10]
+        assert section.page_file_index == [0, 8, 9]
+        assert scope.page_numbers == [9, 10]
+        assert scope.page_file_index == [8, 9]
+        assert detail.page_numbers == [10]
+        assert detail.page_file_index == [9]
 
 
 class TestPruneDocumentTree:
