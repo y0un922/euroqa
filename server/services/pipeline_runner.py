@@ -22,7 +22,7 @@ from pipeline.structure import (
     parse_markdown_to_tree,
     prune_document_tree,
 )
-from pipeline.contextualize import enrich_chunk_summaries
+from pipeline.contextualize import enrich_chunks
 from server.deps import invalidate_retriever_cache
 
 logger = structlog.get_logger()
@@ -134,7 +134,7 @@ async def run_single_document(
                     f"已摘要 {completed}/{total} 个特殊块",
                 ))
 
-    chunks = await enrich_chunk_summaries(
+    chunks = await enrich_chunks(
         chunks, pipeline_config, progress_callback=_on_summary_progress,
     )
 

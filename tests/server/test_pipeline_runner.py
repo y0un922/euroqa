@@ -60,7 +60,7 @@ async def test_run_single_document_indexes_chunks_with_uploaded_doc_id(
         return None
 
     monkeypatch.setattr(pipeline_runner, "parse_pdf", fake_parse_pdf)
-    monkeypatch.setattr(pipeline_runner, "enrich_chunk_summaries", fake_enrich)
+    monkeypatch.setattr(pipeline_runner, "enrich_chunks", fake_enrich)
     monkeypatch.setattr(pipeline_runner, "index_to_milvus", fake_index_to_milvus)
     monkeypatch.setattr(
         pipeline_runner,
