@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -124,6 +125,8 @@ class Contextualizer:
     async def contextualize_chunk(self, request: ContextualizeRequest) -> ContextualizeResult:
         if request.chunk_kind == "text":
             return await self._contextualize_text_chunk(request)
+        if request.chunk_kind in {"table", "formula", "image"}:
+            return await self._contextualize_special_chunk(request)
         raise ValueError(f"Unsupported chunk kind: {request.chunk_kind}")
 
     async def _contextualize_text_chunk(
@@ -139,6 +142,42 @@ class Contextualizer:
         )
         context = await self._call_llm(prompt, max_tokens=300)
         return ContextualizeResult(context_blurb=context.strip(), semantic_description="")
+
+    async def _contextualize_special_chunk(
+        self, request: ContextualizeRequest
+    ) -> ContextualizeResult:
+        image_alt = ""
+        if request.chunk_kind == "image" and request.chunk_alt:
+            image_alt = f"\nImage alt text: {request.chunk_alt}"
+
+        prompt = (
+            f"Document summary: {request.doc_summary}\n"
+            f"Section path: {' > '.join(request.section_path)}\n"
+            f"Section containing the element:\n{request.parent_section_text}\n\n"
+            f"The element ({request.chunk_kind}) to situate:\n{request.chunk_content}"
+            f"{image_alt}\n\n"
+            "Respond with a JSON object exactly matching this schema:\n"
+            "{\n"
+            '  "context": "1-2 sentence context situating this element within the document",\n'
+            f'  "description": "natural-language description of what this {request.chunk_kind} expresses '
+            '(factors, formula meaning, figure subject, etc.)"\n'
+            "}\n"
+            "Output only the JSON, no preamble."
+        )
+        raw = await self._call_llm(prompt, max_tokens=500)
+        try:
+            payload = json.loads(raw)
+            return ContextualizeResult(
+                context_blurb=str(payload.get("context", "")).strip(),
+                semantic_description=str(payload.get("description", "")).strip(),
+            )
+        except json.JSONDecodeError:
+            logger.warning(
+                "contextualize_json_parse_failed",
+                chunk_id="unknown",
+                raw=raw[:200],
+            )
+            return ContextualizeResult(context_blurb=raw.strip(), semantic_description="")
 
     async def _call_llm(self, prompt: str, *, max_tokens: int) -> str:
         last_error: Exception | None = None

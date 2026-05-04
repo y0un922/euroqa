@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from pipeline.config import PipelineConfig
 from pipeline.contextualizer import Contextualizer
@@ -139,3 +140,83 @@ async def test_contextualize_chunk_text_path():
     assert prompt.index("Section path:") < prompt.index("Section containing the chunk:")
     assert prompt.index("Section containing the chunk:") < prompt.index("Chunk to situate:")
     assert "EN 1992-1-1 > Section 3 > 3.2 Concrete" in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunk_kind", ["table", "formula"])
+async def test_contextualize_chunk_special_json(chunk_kind: str):
+    raw_json = (
+        '{"context": "This element supports material property lookup.", '
+        '"description": "It expresses design values used in concrete calculations."}'
+    )
+    create = AsyncMock(return_value=_chat_response(raw_json))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="Parent section text.",
+        chunk_content="Element content.",
+        chunk_kind=chunk_kind,
+        section_path=["Section 3", "3.2 Concrete"],
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        result = await contextualizer.contextualize_chunk(request)
+
+    assert result == ContextualizeResult(
+        context_blurb="This element supports material property lookup.",
+        semantic_description="It expresses design values used in concrete calculations.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_contextualize_chunk_image_prompt_includes_alt_text():
+    raw_json = (
+        '{"context": "This figure appears in the concrete stress-strain section.", '
+        '"description": "A figure showing the parabola-rectangle diagram for concrete."}'
+    )
+    create = AsyncMock(return_value=_chat_response(raw_json))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="Parent section text.",
+        chunk_content="![Figure 3.3](images/figure-3-3.png)",
+        chunk_kind="image",
+        section_path=["Section 3", "3.1.7 Stress-strain relations"],
+        chunk_alt="Figure 3.3: Parabola-rectangle diagram for concrete under compression.",
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        result = await contextualizer.contextualize_chunk(request)
+
+    assert result.semantic_description.startswith("A figure showing")
+    prompt = create.await_args.kwargs["messages"][0]["content"]
+    assert "Image alt text: Figure 3.3: Parabola-rectangle diagram" in prompt
+
+
+@pytest.mark.asyncio
+async def test_contextualize_chunk_json_parse_fallback():
+    raw = "This table gives concrete strength classes in context."
+    create = AsyncMock(return_value=_chat_response(raw))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="Parent section text.",
+        chunk_content="Table content.",
+        chunk_kind="table",
+        section_path=["Section 3"],
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        with capture_logs() as logs:
+            result = await contextualizer.contextualize_chunk(request)
+
+    assert result == ContextualizeResult(context_blurb=raw, semantic_description="")
+    assert any(
+        log["event"] == "contextualize_json_parse_failed"
+        and log["chunk_id"] == "unknown"
+        and log["raw"] == raw
+        for log in logs
+    )
