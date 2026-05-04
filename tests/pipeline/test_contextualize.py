@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pipeline.summarize import (
+from pipeline.contextualize import (
     build_table_embedding_text,
     enrich_chunk_summaries,
     generate_formula_description,
@@ -113,7 +113,7 @@ class TestBuildTableEmbeddingText:
 @pytest.mark.asyncio
 async def test_generate_formula_description(formula_chunk):
     mock_response = "设计抗力Rd的计算公式，考虑分项系数。"
-    with patch("pipeline.summarize._call_llm", new_callable=AsyncMock, return_value=mock_response):
+    with patch("pipeline.contextualize._call_llm", new_callable=AsyncMock, return_value=mock_response):
         result = await generate_formula_description(formula_chunk)
         assert result == mock_response
 
@@ -132,7 +132,7 @@ async def test_enrich_table_chunk_uses_structural_extraction(html_table_chunk):
 async def test_enrich_chunk_summaries_retries_formula_failure_once(formula_chunk):
     mock_desc = AsyncMock(side_effect=[RuntimeError("429"), "设计抗力Rd的计算公式，考虑分项系数。"])
 
-    with patch("pipeline.summarize.generate_formula_description", mock_desc):
+    with patch("pipeline.contextualize.generate_formula_description", mock_desc):
         chunks = await enrich_chunk_summaries([formula_chunk])
 
     assert mock_desc.await_count == 2

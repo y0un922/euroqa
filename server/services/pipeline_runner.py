@@ -22,7 +22,7 @@ from pipeline.structure import (
     parse_markdown_to_tree,
     prune_document_tree,
 )
-from pipeline.summarize import enrich_chunk_summaries
+from pipeline.contextualize import enrich_chunk_summaries
 from server.deps import invalidate_retriever_cache
 
 logger = structlog.get_logger()

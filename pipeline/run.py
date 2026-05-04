@@ -18,7 +18,7 @@ from pipeline.structure import (
 )
 from pipeline.chunk import create_chunks
 from pipeline.chunk import validate_unique_chunk_ids
-from pipeline.summarize import enrich_chunk_summaries
+from pipeline.contextualize import enrich_chunk_summaries
 from pipeline.index import index_to_milvus, index_to_elasticsearch
 from server.models.schemas import Chunk
 from shared.pipeline_debug import PipelineDebugRecorder, PipelineDebugStore

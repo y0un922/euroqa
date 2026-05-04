@@ -1175,7 +1175,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pipeline.summarize import generate_table_summary, generate_formula_description
+from pipeline.contextualize import generate_table_summary, generate_formula_description
 from server.models.schemas import Chunk, ChunkMetadata, ElementType
 
 
@@ -1200,7 +1200,7 @@ def table_chunk():
 @pytest.mark.asyncio
 async def test_generate_table_summary(table_chunk):
     mock_response = "设计使用年限分类表，临时结构10年。"
-    with patch("pipeline.summarize._call_llm", new_callable=AsyncMock, return_value=mock_response):
+    with patch("pipeline.contextualize._call_llm", new_callable=AsyncMock, return_value=mock_response):
         result = await generate_table_summary(table_chunk)
         assert result == mock_response
 
@@ -1222,7 +1222,7 @@ async def test_generate_formula_description():
         ),
     )
     mock_response = "设计抗力Rd的计算公式，考虑分项系数。"
-    with patch("pipeline.summarize._call_llm", new_callable=AsyncMock, return_value=mock_response):
+    with patch("pipeline.contextualize._call_llm", new_callable=AsyncMock, return_value=mock_response):
         result = await generate_formula_description(chunk)
         assert result == mock_response
 ```
@@ -1498,7 +1498,7 @@ from pipeline.config import PipelineConfig
 from pipeline.parse import parse_all_pdfs
 from pipeline.structure import parse_markdown_to_tree
 from pipeline.chunk import create_chunks
-from pipeline.summarize import enrich_chunk_summaries
+from pipeline.contextualize import enrich_chunk_summaries
 from pipeline.index import index_to_milvus, index_to_elasticsearch
 
 logger = structlog.get_logger()
