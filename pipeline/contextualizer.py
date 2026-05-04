@@ -121,6 +121,25 @@ class Contextualizer:
         )
         return await self._call_llm(prompt, max_tokens=800)
 
+    async def contextualize_chunk(self, request: ContextualizeRequest) -> ContextualizeResult:
+        if request.chunk_kind == "text":
+            return await self._contextualize_text_chunk(request)
+        raise ValueError(f"Unsupported chunk kind: {request.chunk_kind}")
+
+    async def _contextualize_text_chunk(
+        self, request: ContextualizeRequest
+    ) -> ContextualizeResult:
+        prompt = (
+            f"Document summary: {request.doc_summary}\n\n"
+            f"Section path: {' > '.join(request.section_path)}\n\n"
+            f"Section containing the chunk:\n{request.parent_section_text}\n\n"
+            f"Chunk to situate:\n{request.chunk_content}\n\n"
+            "In 1-3 sentences, give a short context that situates this chunk within the document "
+            "for retrieval purposes. Output only the context, no preamble."
+        )
+        context = await self._call_llm(prompt, max_tokens=300)
+        return ContextualizeResult(context_blurb=context.strip(), semantic_description="")
+
     async def _call_llm(self, prompt: str, *, max_tokens: int) -> str:
         last_error: Exception | None = None
         for attempt in range(1, self._retry_attempts + 1):

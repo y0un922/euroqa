@@ -114,3 +114,28 @@ async def test_generate_doc_summary_retry_exhaustion_raises():
             await contextualizer.generate_doc_summary("Title", "Outline")
 
     assert create.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_contextualize_chunk_text_path():
+    llm_text = "Section 3.2 of EN1992 introduces concrete material properties."
+    create = AsyncMock(return_value=_chat_response(llm_text))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="This document covers concrete structure design.",
+        parent_section_text="3.2 Concrete material properties are defined here.",
+        chunk_content="Concrete strength classes are based on cylinder strength.",
+        chunk_kind="text",
+        section_path=["EN 1992-1-1", "Section 3", "3.2 Concrete"],
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        result = await contextualizer.contextualize_chunk(request)
+
+    assert result == ContextualizeResult(context_blurb=llm_text, semantic_description="")
+    prompt = create.await_args.kwargs["messages"][0]["content"]
+    assert prompt.index("Document summary:") < prompt.index("Section path:")
+    assert prompt.index("Section path:") < prompt.index("Section containing the chunk:")
+    assert prompt.index("Section containing the chunk:") < prompt.index("Chunk to situate:")
+    assert "EN 1992-1-1 > Section 3 > 3.2 Concrete" in prompt
