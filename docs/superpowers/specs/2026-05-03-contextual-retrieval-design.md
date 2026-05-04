@@ -49,7 +49,7 @@ Anthropic 2024 年 9 月发布的 [Contextual Retrieval](https://www.anthropic.c
 | A | 独立 feature 分支 `feature/contextual-retrieval`，不合 master 即可整体回退 | feature flag / 独立模块旁路 | 测试性功能，KISS；feature flag 让 master 长期带 if-else；旁路模块需双份索引存储 |
 | B1 | 完整配方：向量 + BM25 同时 contextualize（写入 `embedding_text` 即可两路兼得） | 仅向量侧 / 仅 BM25 侧 | 索引字段天然支持；Anthropic 数据显示完整配方比单侧多 14% 改善 |
 | C1 | 图片 chunk 走纯文本路径：仅用 alt + 父 section + 文档摘要，不用视觉 LLM | 视觉 LLM / 混合 | 你的 IMAGE chunk `content` 是 `![alt](path)` markdown，本质是"语境锚点"而非"图片内容"；视觉 LLM 引入新依赖、新成本、新失败模式，对测试性功能性价比低 |
-| D3 | 配置化 LLM Provider：抽 `Contextualizer` 接口，默认 DeepSeek，env 可切 Anthropic | 仅 DeepSeek（YAGNI 路线） / 仅 Anthropic | 用户明确要求保留切换能力；薄抽象，两实现各 ~50 行 |
+| D3 | 仅实现 OpenAI 兼容协议（`AsyncOpenAI` client）；切换 provider 改 `LLM_BASE_URL` env 即可，零代码改动 | 抽 ABC + 多 provider 实现 / 仅 DeepSeek 固定 | 用户全部 LLM API 走 OpenAI 兼容协议（DeepSeek/豆包/自部署 vLLM 同一接口）；ABC + factory 是空头规划，YAGNI |
 | E2 | 特殊 chunk 一次 LLM 调用同时产出 context + 语义化描述（取代原 Stage 3.5 摘要逻辑） | 仅 contextualize 不动 raw / 两次独立调用 | raw markdown table / LaTeX formula 直接 embedding 质量差，必须语义化；E2 一次调用两件事都做完，A/B 评估时 contextualize + 语义化作为整体生效，归因更干净 |
 | F | 默认并发 8，`config.contextualize_concurrency` 可调；失败重试 ≤2 次（沿用 `_SUMMARY_MAX_ATTEMPTS`） | 串行 / 异步队列 | asyncio + Semaphore 已是现有 stack 的成熟模式 |
 | G | doc summary 不持久化（仅 Stage 3.5 单次执行内存活）| 写 artifact / 写 metadata | 重跑成本极低（每篇一次额外 LLM 调用），缓存层不值得 |
@@ -83,11 +83,10 @@ Stage 4 (Index)          不动；自然把 contextualized embedding_text 写进
 | 文件 | 改动 |
 |------|------|
 | `pipeline/summarize.py` | 重构为 `pipeline/contextualize.py`（或保留文件名扩展逻辑），核心函数 `enrich_chunks` 替代现有 `enrich_chunk_summaries` |
-| `pipeline/contextualizer.py`（新）| `Contextualizer` 抽象 + `DeepSeekContextualizer` + `AnthropicContextualizer` 两份实现 |
+| `pipeline/contextualizer.py`（新）| 单个 `Contextualizer` class（无 ABC、无 factory）+ `ContextualizeRequest`/`Result` dataclasses + `build_outline_from_tree` |
 | `pipeline/run.py` | Stage 3.5 调用点改名，progress callback 反映 "all chunks" |
-| `pipeline/config.py` | 新增 `contextualize_provider`（默认 `"deepseek"`）、`contextualize_concurrency`（默认 8）|
-| `pyproject.toml` | 加 optional dep `anthropic`（extra `[contextualize-anthropic]`）|
-| 测试 | 新增 `tests/pipeline/test_contextualizer.py` + `tests/pipeline/test_contextualize_stage.py` |
+| `pipeline/config.py` | 新增 `contextualize_concurrency`（默认 8）+ `contextualize_retry_attempts`（默认 2）|
+| 测试 | 新增 `tests/pipeline/test_contextualizer.py` + `tests/pipeline/test_outline_builder.py` + `tests/pipeline/test_contextualize_stage.py` |
 
 **回退路径**：删除/不合并 feature 分支即可。`master` 上 `pipeline/summarize.py` 旧版本完全不受影响。
 
@@ -96,9 +95,13 @@ Stage 4 (Index)          不动；自然把 contextualized embedding_text 写进
 ```python
 # pipeline/contextualizer.py
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Literal
+
+from openai import AsyncOpenAI
+
+from pipeline.config import PipelineConfig
+
 
 @dataclass(frozen=True)
 class ContextualizeRequest:
@@ -109,53 +112,47 @@ class ContextualizeRequest:
     section_path: list[str]     # ["Eurocode 2", "Section 3", "3.2 Concrete", "3.2.1 General"]
     chunk_alt: str = ""         # 仅 IMAGE：alt 文字
 
+
 @dataclass(frozen=True)
 class ContextualizeResult:
     context_blurb: str          # 永远存在 (~50-150 tokens)
     semantic_description: str   # 仅特殊 chunk 非空；text chunk 为空字符串
 
-class Contextualizer(ABC):
-    @abstractmethod
+
+class Contextualizer:
+    """Single OpenAI-compatible LLM contextualizer.
+
+    Switch provider by changing ``LLM_BASE_URL`` / ``LLM_MODEL`` env vars.
+    No multi-provider abstraction (YAGNI).
+    """
+
+    def __init__(self, config: PipelineConfig) -> None:
+        self._client = AsyncOpenAI(
+            base_url=config.llm_base_url,
+            api_key=config.llm_api_key,
+        )
+        self._model = config.llm_model
+        self._retry_attempts = config.contextualize_retry_attempts
+
     async def generate_doc_summary(
         self, source_title: str, doc_outline_text: str
     ) -> str:
         """Per-document, called once per Stage 3.5 invocation."""
+        ...
 
-    @abstractmethod
     async def contextualize_chunk(
         self, request: ContextualizeRequest
     ) -> ContextualizeResult:
         """Per-chunk."""
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """For logging/debugging."""
-
-def build_contextualizer(config: PipelineConfig) -> Contextualizer:
-    """Factory；config.contextualize_provider ∈ {'deepseek', 'anthropic'}."""
-    provider = config.contextualize_provider.lower()
-    if provider == "deepseek":
-        return DeepSeekContextualizer(config)
-    if provider == "anthropic":
-        # 仅在此 import，避免未装 anthropic 包时导入失败
-        from pipeline.contextualizer_anthropic import AnthropicContextualizer
-        return AnthropicContextualizer(config)
-    raise ValueError(f"Unknown contextualize_provider: {provider}")
+        ...
 ```
 
-### Implementations
+### Implementation notes
 
-**`DeepSeekContextualizer`**：
-- 复用现有 `AsyncOpenAI` 客户端模式（同 `summarize.py:_get_client`）
+- 复用现有 `summarize.py:_get_client` 的 `AsyncOpenAI` 客户端模式
 - Prompt 顺序固定：`[系统指令] → [doc_summary] → [section_path] → [parent_section] → [chunk]`
-- 让 DeepSeek 自动前缀 KV cache 在同文档多 chunk 之间命中
-- 无显式 cache API 调用
-
-**`AnthropicContextualizer`**：
-- 新增 `anthropic` SDK（optional dep）
-- 使用 `cache_control: {"type": "ephemeral"}` 显式标记 `doc_summary` + `parent_section` 为可缓存
-- per-chunk 只变 chunk 部分 → prompt cache 高命中率
+- 让 OpenAI 兼容服务端的自动前缀 KV cache 在同文档多 chunk 之间命中（如服务端支持）
+- 无显式 cache API 调用；切换 provider 仅需改 env
 
 ### Prompt Templates（英文，对齐英文 Eurocode 语料）
 
@@ -205,7 +202,7 @@ Output only the JSON, no preamble.
 
 JSON 解析失败的降级：
 - 整段输出当 `context_blurb`，`semantic_description` 留空
-- `logger.warning("contextualize_json_parse_failed", chunk_id=..., raw=...[:200])`
+- `logger.warning("contextualize_json_parse_failed", chunk_id=..., raw=raw[:200])`
 - chunk 不会丢，只是退化为"低质量 contextualize"
 
 ## Pipeline Integration (Section 3 of detailed design)
@@ -304,7 +301,6 @@ def build_outline_from_tree(tree: DocumentNode, *, first_para_max_chars: int = 2
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `contextualize_provider` | `Literal["deepseek", "anthropic"]` | `"deepseek"` | LLM provider 选择 |
 | `contextualize_concurrency` | `int` | `8` | per-doc 并发 chunk LLM 调用数（asyncio.Semaphore size）|
 | `contextualize_retry_attempts` | `int` | `2` | 单 chunk LLM 调用失败重试上限（沿用 `_SUMMARY_MAX_ATTEMPTS` 模式）|
 
@@ -312,21 +308,10 @@ def build_outline_from_tree(tree: DocumentNode, *, first_para_max_chars: int = 2
 
 | Env Var | 必需 | 用途 |
 |---------|------|------|
-| `LLM_BASE_URL` | 是（provider=deepseek 时）| 沿用现有 OpenAI 兼容 endpoint |
-| `LLM_MODEL` | 是（provider=deepseek 时）| 沿用现有模型名（如 `deepseek-chat`）|
-| `LLM_API_KEY` | 是（provider=deepseek 时）| 沿用现有 API key |
-| `ANTHROPIC_API_KEY` | 是（provider=anthropic 时）| 切换 Anthropic provider 时必需 |
-| `CONTEXTUALIZE_PROVIDER` | 否 | 覆盖 `contextualize_provider` 默认值 |
+| `LLM_BASE_URL` | 是 | 沿用现有 OpenAI 兼容 endpoint |
+| `LLM_MODEL` | 是 | 沿用现有模型名（如 `deepseek-chat`）|
+| `LLM_API_KEY` | 是 | 沿用现有 API key |
 | `CONTEXTUALIZE_CONCURRENCY` | 否 | 覆盖 `contextualize_concurrency` 默认值 |
-
-依赖管理（`pyproject.toml`）：
-
-```toml
-[project.optional-dependencies]
-contextualize-anthropic = ["anthropic>=0.40"]
-```
-
-仅在用户切换到 anthropic provider 时通过 `pip install euro-qa[contextualize-anthropic]` 安装；默认部署不引入。
 
 ## Failure Handling (Section 5)
 
@@ -336,8 +321,6 @@ contextualize-anthropic = ["anthropic>=0.40"]
 | Special chunk JSON 解析失败 | 整段 LLM 输出当 `context_blurb`，`semantic_description` 留空 + `logger.warning("contextualize_json_parse_failed", chunk_id=..., raw=raw[:200])`；chunk 仍 contextualize，只是少了语义化描述 |
 | Doc summary 调用失败 | retry ≤ 2 次后仍失败 → **fail-fast**：抛出异常中止整个 stage 3.5。理由：per-doc 单点，没有 fallback 路径；继续往下走会让全部 chunk 失去文档级语境，质量崩塌 |
 | `asyncio.gather(return_exceptions=True)` | 单 chunk 失败被 result 列表里的 Exception 捕获，主流程不中断；其他 chunk 正常 contextualize |
-| Provider 配置错误（如 `CONTEXTUALIZE_PROVIDER=foo`）| `build_contextualizer` factory `raise ValueError`，stage 3.5 启动即失败；早失败比 per-chunk 失败健康 |
-| `anthropic` SDK 未安装 | provider=anthropic 时 import 失败 → `raise ImportError("Install euro-qa[contextualize-anthropic]")`；启动即失败 |
 
 降级语义：**chunk 永远不丢**。最坏情况是 contextualize 退化为 raw embedding_text，等同于 chunking-fix 当前 master 行为。这是 testable feature 的安全边界。
 
@@ -346,19 +329,14 @@ contextualize-anthropic = ["anthropic>=0.40"]
 ### 单元测试
 
 **`tests/pipeline/test_contextualizer.py`**:
-- `build_contextualizer` factory:
-  - `provider="deepseek"` → 返回 `DeepSeekContextualizer` 实例
-  - `provider="anthropic"` → 返回 `AnthropicContextualizer` 实例（mock anthropic SDK 已装）
-  - `provider="anthropic"` 但 anthropic SDK 未装 → raise ImportError
-  - `provider="foo"` → raise ValueError
-- `DeepSeekContextualizer.contextualize_chunk`:
+- `Contextualizer.contextualize_chunk`:
   - mock `AsyncOpenAI` client，验证 prompt 顺序: `[system → doc_summary → section_path → parent_section → chunk]`
   - text chunk: 验证返回 `ContextualizeResult(context_blurb=..., semantic_description="")`
   - special chunk: 验证 JSON 解析正确，返回 `ContextualizeResult(context_blurb, semantic_description)`
   - JSON 解析失败 fallback: 验证整段当 `context_blurb`，`semantic_description=""`
   - retry 行为: mock client 第 1 次抛 `httpx.ReadTimeout`，第 2 次成功 → 验证返回正常
   - retry 耗尽: mock client 连续 3 次抛 → 验证最终 raise
-- `DeepSeekContextualizer.generate_doc_summary`:
+- `Contextualizer.generate_doc_summary`:
   - 单次 mock 调用，验证 prompt 含 `source_title` + `outline_text`
   - 返回 string
 
@@ -386,7 +364,7 @@ contextualize-anthropic = ["anthropic>=0.40"]
 
 ### 集成测试（不做）
 
-- 不打真 DeepSeek/Anthropic API（成本 + 不稳定）
+- 不打真 LLM API（成本 + 不稳定）
 - 不跑 Milvus/ES 集成（stage 4 不动，无新逻辑）
 - 不做 e2e PDF → 索引完整 run（用户重建索引时人工验证 AC6）
 
@@ -406,8 +384,7 @@ contextualize-anthropic = ["anthropic>=0.40"]
 2. **Content 字段不变**: 所有 chunk 的 `content` 字段与 stage 3 (chunking-fix 后) 输出完全一致；`server/api/v1/query.py` 返回的 evidence 显示零变化
 3. **覆盖率**: 新增模块 ≥90%
 4. **回归**: 现有 `tests/pipeline/` + `tests/server/` 全绿
-5. **配置切换**: 设 `CONTEXTUALIZE_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=sk-...` 后 stage 3.5 改走 anthropic SDK；DeepSeek path 关闭
-6. **检索质量主观验证**（回退判据）: 用户重建索引、用既有问答测试集做主观对比；如检索质量未提升 → 整个 feature 分支回退
+5. **检索质量主观验证**（回退判据）: 用户重建索引、用既有问答测试集做主观对比；如检索质量未提升 → 整个 feature 分支回退
 
 ### Rollback Plan
 
@@ -421,7 +398,6 @@ contextualize-anthropic = ["anthropic>=0.40"]
 
 代码级回退成本：**零**（master 不变）。
 索引重建成本：~1 次 stage 3.5 + stage 4 全跑（用户自己估算）。
-依赖回退：如已 `pip install euro-qa[contextualize-anthropic]` 但未来不用 → `pip uninstall anthropic`，可选。
 
 无需 revert master commits、无需手动解决冲突、无需重打 tag。这是测试性功能选 feature 分支策略的核心收益。
 
@@ -441,7 +417,6 @@ contextualize-anthropic = ["anthropic>=0.40"]
 
 1. chunking-fix 实施后，chunk 总数从 ~700 涨到多少？影响 LLM 调用总成本估算
 2. parent chunks 实际数量与 token 分布？影响"是否 contextualize parents"的成本判断
-3. DeepSeek 自动前缀 KV cache 实测命中率？决定是否值得切换 Anthropic provider
 
 ## References
 
