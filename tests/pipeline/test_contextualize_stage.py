@@ -147,3 +147,99 @@ def test_build_embedding_text_special_chunk():
     result = ContextualizeResult(context_blurb="context", semantic_description="description")
 
     assert build_embedding_text(chunk, result) == "[CTX] context\n\n[DESC] description"
+
+
+@pytest.mark.asyncio
+async def test_enrich_chunks_empty_input_returns_immediately():
+    result = await enrich_chunks([], PipelineConfig())
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_enrich_chunks_without_tree_uses_chunk_outline(stage_chunks):
+    """When tree is None, _build_outline_from_chunks fallback runs."""
+    captured: dict = {}
+
+    async def fake_contextualize_chunk(request):
+        return _result_for_kind(request.chunk_kind)
+
+    async def fake_doc_summary(*, source_title, doc_outline_text):
+        captured["outline"] = doc_outline_text
+        return "Document summary."
+
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+        instance = contextualizer_cls.return_value
+        instance.generate_doc_summary = AsyncMock(side_effect=fake_doc_summary)
+        instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
+        await enrich_chunks(stage_chunks, PipelineConfig())  # tree omitted -> None
+
+    # Outline derived from chunk metadata.section_path, not DocumentNode.
+    assert "3.2 Concrete" in captured["outline"]
+
+
+@pytest.mark.asyncio
+async def test_enrich_chunks_progress_callback_can_be_async(stage_chunks, document_tree):
+    """When progress_callback returns an awaitable, it is awaited."""
+    async_calls: list[dict] = []
+
+    async def async_progress(payload: dict):
+        async_calls.append(payload)
+
+    async def fake_contextualize_chunk(request):
+        return _result_for_kind(request.chunk_kind)
+
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+        instance = contextualizer_cls.return_value
+        instance.generate_doc_summary = AsyncMock(return_value="Document summary.")
+        instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
+        await enrich_chunks(
+            stage_chunks,
+            PipelineConfig(),
+            tree=document_tree,
+            progress_callback=async_progress,
+        )
+
+    assert len(async_calls) == len(stage_chunks)
+
+
+@pytest.mark.asyncio
+async def test_text_chunk_without_parent_uses_own_content_as_parent_section(document_tree):
+    """Text chunk lacking parent_chunk_id falls back to its own content."""
+    orphan = _chunk("orphan-1", "Standalone text.", ElementType.TEXT)  # no parent_chunk_id
+    captured_parent: list[str] = []
+
+    async def fake_contextualize_chunk(request):
+        captured_parent.append(request.parent_section_text)
+        return _result_for_kind(request.chunk_kind)
+
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+        instance = contextualizer_cls.return_value
+        instance.generate_doc_summary = AsyncMock(return_value="Document summary.")
+        instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
+        await enrich_chunks([orphan], PipelineConfig(), tree=document_tree)
+
+    assert captured_parent == ["Standalone text."]
+
+
+@pytest.mark.asyncio
+async def test_image_chunk_without_alt_markdown_uses_object_label(document_tree):
+    """Image chunk where regex fails to extract alt falls back to object_label."""
+    weird_image = _chunk(
+        "img-1",
+        "no markdown here",  # regex won't match
+        ElementType.IMAGE,
+        parent_text_chunk_id=None,
+    )
+    captured_alt: list[str] = []
+
+    async def fake_contextualize_chunk(request):
+        captured_alt.append(request.chunk_alt)
+        return _result_for_kind(request.chunk_kind)
+
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+        instance = contextualizer_cls.return_value
+        instance.generate_doc_summary = AsyncMock(return_value="Document summary.")
+        instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
+        await enrich_chunks([weird_image], PipelineConfig(), tree=document_tree)
+
+    assert captured_alt == ["Figure 3.3"]  # object_label set in _chunk fixture
