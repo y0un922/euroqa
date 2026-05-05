@@ -73,6 +73,42 @@ _REQUESTED_CLAUSE_RE = re.compile(
     r"(?<![A-Za-z0-9/])([A-Z]?\d+(?:\.\d+)+[A-Z]?)(?![A-Za-z0-9/])",
     re.IGNORECASE,
 )
+_PARTIAL_FACTOR_WORD_RE = re.compile(
+    r"分项(?:安全)?系数|partial\s+(?:safety\s+)?factors?",
+    re.IGNORECASE,
+)
+_ACTION_PARTIAL_FACTOR_CONTEXT_RE = re.compile(
+    r"作用\s*(?:荷载|效应|组合)|荷载|\bloads?\b|\bactions?\b|"
+    r"permanent\s+actions?|variable\s+actions?",
+    re.IGNORECASE,
+)
+_MATERIAL_PARTIAL_FACTOR_CONTEXT_RE = re.compile(
+    r"材料|钢筋|\bmaterials?\b|\breinforcement\b|\brebar\b|\bsteel\b|"
+    r"混凝土\s*(?:材料)?分项(?:安全)?系数|"
+    r"\bconcrete\s+(?:material\s+)?partial\s+(?:safety\s+)?factors?\b",
+    re.IGNORECASE,
+)
+_CONCRETE_DESIGN_CONTEXT_RE = re.compile(
+    r"混凝土|\bconcrete\b|\bstructural\s+concrete\b|EN\s*1992|EN1992|"
+    r"Eurocode\s*2|\bEC2\b",
+    re.IGNORECASE,
+)
+_ACTION_GAMMA_FACTOR_RE = re.compile(
+    r"(?:γ|gamma)[_\s-]*(?:F|G|Q)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_MATERIAL_GAMMA_FACTOR_RE = re.compile(
+    r"(?:γ|gamma)[_\s-]*(?:M|C|S)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_PARTIAL_FACTOR_STABLE_QUERIES = (
+    "concrete structural design Eurocode partial factors for actions and materials",
+    "EN 1990 EN 1992 EN 1992-1-1 actions materials loads load combination "
+    "ultimate limit state safety factor partial factor concrete steel",
+    "γF γG γQ γM γC γS γ_F γ_G γ_Q γ_M γ_C γ_S "
+    "gammaF gammaG gammaQ gammaM gammaC gammaS "
+    "gamma_F gamma_G gamma_Q gamma_M gamma_C gamma_S",
+)
 
 
 @dataclass
@@ -210,6 +246,72 @@ def extract_requested_objects(
     return requested
 
 
+def _is_concrete_action_material_partial_factor_query(question: str) -> bool:
+    """Return whether the question targets concrete action/material factors.
+
+    Args:
+        question: Sanitized user question.
+
+    Returns:
+        True only when the question has a partial-factor cue, concrete design
+        context, and both action/load and material context.
+    """
+    has_action_symbol = bool(_ACTION_GAMMA_FACTOR_RE.search(question))
+    has_material_symbol = bool(_MATERIAL_GAMMA_FACTOR_RE.search(question))
+    has_partial_factor_cue = (
+        bool(_PARTIAL_FACTOR_WORD_RE.search(question))
+        or has_action_symbol
+        or has_material_symbol
+    )
+    if not has_partial_factor_cue:
+        return False
+
+    has_concrete_design_context = bool(_CONCRETE_DESIGN_CONTEXT_RE.search(question))
+    has_action_context = bool(_ACTION_PARTIAL_FACTOR_CONTEXT_RE.search(question)) or has_action_symbol
+    has_material_context = (
+        bool(_MATERIAL_PARTIAL_FACTOR_CONTEXT_RE.search(question))
+        or has_material_symbol
+    )
+
+    return has_concrete_design_context and has_action_context and has_material_context
+
+
+def _stabilize_partial_factor_expansion(
+    question: str,
+    expansion: ExpansionResult,
+) -> ExpansionResult:
+    """Apply deterministic routing for concrete action/material factor questions.
+
+    Args:
+        question: Sanitized user question.
+        expansion: LLM expansion result to preserve for non-target questions.
+
+    Returns:
+        A stabilized expansion for the focused partial-factor intent, otherwise
+        the original expansion unchanged.
+    """
+    if not _is_concrete_action_material_partial_factor_query(question):
+        return expansion
+
+    return ExpansionResult(
+        queries=list(_PARTIAL_FACTOR_STABLE_QUERIES),
+        question_type=QuestionType.PARAMETER,
+        engineering_context=expansion.engineering_context,
+        guide_hint=GuideHint(need_example=False),
+        routing=RoutingDecision(
+            answer_mode=AnswerMode.EXACT,
+            intent_label="limit",
+            intent_confidence=1.0,
+            target_hint=RoutingTargetHint(
+                document="EN 1990 and EN 1992-1-1",
+                clause=None,
+                object="partial factors for actions and materials",
+            ),
+            reason_short="asks for exact Eurocode partial factor values",
+        ),
+    )
+
+
 async def expand_queries(
     question: str,
     glossary: dict[str, str],
@@ -292,7 +394,7 @@ async def expand_queries(
         raw = await _call_llm(prompt, config)
         result = _parse_expansion_result(raw)
         if result and result.queries:
-            return result
+            return _stabilize_partial_factor_expansion(question, result)
         logger.warning(
             "query_expansion_failed_falling_back_to_original",
             reason="empty_or_invalid_expansion_result",
@@ -306,7 +408,7 @@ async def expand_queries(
             exc_info=True,
         )
 
-    return ExpansionResult(queries=[question])
+    return _stabilize_partial_factor_expansion(question, ExpansionResult(queries=[question]))
 
 
 def _parse_expansion_result(raw: str) -> ExpansionResult | None:

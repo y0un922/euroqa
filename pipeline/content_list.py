@@ -175,19 +175,46 @@ def _match_heading_indexes(
     matches: list[int | None] = []
     cursor = 0
     for level, title, _ in segments:
-        match_index: int | None = None
-        for entry_index in range(cursor, len(entries)):
-            entry = entries[entry_index]
-            if entry.text_level <= 0:
-                continue
-            if entry.text_level != level:
-                continue
-            if _texts_match(title, entry.text):
-                match_index = entry_index
-                cursor = entry_index + 1
-                break
+        match_index = _find_heading_match(
+            entries,
+            cursor=cursor,
+            title=title,
+            level=level,
+            require_level=True,
+        )
+        if match_index is None:
+            match_index = _find_heading_match(
+                entries,
+                cursor=cursor,
+                title=title,
+                level=level,
+                require_level=False,
+            )
+        if match_index is not None:
+            cursor = match_index + 1
         matches.append(match_index)
     return matches
+
+
+def _find_heading_match(
+    entries: list[ContentListEntry],
+    *,
+    cursor: int,
+    title: str,
+    level: int,
+    require_level: bool,
+) -> int | None:
+    """Find a heading entry by text, optionally requiring exact text_level."""
+
+    for entry_index in range(cursor, len(entries)):
+        entry = entries[entry_index]
+        if entry.text_level <= 0:
+            continue
+        if require_level and entry.text_level != level:
+            continue
+        if _texts_match(title, entry.text):
+            return entry_index
+    return None
 
 
 def _texts_match(left: str, right: str) -> bool:

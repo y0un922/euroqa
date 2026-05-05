@@ -118,11 +118,19 @@ class TestAnswerPrompts:
         prompt = build_open_system_prompt(question_type=qt)
         assert "不得编造条款号、页码、公式、参数或案例" in prompt
 
+    @pytest.mark.parametrize("qt", ["parameter", "rule", "calculation", "mechanism"])
+    def test_open_templates_use_readable_evidence_locations_in_body(self, qt):
+        prompt = build_open_system_prompt(question_type=qt)
+        assert "正文中不要输出 [Ref-N] 或 【Ref-N】" in prompt
+        assert "依据：《文档名》，条款/章节：XXX，页码：XXX" in prompt
+        assert "不要用文件名/条款号/页码格式替代 [Ref-N]" not in prompt
+
     def test_exact_template_uses_same_evidence_organizer_contract(self):
         prompt = build_exact_system_prompt()
         assert "回答整理助手" in prompt
         assert "只能依据输入证据作答" in prompt
         assert "依据位置格式要求" in prompt
+        assert "正文中不要输出 [Ref-N] 或 【Ref-N】" in prompt
 
     def test_exact_template_requires_binding_key_conclusions_to_sources(self):
         prompt = build_exact_system_prompt()

@@ -29,6 +29,11 @@ class PipelineConfig(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     llm_concurrency: int = 10
+    contextualize_llm_api_key: str = ""
+    contextualize_llm_base_url: str = ""
+    contextualize_llm_model: str = ""
+    contextualize_concurrency: int = 8
+    contextualize_retry_attempts: int = 2
 
     embedding_provider: Literal["local", "remote"] = "local"
     embedding_api_url: str = ""

@@ -18,7 +18,7 @@ from pipeline.structure import (
 )
 from pipeline.chunk import create_chunks
 from pipeline.chunk import validate_unique_chunk_ids
-from pipeline.summarize import enrich_chunk_summaries
+from pipeline.contextualize import enrich_chunks
 from pipeline.index import index_to_milvus, index_to_elasticsearch
 from server.models.schemas import Chunk
 from shared.pipeline_debug import PipelineDebugRecorder, PipelineDebugStore
@@ -271,21 +271,20 @@ async def _run_pipeline(
                     )
                     logger.info("stage_3_done", source=source_name, chunks=len(chunks))
 
-                # Stage 3.5: LLM summaries
+                # Stage 3.5: contextual retrieval enrichment
                 if start_stage <= 3.5:
                     if start_stage > 3 and all_chunks:
-                        # chunks 已从断点加载
                         chunks = [c for c in all_chunks if c.metadata.source == source_name]
 
-                    special_count = sum(1 for c in chunks if c.metadata.element_type.value != "text")
-                    logger.info("stage_3_5_start", source=source_name, special_chunks=special_count)
+                    all_chunk_count = len(chunks)
+                    logger.info("stage_3_5_start", source=source_name, all_chunks=all_chunk_count)
                     recorder.start_stage(
                         "stage_3_5",
                         document_id=doc_id,
-                        summary={"total_special_chunks": special_count, "completed": 0},
+                        summary={"total_all_chunks": all_chunk_count, "completed": 0},
                     )
 
-                    def _on_summary_progress(payload: dict) -> None:
+                    def _on_contextualize_progress(payload: dict) -> None:
                         logger.info(
                             "stage_3_5_progress",
                             source=source_name,
@@ -295,10 +294,11 @@ async def _run_pipeline(
                         )
                         recorder.update_stage("stage_3_5", document_id=doc_id, summary=payload)
 
-                    chunks = await enrich_chunk_summaries(
+                    chunks = await enrich_chunks(
                         chunks,
                         config,
-                        progress_callback=_on_summary_progress,
+                        tree=tree,
+                        progress_callback=_on_contextualize_progress,
                     )
                     recorder.record_json_artifact(
                         document_id=doc_id,
@@ -310,9 +310,9 @@ async def _run_pipeline(
                     recorder.complete_stage(
                         "stage_3_5",
                         document_id=doc_id,
-                        summary={"completed": special_count, "total_special_chunks": special_count},
+                        summary={"completed": all_chunk_count, "total_all_chunks": all_chunk_count},
                     )
-                    logger.info("stage_3_5_done", source=source_name, special_chunks=special_count)
+                    logger.info("stage_3_5_done", source=source_name, all_chunks=all_chunk_count)
 
                     all_chunks.extend(chunks)
 
