@@ -35,7 +35,8 @@ _CLAUSE_TOKEN_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_DOC_RE = re.compile(
-    r"\ben\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)(?:[\s:_-]*([0-9]{4}))?\b",
+    r"(?<![A-Za-z0-9])en\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)"
+    r"(?:[\s:_-]*([0-9]{4}))?(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 _GUIDE_EXAMPLE_MARKERS = (
@@ -171,7 +172,7 @@ class HybridRetriever:
             output_fields=["chunk_id", "source", "element_type"],
         )
 
-        return [
+        results = [
             {
                 "chunk_id": hit.entity.get("chunk_id"),
                 "source": hit.entity.get("source"),
@@ -179,6 +180,7 @@ class HybridRetriever:
             }
             for hit in results[0]
         ]
+        return self._filter_results_by_source(results, filters)
 
     async def _bm25_search(
         self,
@@ -555,6 +557,44 @@ class HybridRetriever:
             return f'source == "{aliases[0]}"'
         quoted = ", ".join(f'"{alias}"' for alias in aliases)
         return f"source in [{quoted}]"
+
+    @classmethod
+    def _source_matches_filter(cls, source: str, expected: str) -> bool:
+        """Return whether an indexed source satisfies a user-facing source filter."""
+
+        normalized_source = source.strip()
+        aliases = cls._source_aliases(expected)
+        code, year = cls._parse_source_reference(expected)
+        if normalized_source in aliases:
+            return True
+        if code and not year:
+            source_code, _ = cls._parse_source_reference(normalized_source)
+            return source_code == code or source_code.startswith(f"{code}-")
+        return False
+
+    @classmethod
+    def _filter_results_by_source(
+        cls,
+        results: list[dict],
+        filters: dict | None,
+    ) -> list[dict]:
+        """Apply source filters to result rows that were not filtered by backend expr."""
+
+        filters = filters or {}
+        if "source" in filters:
+            return [
+                result
+                for result in results
+                if cls._source_matches_filter(str(result.get("source") or ""), filters["source"])
+            ]
+        if "sources" in filters:
+            allowed = set(filters["sources"])
+            return [
+                result
+                for result in results
+                if result.get("source") in allowed
+            ]
+        return results
 
     @classmethod
     def _is_object_like_clause_metadata(cls, value: str) -> bool:

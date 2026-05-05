@@ -271,6 +271,22 @@ class TestGuideRetrieval:
 
 
 class TestCrossRefConstraints:
+    def test_filter_results_by_source_matches_yearless_eurocode_filter(self, retriever):
+        results = [
+            {"chunk_id": "en1992", "source": "EN1992-1-1_2004", "score": 0.9},
+            {"chunk_id": "dg1992", "source": "DG_EN1992-1-1__-1-2", "score": 0.8},
+            {"chunk_id": "dg1990", "source": "DG EN1990", "score": 0.7},
+            {"chunk_id": "plain-number", "source": "Guide 1992 example", "score": 0.6},
+            {"chunk_id": "en19920", "source": "EN19920", "score": 0.5},
+        ]
+
+        filtered = retriever._filter_results_by_source(
+            results,
+            {"source": "EN 1992"},
+        )
+
+        assert [result["chunk_id"] for result in filtered] == ["en1992", "dg1992"]
+
     def test_build_cross_ref_filters_uses_explicit_source_filter(self, retriever):
         final_chunks = [_make_chunk("a", "See Table 3.1")]
 

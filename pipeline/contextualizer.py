@@ -107,10 +107,10 @@ class Contextualizer:
 
     def __init__(self, config: PipelineConfig) -> None:
         self._client = AsyncOpenAI(
-            base_url=config.llm_base_url,
-            api_key=config.llm_api_key,
+            base_url=config.contextualize_llm_base_url or config.llm_base_url,
+            api_key=config.contextualize_llm_api_key or config.llm_api_key,
         )
-        self._model = config.llm_model
+        self._model = config.contextualize_llm_model or config.llm_model
         self._retry_attempts = max(1, config.contextualize_retry_attempts)
 
     async def generate_doc_summary(self, source_title: str, doc_outline_text: str) -> str:

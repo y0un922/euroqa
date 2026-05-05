@@ -51,6 +51,50 @@ def _chat_response(content: str) -> SimpleNamespace:
     )
 
 
+def test_contextualizer_uses_contextualize_llm_overrides():
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())))
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client) as openai:
+        contextualizer = Contextualizer(
+            PipelineConfig(
+                llm_api_key="main-key",
+                llm_base_url="https://main.test/v1",
+                llm_model="main-model",
+                contextualize_llm_api_key="context-key",
+                contextualize_llm_base_url="https://context.test/v1",
+                contextualize_llm_model="context-model",
+            )
+        )
+
+    openai.assert_called_once_with(
+        base_url="https://context.test/v1",
+        api_key="context-key",
+    )
+    assert contextualizer._model == "context-model"
+
+
+def test_contextualizer_falls_back_to_main_llm_settings():
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())))
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client) as openai:
+        contextualizer = Contextualizer(
+            PipelineConfig(
+                llm_api_key="main-key",
+                llm_base_url="https://main.test/v1",
+                llm_model="main-model",
+                contextualize_llm_api_key="",
+                contextualize_llm_base_url="",
+                contextualize_llm_model="",
+            )
+        )
+
+    openai.assert_called_once_with(
+        base_url="https://main.test/v1",
+        api_key="main-key",
+    )
+    assert contextualizer._model == "main-model"
+
+
 @pytest.mark.asyncio
 async def test_generate_doc_summary_prompt_contains_title_and_outline():
     create = AsyncMock(return_value=_chat_response("Summary text."))
@@ -62,6 +106,7 @@ async def test_generate_doc_summary_prompt_contains_title_and_outline():
                 llm_api_key="key",
                 llm_base_url="https://llm.test/v1",
                 llm_model="demo-model",
+                contextualize_llm_model="",
                 contextualize_retry_attempts=2,
             )
         )
