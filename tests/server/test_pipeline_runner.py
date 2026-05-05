@@ -37,7 +37,8 @@ async def test_run_single_document_indexes_chunks_with_uploaded_doc_id(
         (output_dir / f"{doc_id}_meta.json").write_text("{}", encoding="utf-8")
         return md_path
 
-    async def fake_enrich(chunks, _config, progress_callback=None):
+    async def fake_enrich(chunks, _config, *, tree=None, progress_callback=None):
+        assert tree is not None
         return chunks
 
     indexed_sources: list[str] = []

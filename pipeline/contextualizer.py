@@ -59,7 +59,7 @@ def build_outline_from_tree(tree: DocumentNode, *, first_para_max_chars: int = 2
             truncated = first_para[:first_para_max_chars]
             suffix = "…" if len(first_para) >= first_para_max_chars else ""
             lines.append(f"{indent}  {truncated}{suffix}")
-            token_estimate_chars += len(indent) + 2 + len(first_para)
+            token_estimate_chars += len(indent) + 2 + len(truncated) + len(suffix)
 
     text = "\n".join(lines)
     if _estimate_tokens_from_chars(token_estimate_chars) > 50000:
@@ -149,11 +149,16 @@ class Contextualizer:
         image_alt = ""
         if request.chunk_kind == "image" and request.chunk_alt:
             image_alt = f"\nImage alt text: {request.chunk_alt}"
+        parent_section = (
+            f"Section containing the element:\n{request.parent_section_text}\n\n"
+            if request.parent_section_text
+            else ""
+        )
 
         prompt = (
             f"Document summary: {request.doc_summary}\n"
             f"Section path: {' > '.join(request.section_path)}\n"
-            f"Section containing the element:\n{request.parent_section_text}\n\n"
+            f"{parent_section}"
             f"The element ({request.chunk_kind}) to situate:\n{request.chunk_content}"
             f"{image_alt}\n\n"
             "Respond with a JSON object exactly matching this schema:\n"

@@ -113,6 +113,7 @@ async def _run_pipeline(
 
     try:
         all_chunks: list[Chunk] = []
+        resumed_stage3_chunks = False
 
         # ---- 断点续跑：从已有产物加载 chunks ----
         if start_stage > 3.5:
@@ -146,6 +147,7 @@ async def _run_pipeline(
                 config.debug_pipeline_dir, source_run, "stage3_chunks.json",
             )
             validate_unique_chunk_ids(all_chunks)
+            resumed_stage3_chunks = True
             logger.info("resume_chunks_loaded", count=len(all_chunks))
 
         # ---- Stage 1: MinerU PDF parsing ----
@@ -187,7 +189,7 @@ async def _run_pipeline(
             logger.info("stage_1_skipped", count=len(md_paths))
 
         # ---- Stage 2 + 3 + 3.5: 逐文档处理 ----
-        if start_stage <= 1 or (start_stage <= 3.5 and not all_chunks):
+        if start_stage <= 3.5:
             pruning_config = TreePruningConfig.from_pipeline_settings(
                 enabled=config.tree_pruning_enabled,
                 body_start_titles=config.tree_pruning_body_start_titles,
@@ -274,6 +276,12 @@ async def _run_pipeline(
                 # Stage 3.5: contextual retrieval enrichment
                 if start_stage <= 3.5:
                     if start_stage > 3 and all_chunks:
+                        raw_tree = parse_markdown_to_tree(
+                            markdown,
+                            source=source_name,
+                            content_list=content_list,
+                        )
+                        tree = prune_document_tree(raw_tree, pruning_config)
                         chunks = [c for c in all_chunks if c.metadata.source == source_name]
 
                     all_chunk_count = len(chunks)
@@ -314,7 +322,8 @@ async def _run_pipeline(
                     )
                     logger.info("stage_3_5_done", source=source_name, all_chunks=all_chunk_count)
 
-                    all_chunks.extend(chunks)
+                    if not resumed_stage3_chunks:
+                        all_chunks.extend(chunks)
 
         logger.info("total_chunks", count=len(all_chunks))
 

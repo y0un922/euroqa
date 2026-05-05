@@ -243,3 +243,21 @@ async def test_image_chunk_without_alt_markdown_uses_object_label(document_tree)
         await enrich_chunks([weird_image], PipelineConfig(), tree=document_tree)
 
     assert captured_alt == ["Figure 3.3"]  # object_label set in _chunk fixture
+
+
+@pytest.mark.asyncio
+async def test_special_chunk_without_parent_uses_empty_parent_section(document_tree):
+    table = _chunk("table-orphan", "| A |\n|---|\n| 1 |", ElementType.TABLE)
+    captured_parent: list[str] = []
+
+    async def fake_contextualize_chunk(request):
+        captured_parent.append(request.parent_section_text)
+        return _result_for_kind(request.chunk_kind)
+
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+        instance = contextualizer_cls.return_value
+        instance.generate_doc_summary = AsyncMock(return_value="Document summary.")
+        instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
+        await enrich_chunks([table], PipelineConfig(), tree=document_tree)
+
+    assert captured_parent == [""]

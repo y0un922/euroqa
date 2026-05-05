@@ -135,7 +135,7 @@ async def run_single_document(
                 ))
 
     chunks = await enrich_chunks(
-        chunks, pipeline_config, progress_callback=_on_summary_progress,
+        chunks, pipeline_config, tree=tree, progress_callback=_on_summary_progress,
     )
 
     # Stage 4: 索引（先删旧再插新）
