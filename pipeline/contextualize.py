@@ -133,7 +133,7 @@ def _resolve_parent_section_text(chunk: Chunk, chunk_lookup: dict[str, Chunk]) -
     parent_text_chunk_id = chunk.metadata.parent_text_chunk_id
     if parent_text_chunk_id and parent_text_chunk_id in chunk_lookup:
         return chunk_lookup[parent_text_chunk_id].content
-    return chunk.content
+    return ""
 
 
 def _extract_alt_if_image(chunk: Chunk) -> str:

@@ -241,6 +241,28 @@ async def test_contextualize_chunk_image_prompt_includes_alt_text():
 
 
 @pytest.mark.asyncio
+async def test_contextualize_special_prompt_omits_empty_parent_section():
+    raw_json = '{"context": "Context.", "description": "Description."}'
+    create = AsyncMock(return_value=_chat_response(raw_json))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="",
+        chunk_content="| A |\n|---|\n| 1 |",
+        chunk_kind="table",
+        section_path=["Section 3"],
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        await contextualizer.contextualize_chunk(request)
+
+    prompt = create.await_args.kwargs["messages"][0]["content"]
+    assert "Section containing the element:" not in prompt
+    assert prompt.count("| A |") == 1
+
+
+@pytest.mark.asyncio
 async def test_contextualize_chunk_json_parse_fallback():
     raw = "This table gives concrete strength classes in context."
     create = AsyncMock(return_value=_chat_response(raw))

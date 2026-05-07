@@ -79,20 +79,29 @@ def test_empty_tree_returns_empty_string():
 
 
 def test_large_outline_falls_back_to_titles_only():
-    huge = "x " * 120000
+    huge = "x " * 120
     tree = _section(
         "root",
-        children=[
-            _section("1 General", huge),
-            _section("2 Materials", huge),
-        ],
+        children=[_section(f"{idx} Section", huge) for idx in range(1000)],
     )
 
     with capture_logs() as logs:
         outline = build_outline_from_tree(tree)
 
-    assert outline == "1 General\n2 Materials"
+    assert outline.splitlines()[:2] == ["0 Section", "1 Section"]
     assert any(log["event"] == "outline_fallback_titles_only" for log in logs)
+
+
+def test_long_paragraph_estimate_uses_truncated_excerpt():
+    huge = "x " * 120000
+    tree = _section("root", children=[_section("1 General", huge)])
+
+    with capture_logs() as logs:
+        outline = build_outline_from_tree(tree)
+
+    assert outline.startswith("1 General\n  ")
+    assert outline.endswith("…")
+    assert not any(log["event"] == "outline_fallback_titles_only" for log in logs)
 
 
 @pytest.mark.parametrize(

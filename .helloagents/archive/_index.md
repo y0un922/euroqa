@@ -7,6 +7,9 @@
 
 | 时间戳 | 名称 | 类型 | 涉及模块 | 决策 | 结果 |
 |--------|------|------|---------|------|------|
+| 202604282221 | pdf-page-number-sync-fix | implementation | frontend.components.EvidencePanel, frontend.lib.pdfViewerPage | pdf-page-number-sync-fix#D001 | ✅完成 |
+| 202604282002 | thinking-panel-collapse-fix | implementation | frontend.components.MainWorkspace | thinking-panel-collapse-fix#D001 | ✅完成 |
+| 202604191218 | layout-hot-questions-session-history | implementation | frontend.components.Sidebar, frontend.hooks.useEuroQaDemo, frontend.lib.session, server.api.v1.glossary | layout-hot-questions-session-history#D001,#D002 | ✅完成 |
 | 202604112241 | remove-chat-history | implementation | server.api.v1.query, frontend.hooks.useEuroQaDemo, frontend.components.Sidebar | remove-chat-history#D001 | ✅完成 |
 | 202604112032 | glossary-json-from-xlsx | implementation | data.glossary | glossary-json-from-xlsx#D001 | ✅完成 |
 | 202604112019 | glossary-xlsx-runtime-backfill | implementation | external glossary, data.glossary | glossary-xlsx-runtime-backfill#D001 | ✅完成 |
@@ -19,6 +22,9 @@
 ## 按月归档
 
 ### 2026-04
+- [202604282221_pdf-page-number-sync-fix](./2026-04/202604282221_pdf-page-number-sync-fix/) - 修复右侧 PDF 翻页后页码显示不同步
+- [202604282002_thinking-panel-collapse-fix](./2026-04/202604282002_thinking-panel-collapse-fix/) - 修复流式生成中深度思考面板无法手动折叠
+- [202604191218_layout-hot-questions-session-history](./2026-04/202604191218_layout-hot-questions-session-history/) - 左栏移除术语预览并恢复本地历史会话归档/查看
 - [202604112241_remove-chat-history](./2026-04/202604112241_remove-chat-history/) - 删除前后端 history 记忆与侧边栏最近提问
 - [202604112032_glossary-json-from-xlsx](./2026-04/202604112032_glossary-json-from-xlsx/) - 按 xlsx 直接重建运行时术语表 JSON
 - [202604112019_glossary-xlsx-runtime-backfill](./2026-04/202604112019_glossary-xlsx-runtime-backfill/) - 回填外部术语库中缺失的运行时术语

@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## [0.1.22] - 2026-04-28
+
+### 快速修改
+- **[server.api.v1.query / frontend MainWorkspace]**: 流式问答新增用户友好的检索过程进度事件，前端在回答区展示问题理解、规范检索、引用补齐、指南参考和生成回答的阶段摘要，提升长链路等待体感 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/query.py; frontend/src/lib/types.ts; frontend/src/lib/api.ts; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/components/MainWorkspace.tsx; tests/server/test_api.py; frontend/src/lib/api.test.ts; frontend/src/components/MainWorkspace.test.ts
+
+## [0.1.21] - 2026-04-28
+
+### 修复
+- **[frontend.components.EvidencePanel / frontend.lib.pdfViewerPage]**: 修复右侧 PDF 阅读器点击上一页/下一页后顶部页码显示不实时更新的问题，所有页码变更入口现在同步更新当前页与页码输入框 — by yangzhuo
+  - 方案: [202604282221_pdf-page-number-sync-fix](archive/2026-04/202604282221_pdf-page-number-sync-fix/)
+  - 决策: pdf-page-number-sync-fix#D001(页码状态集中解析)
+
+## [0.1.20] - 2026-04-28
+
+### 修复
+- **[frontend.components.MainWorkspace]**: 修复流式生成早期“深度思考”面板无法手动折叠的问题，手动展开/折叠偏好现在优先于自动展开条件 — by yangzhuo
+  - 方案: [202604282002_thinking-panel-collapse-fix](archive/2026-04/202604282002_thinking-panel-collapse-fix/)
+  - 决策: thinking-panel-collapse-fix#D001(手动偏好优先于自动展开)
+
+## [0.1.19] - 2026-04-19
+
+### 快速修改
+- **[server.api.v1.glossary / frontend MainWorkspace / frontend Sidebar]**: 继续扩充首页热门问题题库，并把欢迎区与左侧栏的热门问题显示数量分别放宽到 6 条和 10 条，方便直接点选更多问题 — by yangzhuo
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/glossary.py; frontend/src/components/MainWorkspace.tsx; frontend/src/components/Sidebar.tsx; frontend/src/components/MainWorkspace.test.ts; frontend/src/components/Sidebar.test.tsx; tests/server/test_api.py
+
+## [0.1.18] - 2026-04-19
+
+### 优化
+- **[frontend.components.Sidebar / frontend.hooks.useEuroQaDemo / frontend.lib.session / server.api.v1.glossary]**: 左侧栏移除术语预览，热门问题切换到新的混凝土结构题库，并恢复“新建检索会话→归档当前会话→历史会话可回看”的本地历史流程 — by yangzhuo
+  - 方案: [202604191218_layout-hot-questions-session-history](archive/2026-04/202604191218_layout-hot-questions-session-history/)
+  - 决策: layout-hot-questions-session-history#D001(历史会话采用浏览器本地归档), layout-hot-questions-session-history#D002(历史会话替换术语预览区)
+
 ## [0.1.17] - 2026-04-13
 
 ### 快速修改
