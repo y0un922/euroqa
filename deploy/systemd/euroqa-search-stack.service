@@ -1,0 +1,21 @@
+[Unit]
+Description=Euro_QA search dependencies (Milvus and Elasticsearch)
+Documentation=file:/home/root251/euroqa/deploy/systemd/README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root251
+Group=root251
+WorkingDirectory=/home/root251/euroqa
+ExecStart=/usr/bin/docker compose up milvus-etcd milvus-minio milvus elasticsearch
+ExecStop=/usr/bin/docker compose stop milvus elasticsearch milvus-minio milvus-etcd
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=180
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

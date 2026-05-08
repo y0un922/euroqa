@@ -303,6 +303,93 @@ rows = collection.search(..., expr=expr)
 return _filter_results_by_source(rows, filters)
 ```
 
+### Scenario: Repo-Versioned systemd Deployment Units
+
+#### 1. Scope / Trigger
+
+- Trigger: any change that adds or updates `deploy/systemd/*.service` or the accompanying deployment README for running Euro_QA under systemd.
+- Reason: systemd deployment is an infra contract. The unit files must keep the backend, frontend, and search stack alive independently of SSH sessions, and they must remain safe to install on a Linux host.
+
+#### 2. Signatures
+
+- Backend unit: `deploy/systemd/euroqa-backend.service`
+- Frontend unit: `deploy/systemd/euroqa-frontend.service`
+- Search stack unit: `deploy/systemd/euroqa-search-stack.service`
+- Documentation: `deploy/systemd/README.md`
+- Deployment path contract: `WorkingDirectory=/home/root251/euroqa` by default
+- Service identity contract: `User=root251`, `Group=root251` by default
+
+#### 3. Contracts
+
+- Backend unit must:
+  - run `uv run uvicorn server.main:app --host 0.0.0.0 --port 8080`
+  - omit `--reload`
+  - use `Restart=on-failure`
+  - depend on the search stack unit before startup
+- Frontend unit must:
+  - run `pnpm --dir frontend build` before preview start
+  - run `pnpm --dir frontend preview --host 0.0.0.0 --port 4173`
+  - use `Restart=on-failure`
+  - keep the preview command separate from the build step
+- Search stack unit must:
+  - start the Compose services `milvus-etcd`, `milvus-minio`, `milvus`, and `elasticsearch`
+  - stop them with `docker compose stop`
+  - use `Restart=on-failure`
+- Deployment README must document:
+  - install/update commands
+  - start/stop/status/log commands
+  - rollback/disable commands
+  - the path/user replacement step when the host differs from the default
+- If the deployment user or path changes, every unit file reference must be updated together:
+  - `User=`
+  - `Group=`
+  - `WorkingDirectory=`
+  - `Documentation=`
+  - any user-home `PATH` fragment
+
+#### 4. Validation & Error Matrix
+
+- Backend unit contains `--reload` -> invalid for systemd deployment; remove it.
+- Frontend unit uses `pnpm dev` -> invalid for a persistent service; use build + preview.
+- Frontend unit omits the build pre-step -> invalid; preview must be preceded by `pnpm build`.
+- Search unit uses detached Compose startup without a persistent main process -> invalid; systemd must supervise the foreground Compose process.
+- Deployment path or user changes partially updated in only one file -> invalid; update all matching unit fields and docs together.
+- `systemd-analyze verify` unavailable in the local environment -> acceptable for authoring, but keep the unit syntax simple and structurally valid.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: a repo-versioned `deploy/systemd/*.service` set can be copied to `/etc/systemd/system/`, then enabled with `systemctl`.
+- Base: the default Linux host matches `root251` and `/home/root251/euroqa`, so the README commands work as written.
+- Bad: a unit file that only works inside the current SSH session or relies on `--reload` for long-lived service execution.
+
+#### 6. Tests Required
+
+- Verify each unit file has valid `[Unit]`, `[Service]`, and `[Install]` sections.
+- Verify the backend unit has no `--reload` and targets port `8080`.
+- Verify the frontend unit builds before preview and targets port `4173`.
+- Verify the search unit references the expected Compose services and stop command.
+- Verify the README includes install, start, stop, status, log, and rollback commands.
+- When the local environment supports it, run `systemd-analyze verify` on the generated unit files.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```ini
+[Service]
+WorkingDirectory=/home/root251/euroqa/frontend
+ExecStart=/usr/bin/env pnpm dev
+```
+
+##### Correct
+
+```ini
+[Service]
+WorkingDirectory=/home/root251/euroqa
+ExecStartPre=/usr/bin/env pnpm --dir frontend build
+ExecStart=/usr/bin/env pnpm --dir frontend preview --host 0.0.0.0 --port 4173
+```
+
 ### Scenario: PDF Parser Page Metadata Integrity
 
 #### 1. Scope / Trigger

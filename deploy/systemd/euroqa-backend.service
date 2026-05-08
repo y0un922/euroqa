@@ -1,0 +1,23 @@
+[Unit]
+Description=Euro_QA FastAPI backend
+Documentation=file:/home/root251/euroqa/deploy/systemd/README.md
+Requires=euroqa-search-stack.service
+After=network-online.target euroqa-search-stack.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root251
+Group=root251
+WorkingDirectory=/home/root251/euroqa
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/root251/.local/bin:/home/root251/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env uv run uvicorn server.main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
