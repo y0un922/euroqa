@@ -39,6 +39,53 @@ def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerCo
     )
 
 
+def _conversation_id_from_request(req: QueryRequest) -> str | None:
+    """Resolve old conversation_id and external sessionId aliases."""
+    return req.session_id or req.conversation_id
+
+
+def _camelize_source_payload(source: dict) -> dict:
+    """Add interface-document camelCase aliases while preserving old keys."""
+    aliases = {
+        "document_id": "docId",
+        "element_type": "elementType",
+        "original_text": "originalText",
+        "locator_text": "locatorText",
+        "highlight_text": "highlightText",
+    }
+    payload = dict(source)
+    for old_key, new_key in aliases.items():
+        if old_key in source:
+            payload[new_key] = source[old_key]
+    return payload
+
+
+def _external_done_payload(
+    data: dict,
+    *,
+    question_type: str | None,
+    answer_mode: str | None,
+    groundedness: str | None,
+    title: str | None,
+) -> dict:
+    """Merge stream done metadata required by the external API document."""
+    sources = [
+        _camelize_source_payload(source) if isinstance(source, dict) else source
+        for source in data.get("sources", [])
+    ]
+    related_refs = data.get("related_refs", [])
+    return {
+        **data,
+        "code": 200,
+        "sources": sources,
+        "relatedRefs": related_refs,
+        "questionType": question_type or data.get("question_type"),
+        "answerMode": answer_mode,
+        "groundedness": groundedness,
+        "title": title,
+    }
+
+
 def _field_value(payload: object, key: str) -> object:
     """Read a value from a dict, model, enum-like object, or namespace."""
     if payload is None:
@@ -202,7 +249,7 @@ async def query(
         preferred_element_type=analysis.preferred_element_type,
     )
 
-    conv = conv_mgr.get_or_create(req.conversation_id)
+    conv = conv_mgr.get_or_create(_conversation_id_from_request(req))
 
     response = await generate_answer(
         question=req.question,
@@ -357,7 +404,7 @@ async def query_stream(
                 ),
             }
 
-            conv_mgr.get_or_create(req.conversation_id)
+            conv_mgr.get_or_create(_conversation_id_from_request(req))
             yield {
                 "event": "progress",
                 "data": json.dumps(
@@ -402,6 +449,15 @@ async def query_stream(
                         "answer_mode": analysis.answer_mode.value if analysis.answer_mode else None,
                         "groundedness": result.groundedness,
                     }
+                    data = _external_done_payload(
+                        data,
+                        question_type=analysis.question_type.value
+                        if analysis.question_type else data.get("question_type"),
+                        answer_mode=analysis.answer_mode.value
+                        if analysis.answer_mode else None,
+                        groundedness=result.groundedness,
+                        title=None,
+                    )
                 yield {"event": event_type, "data": json.dumps(data, ensure_ascii=False)}
         except Exception:
             logger.exception("stream_pipeline_failed")

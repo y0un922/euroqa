@@ -15,6 +15,8 @@
 - `rewritten_query` 作为主检索 query，`original_question` 仅作为向量补召回信号，不直接触发中文 BM25。
 - 问答入口不再向生成层传递历史问答；每次请求都按独立对话处理。
 - `conversation_id` 字段仅作为请求/响应关联标识保留，不再驱动多轮 history 记忆。
+- `/query/stream` 的 `done` 事件会额外补齐外部对接所需的 `code`、`questionType`、`answerMode`、`relatedRefs`、`title` 和来源字段 camelCase 别名。
+- 请求体兼容 `sessionId`，并将其视为外部会话标识别名。
 
 ## 依赖关系
 

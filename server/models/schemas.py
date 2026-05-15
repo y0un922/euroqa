@@ -8,6 +8,20 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def to_camel(value: str) -> str:
+    """Convert snake_case field names to lower camelCase."""
+    parts = value.split("_")
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+class CamelModel(BaseModel):
+    """Base model for external API-document contracts."""
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+
 class ElementType(str, Enum):
     TEXT = "text"
     TABLE = "table"
@@ -125,9 +139,12 @@ class LlmSettingsResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     question: str = Field(..., max_length=500)
     domain: Optional[str] = None
     conversation_id: Optional[str] = None
+    session_id: Optional[str] = Field(default=None, alias="sessionId")
     stream: bool = False
     llm: Optional[LlmSettingsOverride] = None
 
@@ -231,6 +248,94 @@ class DocumentProcessResponse(BaseModel):
     doc_id: str
     stage: str
     message: str
+
+
+class ApiErrorResponse(CamelModel):
+    code: int
+    message: str
+    detail: str | None = None
+
+
+class DocumentParseRequest(CamelModel):
+    doc_id: str
+    file_name: str
+    minio_path: str
+
+
+class DocumentParseResponse(CamelModel):
+    code: int = 200
+    doc_id: str
+    status: str
+    message: str
+
+
+class DocumentStatusBatchRequest(CamelModel):
+    doc_ids: list[str] = Field(..., min_length=1, max_length=50)
+
+
+class DocumentStatusError(CamelModel):
+    type: str
+    detail: str
+    stage: str
+    timestamp: str
+
+
+class DocumentStatusItem(CamelModel):
+    doc_id: str
+    status: str
+    progress: float
+    stage: str
+    message: str
+    chunk_count: int | None = None
+    error: DocumentStatusError | None = None
+
+
+class DocumentStatusBatchResponse(CamelModel):
+    code: int = 200
+    results: list[DocumentStatusItem]
+
+
+class DocumentDeleteBatchRequest(CamelModel):
+    doc_ids: list[str] = Field(..., min_length=1, max_length=50)
+
+
+class DeletedChunks(CamelModel):
+    milvus: int
+    elasticsearch: int
+
+
+class DocumentDeleteError(CamelModel):
+    code: str
+    message: str
+
+
+class DocumentDeleteItem(CamelModel):
+    doc_id: str
+    deleted: bool
+    deleted_chunks: DeletedChunks | None = None
+    error: DocumentDeleteError | None = None
+
+
+class DocumentDeleteBatchResponse(CamelModel):
+    code: int = 200
+    results: list[DocumentDeleteItem]
+
+
+class TranslationContext(CamelModel):
+    document_id: str | None = None
+    title: str | None = None
+    section: str | None = None
+    clause: str | None = None
+
+
+class TranslationRequest(CamelModel):
+    text: str
+    context: TranslationContext | None = None
+
+
+class TranslationResponse(CamelModel):
+    code: int = 200
+    translation: str
 
 
 class PipelineProgressEvent(BaseModel):

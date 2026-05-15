@@ -851,6 +851,89 @@ class TestQueryEndpoint:
         assert done_payload["answer_mode"] == "exact"
         assert done_payload["groundedness"] == "grounded"
 
+    def test_query_stream_accepts_session_id_and_emits_external_done_aliases(
+        self, client
+    ):
+        seen_conversation_ids: list[str | None] = []
+
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
+
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                seen_conversation_ids.append(conversation_id)
+                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        async def _fake_generate_answer_stream(**kwargs):
+            yield (
+                "done",
+                {
+                    "sources": [
+                        {
+                            "file": "EN 1990:2002",
+                            "document_id": "EN_1990_2002",
+                            "element_type": "text",
+                            "title": "Eurocode - Basis of structural design",
+                            "section": "Section 2",
+                            "page": "28",
+                            "clause": "2.3(1)",
+                            "original_text": "The design working life should be specified.",
+                            "locator_text": "2.3 Design working life",
+                            "highlight_text": "design working life",
+                            "translation": "应规定设计使用年限。",
+                        }
+                    ],
+                    "related_refs": ["Table 2.1"],
+                    "confidence": "high",
+                },
+            )
+
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(
+                question,
+                answer_mode="open",
+                intent_label="parameter",
+                question_type=SimpleNamespace(value="parameter"),
+            )
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.api.v1.query.generate_answer_stream", _fake_generate_answer_stream),
+        ):
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={
+                    "sessionId": "1001_abc123",
+                    "question": "设计使用年限是什么？",
+                    "stream": True,
+                },
+            )
+
+        assert resp.status_code == 200
+        done_event = next(
+            segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
+        )
+        done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
+        assert seen_conversation_ids == ["1001_abc123"]
+        assert done_payload["code"] == 200
+        assert done_payload["questionType"] == "parameter"
+        assert done_payload["answerMode"] == "open"
+        assert done_payload["relatedRefs"] == ["Table 2.1"]
+        assert done_payload["title"] is None
+        assert done_payload["sources"][0]["docId"] == "EN_1990_2002"
+        assert done_payload["sources"][0]["originalText"] == (
+            "The design working life should be specified."
+        )
+        assert done_payload["sources"][0]["locatorText"] == "2.3 Design working life"
+
     def test_query_endpoint_threads_intent_label_to_generate_answer(self, client):
         class _FakeRetriever:
             async def retrieve(self, **kwargs):
@@ -1142,6 +1225,138 @@ class TestDocumentsEndpoint:
         assert not (pdf_dir / f"{doc_id}.pdf").exists()
         assert not (parsed_dir / doc_id).exists()
 
+    def test_parse_document_contract_enqueues_doc_with_camel_case_payload(
+        self, client, tmp_path: Path
+    ):
+        pdf_dir = tmp_path / "pdfs"
+        source_pdf = tmp_path / "uploads" / "EN 1992-1-1.pdf"
+        source_pdf.parent.mkdir()
+        source_pdf.write_bytes(b"%PDF-1.4 demo")
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(tmp_path / "parsed"),
+        )
+
+        enqueued: list[str] = []
+
+        class _FakeTaskManager:
+            def get_status(self, doc_id):
+                return None
+
+            def enqueue(self, doc_id):
+                enqueued.append(doc_id)
+
+        with patch(
+            "server.api.v1.documents.get_task_manager",
+            return_value=_FakeTaskManager(),
+        ):
+            resp = client.post(
+                "/api/v1/documents/parse",
+                json={
+                    "docId": "EN_1992_1_1",
+                    "fileName": "EN 1992-1-1.pdf",
+                    "minioPath": str(source_pdf),
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 200,
+            "docId": "EN_1992_1_1",
+            "status": "processing",
+            "message": "已加入解析队列",
+        }
+        assert enqueued == ["EN_1992_1_1"]
+        assert (pdf_dir / "EN_1992_1_1.pdf").is_file()
+
+    def test_batch_document_status_contract_returns_camel_case_fields(
+        self, client, tmp_path: Path
+    ):
+        parsed_doc_dir = tmp_path / "parsed" / "EN_1990_2002"
+        parsed_doc_dir.mkdir(parents=True)
+        (parsed_doc_dir / ".indexed").write_text(
+            json.dumps({"milvus": 1542, "elasticsearch": 1542}),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+            parsed_dir=str(tmp_path / "parsed"),
+            pdf_dir=str(tmp_path / "pdfs"),
+            es_url="http://127.0.0.1:1",
+        )
+
+        resp = client.post(
+            "/api/v1/documents/status",
+            json={"docIds": ["EN_1990_2002"]},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 200,
+            "results": [
+                {
+                    "docId": "EN_1990_2002",
+                    "status": "success",
+                    "progress": 1.0,
+                    "stage": "ready",
+                    "message": "解析完成",
+                    "chunkCount": 1542,
+                    "error": None,
+                }
+            ],
+        }
+
+    def test_batch_delete_documents_contract_is_per_item_and_mocked(
+        self, client, tmp_path: Path
+    ):
+        doc_id = "EN_1992_1_1"
+        pdf_dir = tmp_path / "pdfs"
+        parsed_dir = tmp_path / "parsed"
+        pdf_dir.mkdir()
+        (parsed_dir / doc_id).mkdir(parents=True)
+        (pdf_dir / f"{doc_id}.pdf").write_bytes(b"%PDF-1.4 demo")
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(parsed_dir),
+        )
+
+        deleted_sources: list[str] = []
+
+        async def fake_delete_document_chunks(source_name, _config):
+            deleted_sources.append(source_name)
+            return {"milvus": 3, "elasticsearch": 4}
+
+        with (
+            patch("pipeline.index.delete_document_chunks", fake_delete_document_chunks),
+            patch(
+                "server.api.v1.documents.invalidate_retriever_cache",
+                AsyncMock(),
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/documents/delete",
+                json={"docIds": [doc_id, "MISSING_DOC"]},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 200,
+            "results": [
+                {
+                    "docId": doc_id,
+                    "deleted": True,
+                    "deletedChunks": {"milvus": 6, "elasticsearch": 8},
+                    "error": None,
+                },
+                {
+                    "docId": "MISSING_DOC",
+                    "deleted": False,
+                    "deletedChunks": None,
+                    "error": {"code": "NOT_FOUND", "message": "文档不存在"},
+                },
+            ],
+        }
+        assert deleted_sources == [doc_id, doc_id.replace("_", " ")]
+
 
 class TestSourcesEndpoint:
     def test_translate_source_returns_translation(self, client):
@@ -1238,6 +1453,32 @@ class TestSourcesEndpoint:
             resp = client.post("/api/v1/sources/translate", json=payload)
 
         assert resp.status_code == 502
+
+    def test_translate_text_contract_returns_code_and_translation(self, client):
+        translated_source = SimpleNamespace(translation="应规定设计使用年限。")
+
+        with patch(
+            "server.api.v1.sources._fill_missing_source_translations",
+            AsyncMock(return_value=[translated_source]),
+        ) as mock_translate:
+            resp = client.post(
+                "/api/v1/translate",
+                json={
+                    "text": "The design working life should be specified.",
+                    "context": {
+                        "documentId": "EN_1990_2002",
+                        "title": "Eurocode - Basis of structural design",
+                        "section": "Section 2 Requirements > 2.3 Design working life",
+                        "clause": "2.3(1)",
+                    },
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"code": 200, "translation": "应规定设计使用年限。"}
+        [sent_sources, _sent_config] = mock_translate.await_args.args
+        assert sent_sources[0].document_id == "EN_1990_2002"
+        assert sent_sources[0].original_text == "The design working life should be specified."
 
 
 class TestGlossaryEndpoint:

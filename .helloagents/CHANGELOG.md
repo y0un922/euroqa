@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.23] - 2026-05-15
+
+### 新增
+- **[server.api.v1.documents / server.api.v1.sources / server.api.v1.query]**: 按接口文档补齐外部对接契约，新增文档解析、批量状态、批量删除、独立翻译端点，并让流式问答 `done` 事件补齐 camelCase 元数据与 `sessionId` 兼容 — by Codex
+  - 方案: [202605151724_api-interface-contract](archive/2026-05/202605151724_api-interface-contract/)
+  - 决策: api_interface_contract#D001(新契约 canonical，旧端点 wrapper)
+
 ## [0.1.22] - 2026-04-28
 
 ### 快速修改
