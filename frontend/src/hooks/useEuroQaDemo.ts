@@ -54,6 +54,7 @@ const FALLBACK_LLM_SETTINGS: LlmSettings = {
   model: "deepseek-chat",
   enableThinking: true
 };
+const EXTERNAL_SESSION_USER_ID = "1001";
 let fallbackIdCounter = 0;
 
 function toEditableLlmSettings(
@@ -103,15 +104,23 @@ function toLlmRequestOverride(
   };
 }
 
-function createSessionId(): string {
+function createUuidToken(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
+    return crypto.randomUUID().replace(/-/g, "");
   }
 
   fallbackIdCounter = (fallbackIdCounter + 1) % 1000000;
-  return `session-${Date.now()}-${fallbackIdCounter}-${Math.random()
+  return `${Date.now()}${fallbackIdCounter}${Math.random()
     .toString(36)
-    .slice(2, 10)}`;
+    .slice(2, 14)}`.replace(/[^A-Za-z0-9]/g, "");
+}
+
+function createSessionId(): string {
+  return `${EXTERNAL_SESSION_USER_ID}_${createUuidToken()}`;
+}
+
+function createTurnId(): string {
+  return `turn_${createUuidToken()}`;
 }
 
 function createEmptySessionRecord(): PersistedSessionRecord {
@@ -508,12 +517,12 @@ export function useEuroQaDemo() {
   async function runStreamingTurn(
     turnId: string,
     normalizedQuestion: string,
-    nextConversationId: string,
+    sessionId: string,
     signal: AbortSignal
   ) {
     const requestPayload = buildChatQueryPayload({
       question: normalizedQuestion,
-      conversationId: nextConversationId,
+      sessionId,
       llm: toLlmRequestOverride(llmSettings)
     });
 
@@ -608,7 +617,7 @@ export function useEuroQaDemo() {
       // 流式失败，尝试非流式 fallback
       try {
         const response = await query(requestPayload);
-        setConversationId(response.conversation_id || nextConversationId);
+        setConversationId(response.conversation_id || sessionId);
         setMessages((current) =>
           current.map((message) =>
             message.id === turnId
@@ -625,7 +634,7 @@ export function useEuroQaDemo() {
                   engineeringContext: response.engineering_context ?? null,
                   status: "done",
                   errorMessage: undefined,
-                  conversationId: response.conversation_id || nextConversationId
+                  conversationId: response.conversation_id || sessionId
                 }
               : message
           )
@@ -665,10 +674,13 @@ export function useEuroQaDemo() {
       return;
     }
 
-    const nextConversationId = createSessionId();
-    const turnId = createSessionId();
+    const nextSessionId =
+      conversationId && conversationId.trim().length > 0
+        ? conversationId
+        : activeSessionId;
+    const turnId = createTurnId();
 
-    setConversationId(nextConversationId);
+    setConversationId(nextSessionId);
     setDraftQuestion("");
     setIsSubmitting(true);
     setActiveReferenceId(null);
@@ -684,7 +696,7 @@ export function useEuroQaDemo() {
         relatedRefs: [],
         sources: [],
         status: "streaming",
-        conversationId: nextConversationId,
+        conversationId: nextSessionId,
         retrievalContext: null,
         progressEvents: []
       }
@@ -697,7 +709,7 @@ export function useEuroQaDemo() {
       await runStreamingTurn(
         turnId,
         normalizedQuestion,
-        nextConversationId,
+        nextSessionId,
         abortController.signal
       );
     } finally {
@@ -722,9 +734,12 @@ export function useEuroQaDemo() {
       return;
     }
 
-    const nextConversationId = createSessionId();
+    const nextSessionId =
+      conversationId && conversationId.trim().length > 0
+        ? conversationId
+        : activeSessionId;
 
-    setConversationId(nextConversationId);
+    setConversationId(nextSessionId);
     setIsSubmitting(true);
     setActiveReferenceId(null);
     setMessages((current) =>
@@ -741,7 +756,7 @@ export function useEuroQaDemo() {
               status: "streaming" as const,
               errorMessage: undefined,
               retrievalContext: null,
-              conversationId: nextConversationId,
+              conversationId: nextSessionId,
               progressEvents: []
             }
           : message
@@ -755,7 +770,7 @@ export function useEuroQaDemo() {
       await runStreamingTurn(
         messageId,
         targetMessage.question,
-        nextConversationId,
+        nextSessionId,
         abortController.signal
       );
     } finally {

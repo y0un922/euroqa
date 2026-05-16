@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from server.config import ServerConfig
-from server.core.conversation import ConversationManager
+from server.core.conversation import ConversationManager, RedisConversationManager
 from server.core.retrieval import HybridRetriever
 
 
@@ -18,6 +18,8 @@ def get_config() -> ServerConfig:
 @lru_cache
 def get_conversation_manager() -> ConversationManager:
     config = get_config()
+    if config.redis_url:
+        return RedisConversationManager(config)  # type: ignore[return-value]
     return ConversationManager(ttl_hours=config.conversation_ttl_hours)
 
 

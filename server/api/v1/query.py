@@ -44,6 +44,33 @@ def _conversation_id_from_request(req: QueryRequest) -> str | None:
     return req.session_id or req.conversation_id
 
 
+def _uses_external_session(req: QueryRequest) -> bool:
+    """Return whether the request opted into Redis-style session behavior."""
+    return bool(req.session_id)
+
+
+async def _get_conversation_state(conv_mgr: object, conversation_id: str | None) -> object:
+    """Load conversation state from sync or async managers."""
+    getter = getattr(conv_mgr, "get_or_create_async", None)
+    if getter is not None:
+        return await getter(conversation_id)
+    return conv_mgr.get_or_create(conversation_id)
+
+
+async def _add_conversation_turn(
+    conv_mgr: object,
+    conversation_id: str,
+    question: str,
+    answer: str,
+) -> str | None:
+    """Persist one Q&A turn through sync or async managers."""
+    adder = getattr(conv_mgr, "add_turn_async", None)
+    if adder is not None:
+        return await adder(conversation_id, question, answer)
+    conv_mgr.add_turn(conversation_id, question, answer)
+    return None
+
+
 def _camelize_source_payload(source: dict) -> dict:
     """Add interface-document camelCase aliases while preserving old keys."""
     aliases = {
@@ -249,7 +276,8 @@ async def query(
         preferred_element_type=analysis.preferred_element_type,
     )
 
-    conv = conv_mgr.get_or_create(_conversation_id_from_request(req))
+    conv = await _get_conversation_state(conv_mgr, _conversation_id_from_request(req))
+    history = list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
 
     response = await generate_answer(
         question=req.question,
@@ -257,7 +285,7 @@ async def query(
         parent_chunks=result.parent_chunks,
         scores=result.scores,
         glossary_terms=analysis.matched_terms,
-        conversation_history=[],
+        conversation_history=history[-config.max_conversation_rounds:],
         config=runtime_config,
         ref_chunks=result.ref_chunks,
         guide_chunks=result.guide_chunks,
@@ -279,6 +307,13 @@ async def query(
             "groundedness": result.groundedness,
         }
     )
+    if _uses_external_session(req):
+        await _add_conversation_turn(
+            conv_mgr,
+            conv.conversation_id,
+            req.question,
+            response.answer,
+        )
 
     return response
 
@@ -404,7 +439,11 @@ async def query_stream(
                 ),
             }
 
-            conv_mgr.get_or_create(_conversation_id_from_request(req))
+            conv = await _get_conversation_state(
+                conv_mgr,
+                _conversation_id_from_request(req),
+            )
+            history = list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
             yield {
                 "event": "progress",
                 "data": json.dumps(
@@ -424,13 +463,14 @@ async def query_stream(
                 ),
             }
 
+            answer_parts: list[str] = []
             async for event_type, data in generate_answer_stream(
                 question=req.question,
                 chunks=result.chunks,
                 parent_chunks=result.parent_chunks,
                 scores=result.scores,
                 glossary_terms=analysis.matched_terms,
-                conversation_history=[],
+                conversation_history=history[-config.max_conversation_rounds:],
                 config=runtime_config,
                 ref_chunks=result.ref_chunks,
                 guide_chunks=result.guide_chunks,
@@ -443,7 +483,22 @@ async def query_stream(
                 unresolved_refs=result.unresolved_refs,
                 intent_label=analysis.intent_label,
             ):
+                if event_type == "chunk":
+                    text = data.get("text") if isinstance(data, dict) else None
+                    if isinstance(text, str):
+                        answer_parts.append(text)
                 if event_type == "done":
+                    answer_text = data.get("answer") if isinstance(data, dict) else None
+                    if not isinstance(answer_text, str):
+                        answer_text = "".join(answer_parts)
+                    title = None
+                    if _uses_external_session(req):
+                        title = await _add_conversation_turn(
+                            conv_mgr,
+                            conv.conversation_id,
+                            req.question,
+                            answer_text,
+                        )
                     data = {
                         **data,
                         "answer_mode": analysis.answer_mode.value if analysis.answer_mode else None,
@@ -456,7 +511,7 @@ async def query_stream(
                         answer_mode=analysis.answer_mode.value
                         if analysis.answer_mode else None,
                         groundedness=result.groundedness,
-                        title=None,
+                        title=title,
                     )
                 yield {"event": event_type, "data": json.dumps(data, ensure_ascii=False)}
         except Exception:

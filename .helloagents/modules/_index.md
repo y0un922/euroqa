@@ -8,6 +8,8 @@
 - `server.api.v1.query`: 问答入口，请求级合成运行时 LLM 配置
 - `server.api.v1.documents`: 文档解析、批量状态、批量删除与兼容处理端点
 - `server.api.v1.sources`: 来源翻译外部端点与兼容接口
+- `server.services.minio_storage`: MinIO 对象路径解析、PDF 上传与下载
+- `frontend.lib.api`: 前端后端 API 封装，包含代理上传、流式问答和引用翻译请求
 - `server.core.retrieval`: 混合检索、去重聚合、重排序与原问题补召回
 - `server.core.generation`: 回答生成、source 构造、流式 done 元数据
 - `frontend.lib.session`: 前端当前会话与历史会话的本地持久化结构

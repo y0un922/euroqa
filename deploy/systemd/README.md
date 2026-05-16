@@ -8,7 +8,7 @@ This directory contains repo-versioned systemd unit files for running Euro_QA on
 - Service user/group: `root251:root251`
 - Backend: FastAPI via `uvicorn` on `0.0.0.0:8080` without reload
 - Frontend: Vite preview on `0.0.0.0:4173` with `pnpm build` enforced before start
-- Search dependencies: Docker Compose services `milvus-etcd`, `milvus-minio`, `milvus`, and `elasticsearch`
+- Service dependencies: Docker Compose services `milvus-etcd`, `milvus-minio`, `milvus`, `elasticsearch`, `minio`, and `redis`
 - Restart policy: all three units use `Restart=on-failure`
 - The service files include a PATH that covers common user-level installs for `uv` and `pnpm`; adjust it if your tools live elsewhere
 
@@ -31,7 +31,7 @@ cd frontend
 pnpm install
 pnpm build
 cd ..
-docker compose pull milvus-etcd milvus-minio milvus elasticsearch
+docker compose pull milvus-etcd milvus-minio milvus elasticsearch minio redis
 ```
 
 The backend reads configuration from the repository root `.env`, so make sure `/home/root251/euroqa/.env` is present before starting `euroqa-backend.service`.
@@ -63,7 +63,7 @@ sudo systemctl stop euroqa-backend.service
 sudo systemctl stop euroqa-search-stack.service
 ```
 
-`euroqa-search-stack.service` runs `docker compose up` in the foreground so systemd can monitor the Compose process and apply `Restart=on-failure`. Its `ExecStop` uses `docker compose stop`, preserving container state and volumes.
+`euroqa-search-stack.service` runs `docker compose up` in the foreground so systemd can monitor the Compose process and apply `Restart=on-failure`. Its `ExecStop` uses `docker compose stop`, preserving container state and volumes. The standalone `minio` service is for external PDF uploads; `milvus-minio` remains Milvus' internal object store.
 
 ## Restart after changes
 
@@ -101,7 +101,7 @@ systemctl status euroqa-frontend.service
 Port checks:
 
 ```bash
-ss -ltnp | grep -E ':8080|:4173|:9200|:19530'
+ss -ltnp | grep -E ':8080|:4173|:9200|:9001|:6379|:19530'
 ```
 
 ## Logs

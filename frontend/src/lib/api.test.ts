@@ -12,13 +12,14 @@ import {
   query,
   queryStream,
   readSseStream,
-  translateSource
+  translateSource,
+  uploadDocumentToMinio
 } from "./api.ts";
 
-test("buildChatQueryPayload keeps cross-document retrieval enabled by omitting domain", () => {
+test("buildChatQueryPayload uses external sessionId and omits domain", () => {
   const payload = buildChatQueryPayload({
     question: "设计使用年限是多少？",
-    conversationId: "conv-1",
+    sessionId: "1001_abc123",
     llm: {
       model: "qwen3.5-plus"
     }
@@ -26,7 +27,7 @@ test("buildChatQueryPayload keeps cross-document retrieval enabled by omitting d
 
   assert.deepEqual(payload, {
     question: "设计使用年限是多少？",
-    conversation_id: "conv-1",
+    sessionId: "1001_abc123",
     llm: {
       model: "qwen3.5-plus"
     }
@@ -467,6 +468,93 @@ test("queryStream sends llm overrides in the stream request body", async () => {
     },
     stream: true
   });
+});
+
+test("queryStream forwards sessionId in the stream request body", async () => {
+  const encoder = new TextEncoder();
+  const seenBodies: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (_input, init) => {
+      seenBodies.push(String(init?.body ?? ""));
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('event: done\ndata: {"confidence":"low","sources":[],"related_refs":[]}\n\n')
+            );
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      );
+    };
+
+    await queryStream(
+      {
+        question: "什么是设计使用年限？",
+        sessionId: "1001_abc123",
+      },
+      {
+        onReasoning: () => {},
+        onChunk: () => {},
+        onDone: () => {}
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(seenBodies.length, 1);
+  assert.deepEqual(JSON.parse(seenBodies[0] ?? "{}"), {
+    question: "什么是设计使用年限？",
+    sessionId: "1001_abc123",
+    stream: true
+  });
+});
+
+test("uploadDocumentToMinio posts PDF to backend proxy endpoint", async () => {
+  const seenUrls: string[] = [];
+  const seenMethods: string[] = [];
+  const seenBodies: unknown[] = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (input, init) => {
+      seenUrls.push(String(input));
+      seenMethods.push(String(init?.method ?? ""));
+      seenBodies.push(init?.body);
+      return new Response(
+        JSON.stringify({
+          code: 200,
+          docId: "EN_1992_1_1",
+          fileName: "EN 1992-1-1.pdf",
+          minioPath: "eurocode/uploads/EN_1992_1_1.pdf",
+          status: "processing",
+          message: "已加入解析队列"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    };
+
+    const file = new File(["%PDF-1.4"], "EN 1992-1-1.pdf", {
+      type: "application/pdf"
+    });
+    const result = await uploadDocumentToMinio(file);
+
+    assert.equal(result.docId, "EN_1992_1_1");
+    assert.equal(result.minioPath, "eurocode/uploads/EN_1992_1_1.pdf");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(
+    seenUrls[0],
+    "http://localhost:8080/api/v1/documents/upload-to-minio"
+  );
+  assert.equal(seenMethods[0], "POST");
+  assert.ok(seenBodies[0] instanceof FormData);
 });
 
 test("getLlmSettings fetches masked server defaults", async () => {

@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [0.1.25] - 2026-05-15
+
+### 新增
+- **[server.api.v1.documents / frontend.lib.api / frontend.hooks.useEuroQaDemo]**: 增加浏览器 PDF 后端代理上传到本系统 MinIO 的联调接口，前端上传流程改为单次调用 `/documents/upload-to-minio`，问答请求改发 `sessionId=1001_UUID去横线` 以验证 Redis 会话逻辑 — by Codex
+  - 方案: [202605151957_frontend-minio-session-proxy](plan/202605151957_frontend-minio-session-proxy/)
+  - 决策: frontend-minio-session-proxy#D001(后端代理上传)
+
+## [0.1.24] - 2026-05-15
+
+### 新增
+- **[server.api.v1.documents / server.api.v1.query / deployment]**: 补齐本系统部署 MinIO 与 Redis 的接口支撑，文档解析可按 `minioPath=bucket/key` 下载 PDF，`sessionId` 问答会话可读写 Redis 历史并更新会话元数据 — by Codex
+  - 方案: [202605151921_minio-redis-integration](archive/2026-05/202605151921_minio-redis-integration/)
+  - 决策: minio-redis-integration#D001(Redis 优先，内存回退)
+
 ## [0.1.23] - 2026-05-15
 
 ### 新增

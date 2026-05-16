@@ -19,6 +19,7 @@ export type DemoDocumentInfo = {
 import type {
   DocumentInfo,
   DocumentUploadResponse,
+  DocumentUploadToMinioResponse,
   GlossaryEntry,
   LlmSettingsResponse,
   PipelineProgressEvent,
@@ -278,16 +279,16 @@ export async function translateSource(
 
 export function buildChatQueryPayload({
   question,
-  conversationId,
+  sessionId,
   llm
 }: {
   question: string;
-  conversationId: string;
+  sessionId: string;
   llm?: QueryRequestPayload["llm"];
 }): QueryRequestPayload {
   return {
     question,
-    conversation_id: conversationId,
+    sessionId,
     ...(llm ? { llm } : {})
   };
 }
@@ -408,6 +409,28 @@ export async function uploadDocument(file: File): Promise<DocumentUploadResponse
   }
 
   return (await response.json()) as DocumentUploadResponse;
+}
+
+export async function uploadDocumentToMinio(
+  file: File
+): Promise<DocumentUploadToMinioResponse> {
+  const sentToken = getToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(buildApiUrl("/api/v1/documents/upload-to-minio"), {
+    method: "POST",
+    headers: withAuthHeaders(),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    handleAuthFailure(response, sentToken);
+    const detail = await response.text();
+    throw new Error(detail || `Upload failed: ${response.status}`);
+  }
+
+  return (await response.json()) as DocumentUploadToMinioResponse;
 }
 
 export async function processDocument(docId: string): Promise<void> {

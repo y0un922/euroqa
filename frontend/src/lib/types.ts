@@ -27,6 +27,7 @@ export type QueryRequestPayload = {
   question: string;
   domain?: string;
   conversation_id?: string;
+  sessionId?: string;
   stream?: boolean;
   llm?: LlmRequestOverride;
 };
@@ -155,6 +156,15 @@ export type DocumentUploadResponse = {
   name: string;
   title: string;
   total_pages: number;
+};
+
+export type DocumentUploadToMinioResponse = {
+  code: number;
+  docId: string;
+  fileName: string;
+  minioPath: string;
+  status: string;
+  message: string;
 };
 
 export type PipelineProgressEvent = {

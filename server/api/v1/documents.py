@@ -28,9 +28,11 @@ from server.models.schemas import (
     DocumentStatusItem,
     DocumentStatus,
     DocumentUploadResponse,
+    DocumentUploadToMinioResponse,
     DocumentProcessResponse,
 )
 from server.services.task_manager import get_task_manager, PipelineStage
+from server.services.minio_storage import download_pdf_from_minio, upload_pdf_to_minio
 from shared.elasticsearch_client import build_async_elasticsearch
 
 router = APIRouter()
@@ -235,7 +237,7 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
 
 
 def _prepare_external_pdf_reference(request: DocumentParseRequest, config) -> None:
-    """Make locally visible MinIO/object-path files available to the pipeline."""
+    """Download or copy the externally uploaded PDF into the pipeline PDF dir."""
     target_path = _get_pdf_path(request.doc_id, config.pdf_dir)
     if target_path.is_file():
         return
@@ -244,6 +246,18 @@ def _prepare_external_pdf_reference(request: DocumentParseRequest, config) -> No
     if source_path.is_file():
         Path(config.pdf_dir).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source_path, target_path)
+        return
+
+    try:
+        download_pdf_from_minio(
+            minio_path=request.minio_path,
+            destination=target_path,
+            config=config,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="MinIO 文件读取失败") from exc
 
 
 async def _enqueue_document_parse(
@@ -371,6 +385,52 @@ async def upload_document(
         name=doc_id.replace("_", " "),
         title=title,
         total_pages=total_pages,
+    )
+
+
+@router.post("/documents/upload-to-minio", response_model=DocumentUploadToMinioResponse)
+async def upload_document_to_minio(
+    file: UploadFile = File(...),
+    config=Depends(get_config),
+) -> DocumentUploadToMinioResponse:
+    """Upload a PDF through the backend proxy and trigger parsing."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "只接受 PDF 文件")
+
+    doc_id = _sanitize_doc_id(file.filename)
+    if not doc_id:
+        raise HTTPException(400, "无效的文件名")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "PDF 文件不能为空")
+
+    bucket = "eurocode"
+    object_name = f"uploads/{doc_id}.pdf"
+    try:
+        minio_path = upload_pdf_to_minio(
+            bucket=bucket,
+            object_name=object_name,
+            content=content,
+            config=config,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="MinIO 文件上传失败") from exc
+
+    parse_response = await _enqueue_document_parse(
+        DocumentParseRequest(
+            docId=doc_id,
+            fileName=file.filename,
+            minioPath=minio_path,
+        ),
+        config,
+    )
+    return DocumentUploadToMinioResponse(
+        doc_id=parse_response.doc_id,
+        file_name=file.filename,
+        minio_path=minio_path,
+        status=parse_response.status,
+        message=parse_response.message,
     )
 
 

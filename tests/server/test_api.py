@@ -299,6 +299,111 @@ class TestQueryEndpoint:
         assert seen_histories == [[]]
         assert conversation_manager.add_turn_calls == []
 
+    def test_query_endpoint_uses_redis_style_conversation_history_when_available(
+        self, client
+    ):
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
+
+        class _FakeConversationManager:
+            def __init__(self):
+                self.add_turn_calls: list[tuple[str, str, str]] = []
+
+            async def get_or_create_async(self, conversation_id):
+                return SimpleNamespace(
+                    conversation_id=conversation_id,
+                    history=[{"question": "上一轮问题", "answer": "上一轮回答"}],
+                )
+
+            async def add_turn_async(self, conversation_id, question, answer):
+                self.add_turn_calls.append((conversation_id, question, answer))
+                return "设计使用年限"
+
+        conversation_manager = _FakeConversationManager()
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: conversation_manager
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        seen_histories: list[list[dict[str, str]]] = []
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(question)
+
+        async def _fake_generate_answer(**kwargs):
+            seen_histories.append(kwargs["conversation_history"])
+            return QueryResponse(
+                answer="本轮回答",
+                sources=[],
+                related_refs=[],
+                confidence="low",
+                degraded=False,
+                conversation_id="1001_abc123",
+            )
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+        ):
+            resp = client.post(
+                "/api/v1/query",
+                json={"sessionId": "1001_abc123", "question": "本轮问题"},
+            )
+
+        assert resp.status_code == 200
+        assert seen_histories == [[{"question": "上一轮问题", "answer": "上一轮回答"}]]
+        assert conversation_manager.add_turn_calls == [
+            ("1001_abc123", "本轮问题", "本轮回答")
+        ]
+
+    def test_query_stream_persists_answer_and_title_with_async_manager(self, client):
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
+
+        class _FakeConversationManager:
+            def __init__(self):
+                self.add_turn_calls: list[tuple[str, str, str]] = []
+
+            async def get_or_create_async(self, conversation_id):
+                return SimpleNamespace(conversation_id=conversation_id, history=[])
+
+            async def add_turn_async(self, conversation_id, question, answer):
+                self.add_turn_calls.append((conversation_id, question, answer))
+                return "自动标题"
+
+        conversation_manager = _FakeConversationManager()
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: conversation_manager
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(question, question_type=SimpleNamespace(value="rule"))
+
+        async def _fake_generate_answer_stream(**kwargs):
+            yield ("chunk", {"text": "回答"})
+            yield ("chunk", {"text": "正文"})
+            yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.api.v1.query.generate_answer_stream", _fake_generate_answer_stream),
+        ):
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"sessionId": "1001_abc123", "question": "本轮问题", "stream": True},
+            )
+
+        assert resp.status_code == 200
+        done_event = next(
+            segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
+        )
+        done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
+        assert done_payload["title"] == "自动标题"
+        assert conversation_manager.add_turn_calls == [
+            ("1001_abc123", "本轮问题", "回答正文")
+        ]
+
     def test_query_endpoint_passes_original_question_for_dual_retrieval(self, client):
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
@@ -1268,6 +1373,148 @@ class TestDocumentsEndpoint:
         }
         assert enqueued == ["EN_1992_1_1"]
         assert (pdf_dir / "EN_1992_1_1.pdf").is_file()
+
+    def test_parse_document_contract_downloads_from_minio_path(
+        self, client, tmp_path: Path
+    ):
+        pdf_dir = tmp_path / "pdfs"
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(tmp_path / "parsed"),
+            minio_endpoint="127.0.0.1:9000",
+            minio_access_key="access",
+            minio_secret_key="secret",
+        )
+
+        enqueued: list[str] = []
+
+        class _FakeTaskManager:
+            def get_status(self, doc_id):
+                return None
+
+            def enqueue(self, doc_id):
+                enqueued.append(doc_id)
+
+        def fake_download_pdf_from_minio(*, minio_path, destination, config):
+            assert minio_path == "eurocode/uploads/EN_1992_1_1.pdf"
+            assert config.minio_endpoint == "127.0.0.1:9000"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"%PDF-1.4 from minio")
+
+        with (
+            patch(
+                "server.api.v1.documents.get_task_manager",
+                return_value=_FakeTaskManager(),
+            ),
+            patch(
+                "server.api.v1.documents.download_pdf_from_minio",
+                fake_download_pdf_from_minio,
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/documents/parse",
+                json={
+                    "docId": "EN_1992_1_1",
+                    "fileName": "EN 1992-1-1.pdf",
+                    "minioPath": "eurocode/uploads/EN_1992_1_1.pdf",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "processing"
+        assert enqueued == ["EN_1992_1_1"]
+        assert (pdf_dir / "EN_1992_1_1.pdf").read_bytes().startswith(b"%PDF")
+
+    def test_upload_to_minio_uploads_pdf_and_triggers_parse(
+        self, client, tmp_path: Path
+    ):
+        pdf_dir = tmp_path / "pdfs"
+        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(tmp_path / "parsed"),
+            minio_endpoint="127.0.0.1:9000",
+            minio_access_key="access",
+            minio_secret_key="secret",
+        )
+
+        enqueued: list[str] = []
+        uploaded: list[dict[str, object]] = []
+
+        class _FakeTaskManager:
+            def get_status(self, doc_id):
+                return None
+
+            def enqueue(self, doc_id):
+                enqueued.append(doc_id)
+
+        def fake_upload_pdf_to_minio(*, bucket, object_name, content, config):
+            uploaded.append(
+                {
+                    "bucket": bucket,
+                    "object_name": object_name,
+                    "content": content,
+                    "endpoint": config.minio_endpoint,
+                }
+            )
+            return f"{bucket}/{object_name}"
+
+        def fake_download_pdf_from_minio(*, minio_path, destination, config):
+            assert minio_path == "eurocode/uploads/EN_1992-1-1.pdf"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"%PDF-1.4 from minio")
+
+        with (
+            patch(
+                "server.api.v1.documents.get_task_manager",
+                return_value=_FakeTaskManager(),
+            ),
+            patch(
+                "server.api.v1.documents.upload_pdf_to_minio",
+                fake_upload_pdf_to_minio,
+            ),
+            patch(
+                "server.api.v1.documents.download_pdf_from_minio",
+                fake_download_pdf_from_minio,
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/documents/upload-to-minio",
+                files={
+                    "file": (
+                        "EN 1992-1-1.pdf",
+                        b"%PDF-1.4 demo",
+                        "application/pdf",
+                    )
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 200,
+            "docId": "EN_1992-1-1",
+            "fileName": "EN 1992-1-1.pdf",
+            "minioPath": "eurocode/uploads/EN_1992-1-1.pdf",
+            "status": "processing",
+            "message": "已加入解析队列",
+        }
+        assert uploaded == [
+            {
+                "bucket": "eurocode",
+                "object_name": "uploads/EN_1992-1-1.pdf",
+                "content": b"%PDF-1.4 demo",
+                "endpoint": "127.0.0.1:9000",
+            }
+        ]
+        assert enqueued == ["EN_1992-1-1"]
+        assert (pdf_dir / "EN_1992-1-1.pdf").read_bytes().startswith(b"%PDF")
+
+    def test_upload_to_minio_rejects_non_pdf(self, client):
+        resp = client.post(
+            "/api/v1/documents/upload-to-minio",
+            files={"file": ("readme.txt", b"hello", "text/plain")},
+        )
+
+        assert resp.status_code == 400
 
     def test_batch_document_status_contract_returns_camel_case_fields(
         self, client, tmp_path: Path

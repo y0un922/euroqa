@@ -70,6 +70,13 @@ class ServerConfig(BaseSettings):
     conversation_ttl_hours: int = 24
     max_conversation_rounds: int = 3
 
+    redis_url: str = ""
+
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_secure: bool = False
+
     debug_pipeline_dir: str = "data/debug_runs"
     parsed_dir: str = "data/parsed"
     glossary_path: str = "data/glossary.json"

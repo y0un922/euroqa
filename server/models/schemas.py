@@ -269,6 +269,15 @@ class DocumentParseResponse(CamelModel):
     message: str
 
 
+class DocumentUploadToMinioResponse(CamelModel):
+    code: int = 200
+    doc_id: str
+    file_name: str
+    minio_path: str
+    status: str
+    message: str
+
+
 class DocumentStatusBatchRequest(CamelModel):
     doc_ids: list[str] = Field(..., min_length=1, max_length=50)
 

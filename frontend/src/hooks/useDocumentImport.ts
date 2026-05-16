@@ -3,9 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteDocument,
   listDocuments,
-  processDocument,
   subscribeToPipelineStatus,
-  uploadDocument,
+  uploadDocumentToMinio,
 } from "../lib/api";
 import type { DocumentStatus, PipelineProgressEvent } from "../lib/types";
 
@@ -87,14 +86,13 @@ export function useDocumentImport(
     setIsUploading(true);
     let docId: string | null = null;
     try {
-      const result = await uploadDocument(file);
-      docId = result.doc_id;
+      const result = await uploadDocumentToMinio(file);
+      docId = result.docId;
       setIsUploading(false);
 
       setProcessingDocId(docId);
       setPipelineStage("pending");
       setPipelineProgress(0);
-      await processDocument(docId);
     } catch (err) {
       setIsUploading(false);
       setProcessingDocId(null);
