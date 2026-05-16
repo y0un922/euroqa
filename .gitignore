@@ -39,3 +39,8 @@ data/pdfs/*
 
 .ace-tool/
 .worktrees/
+.trellis/
+
+# Local scratchpads / tooling state
+.dmux/
+框架.md
