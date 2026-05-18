@@ -1,5 +1,4 @@
 """Test hybrid retrieval layer (mock external services)."""
-from types import SimpleNamespace
 
 import pytest
 
@@ -64,6 +63,58 @@ class TestMergeAndDedup:
         ids = [r["chunk_id"] for r in merged]
         assert len(ids) == len(set(ids))
         assert set(ids) == {"a", "b", "c"}
+
+    def test_rrf_promotes_results_seen_by_both_retrievers(self, retriever):
+        vec_results = [
+            {"chunk_id": "vec-only", "source": "EN 1990", "score": 0.99},
+            {"chunk_id": "shared", "source": "EN 1990", "score": 0.80},
+        ]
+        bm25_results = [
+            {"chunk_id": "shared", "source": "EN 1990", "score": 10.0},
+            {"chunk_id": "bm25-only", "source": "EN 1990", "score": 9.0},
+        ]
+
+        merged = retriever._merge_results(vec_results, bm25_results)
+
+        assert [result["chunk_id"] for result in merged] == [
+            "shared",
+            "vec-only",
+            "bm25-only",
+        ]
+
+
+class TestBm25Search:
+    @pytest.mark.asyncio
+    async def test_default_bm25_search_uses_weighted_metadata_fields(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(es_index="chunks")
+        seen_body: dict | None = None
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                nonlocal seen_body
+                assert index == "chunks"
+                seen_body = body
+                return {"hits": {"hits": []}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        retriever._get_es = _fake_get_es
+
+        await retriever._bm25_search("design working life", 5, {})
+
+        assert seen_body is not None
+        fields = seen_body["query"]["bool"]["must"][0]["multi_match"]["fields"]
+        assert fields == [
+            "content^2",
+            "embedding_text",
+            "source_title.text^3",
+            "section_path.text^2",
+            "clause_ids.text^4",
+            "object_aliases.text^5",
+        ]
+
 
 class TestCrossDocAggregation:
     def test_limits_per_source(self, retriever):
@@ -227,7 +278,7 @@ class TestGuideRetrieval:
             **kwargs,
         ):
             assert filters == {}
-            assert fields and "source_title^3" in fields
+            assert fields and "source_title.text^3" in fields
             return [
                 {"chunk_id": "guide-procedure", "source": "Bridge Designers Guide 2024", "score": 8.0},
                 {"chunk_id": "guide-example", "source": "Bridge Designers Guide 2024", "score": 6.5},
@@ -441,7 +492,7 @@ class TestCrossRefConstraints:
 
 class TestReferenceClosure:
     @pytest.mark.asyncio
-    async def test_exact_retrieve_resolves_direct_referenced_table_and_keeps_grounded(self):
+    async def test_metadata_probe_retrieve_resolves_direct_referenced_table_and_keeps_grounded(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -470,7 +521,7 @@ class TestReferenceClosure:
             object_id="en-1992-1-1#table:3.1",
         )
 
-        async def _fake_exact_probe(**kwargs):
+        async def _fake_metadata_probe(**kwargs):
             return [{"chunk_id": "clause", "source": "EN 1992-1-1", "score": 0.96}]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -504,7 +555,7 @@ class TestReferenceClosure:
         async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
             return []
 
-        retriever._run_exact_probe = _fake_exact_probe
+        retriever._run_metadata_probe = _fake_metadata_probe
         retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
         retriever._fetch_chunks = _fake_fetch_chunks
@@ -517,7 +568,6 @@ class TestReferenceClosure:
             ["compressive strain limit"],
             original_query="3.1.7 里面混凝土受压应变限值怎么取",
             filters={"source": "EN 1992-1-1"},
-            answer_mode="exact",
             intent_label="limit",
             target_hint={"document": "EN 1992-1-1", "clause": "3.1.7"},
         )
@@ -528,7 +578,7 @@ class TestReferenceClosure:
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_exact_retrieve_ignores_requested_clause_source_token_mismatch_when_clause_chunk_present(
+    async def test_metadata_probe_retrieve_ignores_requested_clause_source_token_mismatch_when_clause_chunk_present(
         self,
     ):
         retriever = HybridRetriever.__new__(HybridRetriever)
@@ -560,7 +610,7 @@ class TestReferenceClosure:
             object_id="en1992-1-1-2004#table:3.1",
         )
 
-        async def _fake_exact_probe(**kwargs):
+        async def _fake_metadata_probe(**kwargs):
             return [{"chunk_id": "clause", "source": "EN 1992-1-1 2004", "score": 0.96}]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -594,7 +644,7 @@ class TestReferenceClosure:
         async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
             return []
 
-        retriever._run_exact_probe = _fake_exact_probe
+        retriever._run_metadata_probe = _fake_metadata_probe
         retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
         retriever._fetch_chunks = _fake_fetch_chunks
@@ -606,7 +656,6 @@ class TestReferenceClosure:
         result = await retriever.retrieve(
             ["compressive strain limit"],
             original_query="3.1.7 里面混凝土受压应变限值怎么取",
-            answer_mode="exact",
             intent_label="limit",
             target_hint={"document": "EN 1992-1-1:2004", "clause": "3.1.7"},
             requested_objects=["3.1.7"],
@@ -616,7 +665,7 @@ class TestReferenceClosure:
         assert "3.1.7" not in result.unresolved_refs
 
     @pytest.mark.asyncio
-    async def test_exact_retrieve_does_not_require_unrequested_figures_for_reference_closure(self):
+    async def test_metadata_probe_retrieve_does_not_require_unrequested_figures_for_reference_closure(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -649,7 +698,7 @@ class TestReferenceClosure:
             object_id="en-1992-1-1#table:3.1",
         )
 
-        async def _fake_exact_probe(**kwargs):
+        async def _fake_metadata_probe(**kwargs):
             return [{"chunk_id": "clause", "source": "EN 1992-1-1", "score": 0.96}]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -686,7 +735,7 @@ class TestReferenceClosure:
         async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
             return []
 
-        retriever._run_exact_probe = _fake_exact_probe
+        retriever._run_metadata_probe = _fake_metadata_probe
         retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
         retriever._fetch_chunks = _fake_fetch_chunks
@@ -699,7 +748,6 @@ class TestReferenceClosure:
             ["compressive strain limit"],
             original_query="3.1.7 里面混凝土受压应变限值怎么取",
             filters={"source": "EN 1992-1-1"},
-            answer_mode="exact",
             intent_label="limit",
             target_hint={"document": "EN 1992-1-1", "clause": "3.1.7"},
         )
@@ -708,7 +756,7 @@ class TestReferenceClosure:
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_exact_retrieve_ignores_shadowed_clause_request_when_same_table_is_requested(self):
+    async def test_metadata_probe_retrieve_ignores_shadowed_clause_request_when_same_table_is_requested(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -725,7 +773,7 @@ class TestReferenceClosure:
             object_id="en1992-1-1-2004#table:3.1",
         )
 
-        async def _fake_exact_probe(**kwargs):
+        async def _fake_metadata_probe(**kwargs):
             return [{"chunk_id": "table-3-1", "source": "EN 1992-1-1 2004", "score": 0.98}]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -755,7 +803,7 @@ class TestReferenceClosure:
         async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
             return []
 
-        retriever._run_exact_probe = _fake_exact_probe
+        retriever._run_metadata_probe = _fake_metadata_probe
         retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
         retriever._fetch_chunks = _fake_fetch_chunks
@@ -768,7 +816,6 @@ class TestReferenceClosure:
             ["table 3.1 concrete strength classes"],
             original_query="Table 3.1 混凝土强度等级有哪些？",
             filters={"element_type": "table"},
-            answer_mode="exact",
             intent_label="clause_lookup",
             target_hint={"document": "EN 1992-1-1:2004", "object": "Table 3.1"},
             requested_objects=["Table 3.1", "3.1"],
@@ -778,12 +825,12 @@ class TestReferenceClosure:
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_exact_retrieve_uses_anchor_chunk_refs_for_reference_closure(self):
+    async def test_metadata_probe_retrieve_uses_selected_chunk_refs_for_reference_closure(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
-        exact_chunk = _make_chunk(
-            "exact",
+        selected_chunk = _make_chunk(
+            "selected",
             "When determining the ultimate moment resistance, the following assumptions are made: plane sections remain plane.",
             source="EN 1992-1-1 2004",
             source_title="Bending with or without axial force",
@@ -804,9 +851,9 @@ class TestReferenceClosure:
             ref_object_ids=["en1992-1-1-2004#table:6.1"],
         )
 
-        async def _fake_exact_probe(**kwargs):
+        async def _fake_metadata_probe(**kwargs):
             return [
-                {"chunk_id": "exact", "source": "EN 1992-1-1 2004", "score": 0.99},
+                {"chunk_id": "selected", "source": "EN 1992-1-1 2004", "score": 0.99},
                 {"chunk_id": "table-shadow", "source": "EN 1992-1-1 2004", "score": 0.98},
             ]
 
@@ -818,7 +865,7 @@ class TestReferenceClosure:
 
         async def _fake_fetch_chunks(chunk_ids: list[str]):
             chunk_map = {
-                "exact": exact_chunk,
+                "selected": selected_chunk,
                 "table-shadow": noisy_chunk,
             }
             return [chunk_map[chunk_id] for chunk_id in chunk_ids]
@@ -841,7 +888,7 @@ class TestReferenceClosure:
         async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
             return []
 
-        retriever._run_exact_probe = _fake_exact_probe
+        retriever._run_metadata_probe = _fake_metadata_probe
         retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
         retriever._fetch_chunks = _fake_fetch_chunks
@@ -854,17 +901,16 @@ class TestReferenceClosure:
             ["basic assumptions for section design"],
             original_query="欧标的截面计算的基本假设前提是什么",
             filters={"source": "EN 1992-1-1"},
-            answer_mode="exact",
             intent_label="assumption",
             target_hint={"document": "EN 1992-1-1", "clause": "6.1", "object": "basic assumptions"},
         )
 
-        assert [chunk.chunk_id for chunk in result.chunks] == ["exact"]
+        assert [chunk.chunk_id for chunk in result.chunks] == ["selected", "table-shadow"]
         assert result.groundedness == "grounded"
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_exact_retrieve_degrades_when_direct_referenced_table_is_unresolved(self):
+    async def test_metadata_probe_retrieve_degrades_when_direct_referenced_table_is_unresolved(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=1, vector_top_k=1, bm25_top_k=1)
 
@@ -881,7 +927,7 @@ class TestReferenceClosure:
             ref_object_ids=["en-1992-1-1#table:3.1"],
         )
 
-        async def _fake_exact_probe(**kwargs):
+        async def _fake_metadata_probe(**kwargs):
             return [{"chunk_id": "clause", "source": "EN 1992-1-1", "score": 0.96}]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -911,7 +957,7 @@ class TestReferenceClosure:
         async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
             return []
 
-        retriever._run_exact_probe = _fake_exact_probe
+        retriever._run_metadata_probe = _fake_metadata_probe
         retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
         retriever._fetch_chunks = _fake_fetch_chunks
@@ -924,12 +970,11 @@ class TestReferenceClosure:
             ["compressive strain limit"],
             original_query="3.1.7 里面混凝土受压应变限值怎么取",
             filters={"source": "EN 1992-1-1"},
-            answer_mode="exact",
             intent_label="limit",
             target_hint={"document": "EN 1992-1-1", "clause": "3.1.7"},
         )
 
-        assert result.groundedness == "exact_not_grounded"
+        assert result.groundedness == "partial"
         assert result.ref_chunks == []
         assert result.unresolved_refs == ["Table 3.1"]
 
@@ -1090,11 +1135,7 @@ class TestRetrieveFallback:
             "design working life metro",
             "地铁的设计使用年限",
         ]
-        # BM25 双语检索：改写后英文 + 原始中文
-        assert seen_bm25_queries == [
-            "design working life metro",
-            "地铁的设计使用年限",
-        ]
+        assert seen_bm25_queries == ["design working life metro"]
         assert [chunk.chunk_id for chunk in result.chunks] == ["a", "b", "c"]
         assert result.scores == [0.91, 0.74, 0.52]
 
@@ -1142,674 +1183,40 @@ class TestRetrieveFallback:
         }
 
 
-class TestExactProbe:
-    def test_document_matching_normalizes_spacing_punctuation_and_year_suffix(self, retriever):
-        chunk = _make_chunk(
-            "exact-doc",
-            "Basic assumptions are stated for the bending resistance check.",
-            source="EN1992-1-1_2004",
-            source_title="Bending with or without axial force",
-            section_path=["6.1"],
-            clause_ids=["6.1"],
-        )
+class TestGroundednessInference:
+    def test_empty_scores_are_not_grounded(self, retriever):
+        assert retriever._infer_groundedness_from_scores([]) == "not_grounded"
 
-        exact_score, direct_anchor = retriever._score_exact_chunk(
-            chunk,
-            "assumption",
-            {
-                "document": "EN 1992-1-1:2004",
-                "clause": "6.1",
-                "object": "basic assumptions",
-            },
-        )
+    def test_low_top_score_is_not_grounded(self, retriever):
+        assert retriever._infer_groundedness_from_scores([0.49]) == "not_grounded"
 
-        assert direct_anchor is False
-        assert exact_score >= 90
+    def test_medium_top_score_is_partial(self, retriever):
+        assert retriever._infer_groundedness_from_scores([0.5]) == "partial"
 
-    def test_definition_generic_is_sentence_is_not_direct_anchor(self, retriever):
-        chunk = _make_chunk(
-            "generic",
-            "A durability check is required for members in aggressive environments.",
-            source="EN 1992-1-1",
-            source_title="Durability requirements",
-            section_path=["4.4"],
-            clause_ids=["4.4"],
-        )
+    def test_high_top_score_is_grounded(self, retriever):
+        assert retriever._infer_groundedness_from_scores([0.85]) == "grounded"
 
-        exact_score, direct_anchor = retriever._score_exact_chunk(
-            chunk,
-            "definition",
-            {"document": "EN 1992-1-1", "object": "minimum cover"},
-        )
 
-        assert direct_anchor is False
-        assert exact_score == 30
-
-    def test_low_value_titles_are_penalized_below_real_clause_match(self, retriever):
-        low_value = _make_chunk(
-            "foreword",
-            "Minimum cover is discussed in this document.",
-            source="EN 1992-1-1",
-            source_title="Foreword",
-            section_path=["Foreword"],
-            clause_ids=[],
-        )
-        clause_match = _make_chunk(
-            "clause",
-            "Minimum cover shall be determined with regard to bond and durability requirements.",
-            source="EN 1992-1-1",
-            source_title="Concrete cover",
-            section_path=["4.4.1.2"],
-            clause_ids=["4.4.1.2"],
-        )
-
-        low_value_score, low_value_anchor = retriever._score_exact_chunk(
-            low_value,
-            "definition",
-            {"document": "EN 1992-1-1", "object": "minimum cover", "clause": "4.4.1.2"},
-        )
-        clause_score, clause_anchor = retriever._score_exact_chunk(
-            clause_match,
-            "definition",
-            {"document": "EN 1992-1-1", "object": "minimum cover", "clause": "4.4.1.2"},
-        )
-
-        assert low_value_anchor is False
-        assert clause_anchor is False
-        assert clause_score > low_value_score
-
-    def test_direct_anchor_without_document_or_clause_support_is_not_grounded(self, retriever):
-        wrong_anchor = _make_chunk(
-            "wrong-anchor",
-            "For the purpose of this standard, exposure class refers to the environmental conditions surrounding the structure.",
-            source="EN 1990:2002",
-            source_title="Basis of structural design",
-            section_path=["2.1"],
-            clause_ids=["2.1"],
-        )
-        related = _make_chunk(
-            "related",
-            "Minimum cover shall be determined with regard to bond, durability and fire requirements.",
-            source="EN1992-1-1_2004",
-            source_title="Concrete cover",
-            section_path=["4.4.1.2"],
-            clause_ids=["4.4.1.2"],
-        )
-
-        chunks, scores, groundedness, anchor_chunk_ids = retriever._apply_exact_groundedness(
-            [wrong_anchor, related],
-            [0.91, 0.74],
-            "definition",
-            {
-                "document": "EN 1992-1-1",
-                "clause": "4.4.1.2",
-                "object": "minimum cover",
-            },
-        )
-
-        assert groundedness == "exact_not_grounded"
-        assert anchor_chunk_ids == []
-        assert [chunk.chunk_id for chunk in chunks] == ["related"]
-
-    def test_wrong_document_hint_keeps_real_clause_candidate_but_degrades(self, retriever):
-        candidate = _make_chunk(
-            "candidate",
-            "The following assumptions are made: plane sections remain plane.",
-            source="EN1992-1-1_2004",
-            source_title="Bending with or without axial force",
-            section_path=["6.1 Bending with or without axial force"],
-            clause_ids=["6.1", "(1)P"],
-        )
-
-        chunks, scores, groundedness, anchor_chunk_ids = retriever._apply_exact_groundedness(
-            [candidate],
-            [0.96],
-            "assumption",
-            {
-                "document": "EN 1990",
-                "clause": "6.1",
-                "object": "basic assumptions",
-            },
-        )
-
-        assert [chunk.chunk_id for chunk in chunks] == ["candidate"]
-        assert groundedness == "exact_not_grounded"
-        assert anchor_chunk_ids == []
-
-    def test_clause_match_supports_annex_style_identifiers(self, retriever):
-        annex_chunk = _make_chunk(
-            "annex",
-            "Annex A.1 gives supplementary rules.",
-            source="EN1992-1-1_2004",
-            source_title="Annex A.1 Supplementary rules",
-            section_path=["Annex A.1 Supplementary rules"],
-            clause_ids=["A.1", "(1)"],
-        )
-
-        assert retriever._clause_matches_hint(annex_chunk, "A.1") is True
-
-    def test_clause_match_supports_table_suffix_identifiers(self, retriever):
-        table_chunk = _make_chunk(
-            "table-suffix",
-            "Recommended values are given in Table 7.1N.",
-            source="EN1992-1-1_2004",
-            source_title="Table 7.1N Recommended values",
-            section_path=["Table 7.1N Recommended values"],
-            clause_ids=[],
-        )
-
-        assert retriever._clause_matches_hint(table_chunk, "7.1N") is True
-
-    def test_clause_match_ignores_table_titles_for_plain_clause_lookup(self, retriever):
-        table_chunk = _make_chunk(
-            "table-title",
-            "Table 6.1 Coefficients for rectangular sections.",
-            source="EN1992-1-1_2004",
-            source_title="Table 6.1: Coefficients for rectangular sections",
-            section_path=["Table 6.1: Coefficients for rectangular sections"],
-            clause_ids=["Table 6.1"],
-        )
-
-        assert retriever._clause_matches_hint(table_chunk, "6.1") is False
-
-    def test_anchor_phrase_without_target_hint_marks_assumption_chunk_grounded(self, retriever):
-        generic = _make_chunk(
-            "generic",
-            "General discussion of structural analysis assumptions.",
-            source="EN1992-1-1_2004",
-            source_title="Methods of analysis",
-            section_path=["5.8.5"],
-            clause_ids=["5.8.5"],
-        )
-        anchored = _make_chunk(
-            "anchored",
-            "When determining the ultimate moment resistance, the following assumptions are made: plane sections remain plane.",
-            source="EN1992-1-1_2004",
-            source_title="Bending with or without axial force",
-            section_path=["6.1"],
-            clause_ids=["6.1"],
-        )
-
-        chunks, scores, groundedness, anchor_chunk_ids = retriever._apply_exact_groundedness(
-            [generic, anchored],
-            [0.96, 0.84],
-            "assumption",
-            {},
-        )
-
-        assert [chunk.chunk_id for chunk in chunks] == ["anchored"]
-        assert groundedness == "grounded"
-        assert anchor_chunk_ids == ["anchored"]
-
+class TestMetadataProbeBm25Fields:
     @pytest.mark.asyncio
-    async def test_exact_gate_prefers_strong_candidates_and_excludes_generic_supplemental(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=2, vector_top_k=2, bm25_top_k=2)
-
-        async def _fake_exact_probe(**kwargs):
-            return [
-                {"chunk_id": "generic", "source": "EN 1992-1-1", "score": 0.95},
-                {"chunk_id": "strong", "source": "EN 1992-1-1", "score": 0.90},
-            ]
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return [{"chunk_id": "supplemental", "source": "EN 1992-1-1", "score": 0.99}]
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            chunk_map = {
-                "generic": _make_chunk(
-                    "generic",
-                    "Minimum cover is discussed together with several durability topics.",
-                    source="EN 1992-1-1",
-                    source_title="Foreword",
-                    section_path=["Foreword"],
-                    clause_ids=[],
-                ),
-                "strong": _make_chunk(
-                    "strong",
-                    "Minimum cover is the minimum distance between the surface of the reinforcement and the nearest concrete surface.",
-                    source="EN 1992-1-1",
-                    source_title="Concrete cover",
-                    section_path=["4.4.1.2"],
-                    clause_ids=["4.4.1.2"],
-                ),
-                "supplemental": _make_chunk(
-                    "supplemental",
-                    "Additional information specific to EN 1992-1-1 is provided in this annex.",
-                    source="EN 1992-1-1",
-                    source_title="Additional information specific to EN 1992-1-1",
-                    section_path=["Additional information specific to EN 1992-1-1"],
-                    clause_ids=[],
-                ),
-            }
-            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            return [
-                (chunks[0], 0.99),
-                (chunks[1], 0.74),
-                (chunks[2], 0.71),
-            ]
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["minimum cover definition"],
-            original_query="欧标中最小保护层厚度是什么意思",
-            answer_mode="exact",
-            intent_label="definition",
-            target_hint={"document": "EN 1992-1-1", "clause": "4.4.1.2", "object": "minimum cover"},
-        )
-
-        assert [chunk.chunk_id for chunk in result.chunks] == ["strong"]
-        assert result.groundedness == "grounded"
-        assert result.anchor_chunk_ids == ["strong"]
-
-    @pytest.mark.asyncio
-    async def test_exact_probe_prefers_direct_anchor_chunk_over_related_chunk(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=2, vector_top_k=2, bm25_top_k=2)
-
-        async def _fake_exact_probe(**kwargs):
-            return [
-                {"chunk_id": "related", "source": "EN 1992-1-1", "score": 0.95},
-                {"chunk_id": "exact", "source": "EN 1992-1-1", "score": 0.90},
-            ]
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return []
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            chunk_map = {
-                "related": _make_chunk(
-                    "related",
-                    "Biaxial bending may be verified by simplified methods.",
-                    source="EN 1992-1-1",
-                    source_title="Bending with or without axial force",
-                    section_path=["5.8.9"],
-                    clause_ids=["5.8.9"],
-                ),
-                "exact": _make_chunk(
-                    "exact",
-                    "When determining the ultimate moment resistance, the following assumptions are made: plane sections remain plane.",
-                    source="EN 1992-1-1",
-                    source_title="Ultimate limit states",
-                    section_path=["6.1"],
-                    clause_ids=["6.1"],
-                ),
-            }
-            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            return [(chunks[0], 0.88), (chunks[1], 0.86)]
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["basic assumptions for section design"],
-            original_query="欧标的截面计算的基本假设前提是什么",
-            answer_mode="exact",
-            intent_label="assumption",
-            target_hint={"document": "EN 1992-1-1", "clause": "6.1", "object": "basic assumptions"},
-        )
-
-        assert [chunk.chunk_id for chunk in result.chunks] == ["exact"]
-        assert result.groundedness == "grounded"
-        assert result.anchor_chunk_ids == ["exact"]
-
-    @pytest.mark.asyncio
-    async def test_direct_anchor_phrase_marks_grounded(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=1)
-
-        async def _fake_exact_probe(**kwargs):
-            return [{"chunk_id": "exact", "source": "EN 1992-1-1", "score": 0.91}]
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return []
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            return [
-                _make_chunk(
-                    "exact",
-                    "The following assumptions are made: plane sections remain plane.",
-                    source="EN 1992-1-1",
-                    section_path=["6.1"],
-                    clause_ids=["6.1"],
-                )
-            ]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            return [(chunks[0], 0.97)]
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["basic assumptions for section design"],
-            original_query="欧标的截面计算的基本假设前提是什么",
-            answer_mode="exact",
-            intent_label="assumption",
-            target_hint={"document": "EN 1992-1-1", "clause": "6.1"},
-        )
-
-        assert result.groundedness == "grounded"
-        assert result.anchor_chunk_ids == ["exact"]
-
-    @pytest.mark.asyncio
-    async def test_related_sections_only_degrades_to_exact_not_grounded(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=1)
-
-        async def _fake_exact_probe(**kwargs):
-            return [{"chunk_id": "related", "source": "EN 1992-1-1", "score": 0.89}]
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return []
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            return [
-                _make_chunk(
-                    "related",
-                    "Bending resistance of members may be verified by this section.",
-                    source="EN 1992-1-1",
-                    source_title="Ultimate limit states",
-                    section_path=["6.1"],
-                    clause_ids=["6.1"],
-                )
-            ]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            return [(chunks[0], 0.82)]
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["basic assumptions for section design"],
-            original_query="欧标的截面计算的基本假设前提是什么",
-            answer_mode="exact",
-            intent_label="assumption",
-            target_hint={"document": "EN 1992-1-1", "clause": "6.1"},
-        )
-
-        assert result.groundedness == "exact_not_grounded"
-        assert result.anchor_chunk_ids == []
-
-    @pytest.mark.asyncio
-    async def test_non_exact_queries_do_not_run_exact_probe(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=1)
-        exact_probe_calls: list[dict[str, object]] = []
-
-        async def _fake_exact_probe(**kwargs):
-            exact_probe_calls.append(kwargs)
-            return []
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return [{"chunk_id": "open", "source": "EN 1990:2002", "score": 0.9}]
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            return [_make_chunk("open", "General explanation of design working life.")]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            return [(chunks[0], 0.88)]
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["design working life metro"],
-            original_query="地铁的设计使用年限",
-            answer_mode="open",
-            intent_label="explanation",
-            target_hint=SimpleNamespace(document=None, clause=None, object=None),
-        )
-
-        assert exact_probe_calls == []
-        assert result.groundedness == "open"
-
-    @pytest.mark.asyncio
-    async def test_exact_gate_keeps_anchor_candidate_before_final_top_n_cut(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=1, vector_top_k=2, bm25_top_k=2)
-
-        async def _fake_exact_probe(**kwargs):
-            return [
-                {"chunk_id": "related", "source": "EN 1992-1-1", "score": 0.95},
-                {"chunk_id": "exact", "source": "EN 1992-1-1", "score": 0.90},
-            ]
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return []
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            chunk_map = {
-                "related": _make_chunk(
-                    "related",
-                    "Bending resistance of members may be verified by this section.",
-                    source="EN 1992-1-1",
-                    source_title="Ultimate limit states",
-                    section_path=["6.1"],
-                    clause_ids=["6.1"],
-                ),
-                "exact": _make_chunk(
-                    "exact",
-                    "The following assumptions are made: plane sections remain plane.",
-                    source="EN 1992-1-1",
-                    source_title="Ultimate limit states",
-                    section_path=["6.1"],
-                    clause_ids=["6.1"],
-                ),
-            }
-            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            assert top_n == 2
-            return [
-                (chunks[0], 0.99),
-                (chunks[1], 0.51),
-            ]
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["basic assumptions for section design"],
-            original_query="欧标的截面计算的基本假设前提是什么",
-            answer_mode="exact",
-            intent_label="assumption",
-            target_hint={"document": "EN 1992-1-1", "clause": "6.1"},
-        )
-
-        assert [chunk.chunk_id for chunk in result.chunks] == ["exact"]
-        assert result.groundedness == "grounded"
-        assert result.anchor_chunk_ids == ["exact"]
-
-    @pytest.mark.asyncio
-    async def test_exact_mode_bypasses_cross_doc_aggregation_to_keep_late_same_source_anchor(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=2, vector_top_k=2, bm25_top_k=2)
-
-        async def _fake_exact_probe(**kwargs):
-            return [
-                {"chunk_id": f"same-{idx}", "source": "EN 1992-1-1", "score": 1.0 - idx * 0.01}
-                for idx in range(5)
-            ] + [
-                {"chunk_id": "exact", "source": "EN 1992-1-1", "score": 0.80},
-            ]
-
-        async def _fake_vector_search(query: str, top_k: int, filters: dict):
-            return []
-
-        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
-            return []
-
-        async def _fake_fetch_chunks(chunk_ids: list[str]):
-            chunk_map = {
-                **{
-                    f"same-{idx}": _make_chunk(
-                        f"same-{idx}",
-                        "General discussion of analysis assumptions.",
-                        source="EN 1992-1-1",
-                        source_title="Methods of analysis",
-                        section_path=[f"5.8.{idx}"],
-                        clause_ids=[f"5.8.{idx}"],
-                    )
-                    for idx in range(5)
-                },
-                "exact": _make_chunk(
-                    "exact",
-                    "When determining the ultimate moment resistance, the following assumptions are made: plane sections remain plane.",
-                    source="EN 1992-1-1",
-                    source_title="Bending with or without axial force",
-                    section_path=["6.1"],
-                    clause_ids=["6.1"],
-                ),
-            }
-            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
-
-        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            ranked: list[tuple[Chunk, float]] = []
-            for chunk in chunks:
-                if chunk.chunk_id == "exact":
-                    ranked.append((chunk, 0.70))
-                else:
-                    ranked.append((chunk, 0.95))
-            return ranked
-
-        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
-            return []
-
-        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
-            return []
-
-        retriever._run_exact_probe = _fake_exact_probe
-        retriever._vector_search = _fake_vector_search
-        retriever._bm25_search = _fake_bm25_search
-        retriever._fetch_chunks = _fake_fetch_chunks
-        retriever._rerank = _fake_rerank
-        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
-
-        result = await retriever.retrieve(
-            ["basic assumptions for section design"],
-            original_query="欧标的截面计算的基本假设前提是什么",
-            answer_mode="exact",
-            intent_label="assumption",
-            target_hint={},
-        )
-
-        assert [chunk.chunk_id for chunk in result.chunks] == ["exact"]
-        assert result.groundedness == "grounded"
-        assert result.anchor_chunk_ids == ["exact"]
-
-
-class TestExactProbeBm25Fields:
-    @pytest.mark.asyncio
-    async def test_exact_probe_uses_title_section_and_clause_fields(self):
+    async def test_metadata_probe_uses_title_section_and_clause_fields(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(bm25_top_k=2, es_index="chunks")
-        seen_bodies: list[dict] = []
+        seen_fields: list[list[str] | None] = []
 
-        class _FakeEs:
-            async def search(self, index: str, body: dict):
-                assert index == "chunks"
-                seen_bodies.append(body)
-                return {"hits": {"hits": []}}
+        async def _fake_clause_probe(clause: str, filters: dict):
+            assert clause == "6.1"
+            assert filters == {"source": "EN 1992-1-1"}
+            return []
 
-        async def _fake_get_es():
-            return _FakeEs()
+        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
+            seen_fields.append(kwargs.get("fields"))
+            return []
 
-        retriever._get_es = _fake_get_es
+        retriever._run_clause_metadata_probe = _fake_clause_probe
+        retriever._bm25_search = _fake_bm25_search
 
-        await retriever._run_exact_probe(
+        await retriever._run_metadata_probe(
             queries=["basic assumptions for section design"],
             original_query="欧标的截面计算的基本假设前提是什么",
             filters={"source": "EN 1992-1-1"},
@@ -1820,19 +1227,16 @@ class TestExactProbeBm25Fields:
             },
         )
 
-        assert seen_bodies
-        multi_match_body = next(
-            body for body in seen_bodies
-            if "must" in body["query"]["bool"]
-        )
-        first_fields = multi_match_body["query"]["bool"]["must"][0]["multi_match"]["fields"]
+        assert seen_fields
+        first_fields = seen_fields[0]
         assert "source^6" in first_fields
-        assert "source_title^4" in first_fields
-        assert "section_path^7" in first_fields
-        assert "clause_ids^8" in first_fields
+        assert "source_title.text^4" in first_fields
+        assert "section_path.text^7" in first_fields
+        assert "clause_ids.text^8" in first_fields
+        assert "object_aliases.text^5" in first_fields
 
     @pytest.mark.asyncio
-    async def test_exact_probe_adds_clause_metadata_search_for_keyword_fields(self):
+    async def test_clause_metadata_probe_uses_keyword_fields(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(bm25_top_k=2, es_index="chunks")
         seen_bodies: list[dict] = []
@@ -1848,16 +1252,7 @@ class TestExactProbeBm25Fields:
 
         retriever._get_es = _fake_get_es
 
-        await retriever._run_exact_probe(
-            queries=["exposure class XC1 definition"],
-            original_query="欧标中 exposure class XC1 的定义在哪一条？",
-            filters={},
-            target_hint={
-                "document": "EN 1992-1-1",
-                "clause": "4.2",
-                "object": "exposure class XC1",
-            },
-        )
+        await retriever._run_clause_metadata_probe("4.2", {})
 
         assert any(
             "should" in body["query"]["bool"]
@@ -1867,65 +1262,62 @@ class TestExactProbeBm25Fields:
         )
 
     @pytest.mark.asyncio
-    async def test_exact_probe_adds_assumption_anchor_queries_when_target_hint_missing(self):
+    async def test_retrieve_runs_metadata_probe_from_structured_hint(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(bm25_top_k=2, es_index="chunks")
-        seen_queries: list[str] = []
+        retriever.config = ServerConfig(rerank_top_n=2, vector_top_k=1, bm25_top_k=1)
+        metadata_probe_calls: list[dict[str, object]] = []
 
-        async def _fake_bm25_search(
-            query: str,
-            top_k: int,
-            filters: dict,
-            **kwargs,
-        ):
-            seen_queries.append(query)
+        async def _fake_metadata_probe(**kwargs):
+            metadata_probe_calls.append(kwargs)
+            return [{"chunk_id": "probe-hit", "source": "EN 1992-1-1", "score": 0.96}]
+
+        async def _fake_vector_search(query: str, top_k: int, filters: dict):
             return []
 
-        async def _fake_clause_probe(*args, **kwargs):
+        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
             return []
 
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            return [
+                _make_chunk(
+                    "probe-hit",
+                    "Basic assumptions for section design are given in 6.1.",
+                    source="EN 1992-1-1",
+                    source_title="Bending with or without axial force",
+                    section_path=["6.1"],
+                    clause_ids=["6.1"],
+                )
+            ]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(chunks[0], 0.9)]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        async def _fake_fetch_cross_ref_chunks(*args, **kwargs):
+            return []
+
+        retriever._run_metadata_probe = _fake_metadata_probe
+        retriever._vector_search = _fake_vector_search
         retriever._bm25_search = _fake_bm25_search
-        retriever._run_exact_clause_metadata_probe = _fake_clause_probe
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
-        await retriever._run_exact_probe(
+        result = await retriever.retrieve(
             queries=["basic assumptions for section design"],
             original_query="欧标的截面计算的基本假设前提是什么",
             filters={},
-            target_hint={},
             intent_label="assumption",
+            target_hint={
+                "document": "EN 1992-1-1",
+                "clause": "6.1",
+                "object": "basic assumptions",
+            },
         )
 
-        assert "the following assumptions are made" in seen_queries
-        assert "plane sections remain plane" in seen_queries
-
-    @pytest.mark.asyncio
-    async def test_exact_probe_keeps_assumption_anchor_queries_when_only_object_hint_exists(self):
-        retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(bm25_top_k=2, es_index="chunks")
-        seen_queries: list[str] = []
-
-        async def _fake_bm25_search(
-            query: str,
-            top_k: int,
-            filters: dict,
-            **kwargs,
-        ):
-            seen_queries.append(query)
-            return []
-
-        async def _fake_clause_probe(*args, **kwargs):
-            return []
-
-        retriever._bm25_search = _fake_bm25_search
-        retriever._run_exact_clause_metadata_probe = _fake_clause_probe
-
-        await retriever._run_exact_probe(
-            queries=["basic assumptions for section design"],
-            original_query="欧标的截面计算的基本假设前提是什么",
-            filters={},
-            target_hint={"object": "cross section"},
-            intent_label="assumption",
-        )
-
-        assert "the following assumptions are made" in seen_queries
-        assert "plane sections remain plane" in seen_queries
+        assert metadata_probe_calls
+        assert [chunk.chunk_id for chunk in result.chunks] == ["probe-hit"]
+        assert result.groundedness == "grounded"

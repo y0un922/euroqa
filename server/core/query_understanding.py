@@ -18,7 +18,6 @@ from openai import AsyncOpenAI
 from shared.reference_graph import classify_reference_label, normalize_reference_label
 from server.config import ServerConfig
 from server.models.schemas import (
-    AnswerMode,
     EngineeringContext,
     GuideHint,
     QuestionType,
@@ -134,9 +133,7 @@ class QueryAnalysis:
     question_type: QuestionType | None = None
     engineering_context: EngineeringContext | None = None
     guide_hint: GuideHint | None = None
-    answer_mode: AnswerMode | None = None
     intent_label: str | None = None
-    intent_confidence: float | None = None
     target_hint: RoutingTargetHint | None = None
     reason_short: str | None = None
     preferred_element_type: str | None = None
@@ -299,15 +296,13 @@ def _stabilize_partial_factor_expansion(
         engineering_context=expansion.engineering_context,
         guide_hint=GuideHint(need_example=False),
         routing=RoutingDecision(
-            answer_mode=AnswerMode.EXACT,
             intent_label="limit",
-            intent_confidence=1.0,
             target_hint=RoutingTargetHint(
                 document="EN 1990 and EN 1992-1-1",
                 clause=None,
                 object="partial factors for actions and materials",
             ),
-            reason_short="asks for exact Eurocode partial factor values",
+            reason_short="asks for Eurocode partial factor values",
         ),
     )
 
@@ -325,7 +320,7 @@ async def expand_queries(
     3. terms     — 变量名、缩写、公式符号（命中公式和符号定义片段）
     4. question_type — 问题分型（rule/parameter/calculation/mechanism）
     5. context   — 工程上下文字段，缺失置为 null
-    6. routing   — exact/open 路由提示与目标线索
+    6. routing   — 规范目标线索
 
     失败时降级为仅返回原始问题。
     """
@@ -351,11 +346,9 @@ async def expand_queries(
         '- "parameter": 参数/限值类 — 问"约束条件/限值是什么"\n'
         '- "calculation": 计算类 — 问"从已知量到设计值怎么走"\n'
         '- "mechanism": 机理/影响因素类 — 问"哪些变量会改变结果"\n\n'
-        "路由字段：\n"
-        '- "answer_mode": "exact" 或 "open"\n'
+        "目标线索字段：\n"
         '- "intent_label": definition|assumption|applicability|formula|limit|clause_lookup|'
         'explanation|mechanism|calculation\n'
-        '- "confidence": 0 到 1 之间的小数\n'
         '- "target_hint": {"document": str|null, "clause": str|null, "object": str|null}\n'
         '- "reason_short": 一句简短英文原因\n\n'
         "工程上下文（context），从问题中提取（缺失填 null）：\n"
@@ -372,15 +365,14 @@ async def expand_queries(
         "- semantic/concepts/terms 只输出英文\n"
         "- question_type 必须基于问题意图判断\n"
         "- 是否需要指南算例主要由 question_type 和问题意图共同决定，不要机械地对所有问题都要求算例\n"
-        "- answer_mode 仅在明确属于直接条文/定义/假设/公式/限值/条款定位时填 exact，否则填 open\n"
-        "- confidence 反映你对 routing 的把握；不确定时给低分，不要编造 target_hint\n"
         "- context 中未明确出现的信息必须保留为 null，不要臆测\n"
+        "- target_hint 只能填问题中明确出现或可由目标对象稳定推出的信息，不确定时填 null\n"
         "- 严格按 JSON 格式输出：\n"
         '{"semantic":"...","concepts":"...","terms":"...",'
         '"question_type":"rule|parameter|calculation|mechanism",'
         '"guide_hint":{"need_example":false,"example_query":null,"example_kind":null},'
-        '"answer_mode":"exact|open","intent_label":"...",'
-        '"confidence":0.0,"target_hint":{"document":null,"clause":null,"object":null},'
+        '"intent_label":"...",'
+        '"target_hint":{"document":null,"clause":null,"object":null},'
         '"reason_short":"...",'
         '"context":{"country":null,"structure_type":null,'
         '"limit_state":null,"load_combination":null,'
@@ -498,15 +490,12 @@ def _parse_guide_hint(payload: object) -> GuideHint | None:
 
 def _parse_routing_decision(data: dict[str, object]) -> RoutingDecision | None:
     """解析 routing 元数据；缺失、低置信度或格式异常时安全降级。"""
-    raw_mode = data.get("answer_mode")
     raw_intent = data.get("intent_label")
-    raw_confidence = data.get("confidence")
     raw_target = data.get("target_hint")
     raw_reason = data.get("reason_short")
 
     if not all(
         (
-            isinstance(raw_mode, str),
             isinstance(raw_intent, str),
             isinstance(raw_target, dict),
             isinstance(raw_reason, str),
@@ -514,25 +503,9 @@ def _parse_routing_decision(data: dict[str, object]) -> RoutingDecision | None:
     ):
         return None
 
-    try:
-        answer_mode = AnswerMode(raw_mode.strip().lower())
-    except ValueError:
-        return None
-
-    # `exact_not_grounded` 由后续 retrieval / groundedness gate 决定，
-    # query-understanding 阶段显式拒绝该状态，避免提前承诺证据充分性。
-    if answer_mode == AnswerMode.EXACT_NOT_GROUNDED:
-        return None
-
     intent_label = raw_intent.strip()
     reason_short = raw_reason.strip()
     if not intent_label or not reason_short:
-        return None
-
-    if isinstance(raw_confidence, bool) or not isinstance(raw_confidence, int | float):
-        return None
-    confidence = float(raw_confidence)
-    if not 0.0 <= confidence <= 1.0 or confidence < 0.5:
         return None
 
     normalized_target: dict[str, str | None] = {}
@@ -553,9 +526,7 @@ def _parse_routing_decision(data: dict[str, object]) -> RoutingDecision | None:
         return None
 
     return RoutingDecision(
-        answer_mode=answer_mode,
         intent_label=intent_label,
-        intent_confidence=confidence,
         target_hint=target_hint,
         reason_short=reason_short,
     )
@@ -586,9 +557,7 @@ async def analyze_query(
         question_type=expansion.question_type,
         engineering_context=expansion.engineering_context,
         guide_hint=expansion.guide_hint,
-        answer_mode=expansion.routing.answer_mode if expansion.routing else None,
         intent_label=expansion.routing.intent_label if expansion.routing else None,
-        intent_confidence=expansion.routing.intent_confidence if expansion.routing else None,
         target_hint=expansion.routing.target_hint if expansion.routing else None,
         reason_short=expansion.routing.reason_short if expansion.routing else None,
         preferred_element_type=preferred_element_type,

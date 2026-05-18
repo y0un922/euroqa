@@ -25,15 +25,6 @@ _INTERNAL_REF_RE = re.compile(
     r"|\bAnnex\s+[A-Z]\d*",
     re.IGNORECASE,
 )
-_LOW_VALUE_EXACT_SIGNALS = (
-    "foreword",
-    "additional information",
-    "national annex",
-)
-_CLAUSE_TOKEN_RE = re.compile(
-    r"(?:[a-z]\.)?\d+(?:\.\d+)*(?:[a-z])?(?:\(\d+\))?(?:[a-z])?",
-    re.IGNORECASE,
-)
 _SOURCE_DOC_RE = re.compile(
     r"(?<![A-Za-z0-9])en\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)"
     r"(?:[\s:_-]*([0-9]{4}))?(?![A-Za-z0-9])",
@@ -75,9 +66,18 @@ _GUIDE_DOCUMENT_MARKERS = (
 _GUIDE_SEARCH_FIELDS = [
     "content",
     "embedding_text",
-    "source_title^3",
+    "source_title.text^3",
     "source^2",
 ]
+_DEFAULT_BM25_FIELDS = [
+    "content^2",
+    "embedding_text",
+    "source_title.text^3",
+    "section_path.text^2",
+    "clause_ids.text^4",
+    "object_aliases.text^5",
+]
+_RRF_K = 60
 
 
 @dataclass
@@ -90,9 +90,7 @@ class RetrievalResult:
     guide_chunks: list[Chunk] = field(default_factory=list)
     guide_example_chunks: list[Chunk] = field(default_factory=list)
     ref_chunks: list[Chunk] = field(default_factory=list)
-    groundedness: str = "open"
-    anchor_chunk_ids: list[str] = field(default_factory=list)
-    exact_probe_used: bool = False
+    groundedness: str = "not_grounded"
     resolved_refs: list[str] = field(default_factory=list)
     unresolved_refs: list[str] = field(default_factory=list)
 
@@ -192,7 +190,7 @@ class HybridRetriever:
     ) -> list[dict]:
         """在 Elasticsearch 中使用 multi_match 进行 BM25 全文检索。"""
         es = await self._get_es()
-        search_fields = fields or ["content", "embedding_text"]
+        search_fields = fields or _DEFAULT_BM25_FIELDS
 
         must_clauses = [
             {
@@ -242,25 +240,42 @@ class HybridRetriever:
         vec_results: list[dict],
         bm25_results: list[dict],
     ) -> list[dict]:
-        """合并向量检索和 BM25 结果并去重，向量结果优先。"""
-        seen: set[str] = set()
-        merged: list[dict] = []
+        """合并向量检索和 BM25 结果并去重，使用 RRF 保留两路排序信号。"""
+        return self._rrf_fuse_results([vec_results, bm25_results])
 
-        primary, secondary = vec_results, bm25_results
+    @staticmethod
+    def _rrf_fuse_results(
+        result_groups: list[list[dict]],
+        *,
+        rrf_k: int = _RRF_K,
+    ) -> list[dict]:
+        """Fuse ranked retrieval groups with Reciprocal Rank Fusion."""
+        fused: dict[str, dict[str, Any]] = {}
+        first_order = 0
 
-        for result in primary:
-            cid = result["chunk_id"]
-            if cid not in seen:
-                seen.add(cid)
-                merged.append(result)
+        for group in result_groups:
+            for rank, result in enumerate(group, start=1):
+                chunk_id = result.get("chunk_id")
+                if not chunk_id:
+                    continue
+                if chunk_id not in fused:
+                    fused[chunk_id] = {
+                        **result,
+                        "score": 0.0,
+                        "_first_order": first_order,
+                    }
+                    first_order += 1
+                fused[chunk_id]["score"] += 1.0 / (rrf_k + rank)
 
-        for result in secondary:
-            cid = result["chunk_id"]
-            if cid not in seen:
-                seen.add(cid)
-                merged.append(result)
-
-        return merged
+        ranked = sorted(
+            fused.values(),
+            key=lambda item: (item["score"], -item["_first_order"]),
+            reverse=True,
+        )
+        return [
+            {key: value for key, value in item.items() if not key.startswith("_")}
+            for item in ranked
+        ]
 
     def _cross_doc_aggregate(
         self,
@@ -597,37 +612,6 @@ class HybridRetriever:
         return results
 
     @classmethod
-    def _is_object_like_clause_metadata(cls, value: str) -> bool:
-        normalized = normalize_reference_label(value)
-        ref_type = classify_reference_label(normalized)
-        return ref_type in {"table", "figure", "expression", "annex"}
-
-    @staticmethod
-    def _is_plain_numeric_clause_token(value: str) -> bool:
-        return bool(re.fullmatch(r"\d+(?:\.\d+)+", value))
-
-    @classmethod
-    def _build_clause_token_candidates(
-        cls,
-        chunk: Chunk,
-        expected_tokens: set[str],
-    ) -> set[str]:
-        allow_object_like_values = any(
-            not cls._is_plain_numeric_clause_token(token)
-            for token in expected_tokens
-        )
-        clause_tokens: set[str] = set()
-        for value in (
-            chunk.metadata.source_title,
-            *chunk.metadata.section_path,
-            *chunk.metadata.clause_ids,
-        ):
-            if not allow_object_like_values and cls._is_object_like_clause_metadata(value):
-                continue
-            clause_tokens.update(cls._extract_clause_tokens(value))
-        return clause_tokens
-
-    @classmethod
     def _lookup_aliases_for_object_id(cls, object_id: str) -> tuple[str, list[str]]:
         suffix = object_id.split("#", 1)[-1]
         if ":" not in suffix:
@@ -663,10 +647,6 @@ class HybridRetriever:
                 continue
             object_ids.add(build_object_id(lookup_source, ref_type, label))
         return self._prune_shadowed_requested_object_ids(object_ids), lookup_source
-
-    @staticmethod
-    def _is_exact_mode(answer_mode: str | None) -> bool:
-        return isinstance(answer_mode, str) and answer_mode.strip().lower() == "exact"
 
     @staticmethod
     def _normalize_question_type(question_type: str | QuestionType | None) -> str | None:
@@ -945,7 +925,7 @@ class HybridRetriever:
         ]
         return filtered_candidates[:3]
 
-    async def _run_exact_probe(
+    async def _run_metadata_probe(
         self,
         queries: list[str],
         original_query: str | None,
@@ -953,7 +933,8 @@ class HybridRetriever:
         target_hint: Any = None,
         intent_label: str | None = None,
     ) -> list[dict]:
-        """对 exact 问题执行高精度 probe，优先 clause/title/object 信号。"""
+        """Run metadata-weighted probe using structured target hints."""
+        del intent_label
         normalized_hint = self._normalize_target_hint(target_hint)
         probe_queries: list[str] = []
 
@@ -970,8 +951,6 @@ class HybridRetriever:
             probe_queries.append(obj)
         if clause:
             probe_queries.append(clause)
-        if not document and not clause:
-            probe_queries.extend(self._probe_anchor_queries_for_intent(intent_label))
         if original_query:
             probe_queries.append(original_query.strip())
         if queries:
@@ -990,16 +969,17 @@ class HybridRetriever:
             try:
                 results = self._append_unique_results(
                     results,
-                    await self._run_exact_clause_metadata_probe(clause, filters),
+                    await self._run_clause_metadata_probe(clause, filters),
                 )
             except Exception:
-                logger.warning("exact_probe_clause_metadata_failed", clause=clause[:40])
+                logger.warning("metadata_probe_clause_metadata_failed", clause=clause[:40])
 
-        exact_fields = [
+        metadata_fields = [
             "source^6",
-            "clause_ids^8",
-            "section_path^7",
-            "source_title^4",
+            "clause_ids.text^8",
+            "section_path.text^7",
+            "source_title.text^4",
+            "object_aliases.text^5",
             "content^2",
             "embedding_text",
         ]
@@ -1009,15 +989,15 @@ class HybridRetriever:
                     query,
                     self.config.bm25_top_k,
                     filters,
-                    fields=exact_fields,
+                    fields=metadata_fields,
                 )
                 results = self._append_unique_results(results, matches)
             except Exception:
-                logger.warning("exact_probe_bm25_failed", query=query[:80])
+                logger.warning("metadata_probe_bm25_failed", query=query[:80])
 
         return results
 
-    async def _run_exact_clause_metadata_probe(
+    async def _run_clause_metadata_probe(
         self,
         clause: str,
         filters: dict,
@@ -1053,299 +1033,16 @@ class HybridRetriever:
         ]
 
     @staticmethod
-    def _anchor_patterns_for_intent(intent_label: str | None) -> tuple[str, ...]:
-        mapping = {
-            "definition": (
-                " is defined as ",
-                " is the ",
-                " means ",
-                " refers to ",
-                "for the purpose of this standard",
-            ),
-            "assumption": (
-                "the following assumptions are made",
-                "plane sections remain plane",
-                "is ignored",
-            ),
-            "applicability": (
-                "this section applies to",
-                "this clause applies to",
-                "shall apply to",
-                "is applicable to",
-            ),
-            "formula": ("expression (", "equation", "formula"),
-            "limit": ("shall be limited to", "shall not exceed", "may be taken as"),
-            "clause_lookup": (),
-        }
-        key = (intent_label or "").strip().lower()
-        return mapping.get(key, ())
-
-    @staticmethod
-    def _probe_anchor_queries_for_intent(intent_label: str | None) -> tuple[str, ...]:
-        mapping = {
-            "assumption": (
-                "the following assumptions are made",
-                "plane sections remain plane",
-                "tensile strength of the concrete is ignored",
-            ),
-            "definition": (
-                "is defined as",
-                "for the purpose of this standard",
-            ),
-            "applicability": (
-                "this section applies to",
-                "this clause applies to",
-            ),
-            "limit": (
-                "shall be limited to",
-                "shall not exceed",
-            ),
-        }
-        key = (intent_label or "").strip().lower()
-        return mapping.get(key, ())
-
-    @staticmethod
-    def _normalize_document_token(value: str) -> str:
-        """归一化规范文档名，消除空格、冒号、下划线等格式差异。"""
-        return re.sub(r"[^a-z0-9]+", "", value.lower())
-
-    @staticmethod
-    def _extract_clause_tokens(*values: str) -> set[str]:
-        """从标题、section_path、clause_ids 中提取规范条款编号。"""
-        tokens: set[str] = set()
-        for value in values:
-            tokens.update(_CLAUSE_TOKEN_RE.findall(value.lower()))
-        return tokens
-
-    @staticmethod
-    def _clause_token_matches(token: str, expected: str) -> bool:
-        if token == expected:
-            return True
-        if token.startswith(f"{expected}.") or token.startswith(f"{expected}("):
-            return True
-        if token.startswith(expected):
-            suffix = token[len(expected):]
-            return len(suffix) == 1 and suffix.isalpha()
-        return False
-
-    @classmethod
-    def _document_matches_hint(cls, chunk: Chunk, document: str) -> bool:
-        """宽松匹配 target hint 的规范文档名。"""
-        if not document:
-            return False
-
-        expected = cls._normalize_document_token(document)
-        if not expected:
-            return False
-
-        candidates = (
-            chunk.metadata.source,
-            chunk.metadata.source_title,
-        )
-        for candidate in candidates:
-            normalized = cls._normalize_document_token(candidate)
-            if normalized and (
-                normalized.startswith(expected) or expected.startswith(normalized)
-            ):
-                return True
-        return False
-
-    @classmethod
-    def _clause_matches_hint(cls, chunk: Chunk, clause: str) -> bool:
-        """匹配目标条款编号，允许父条款命中子条款。"""
-        if not clause:
-            return False
-
-        expected = clause.strip().lower()
-        if not expected:
-            return False
-
-        expected_tokens = cls._extract_clause_tokens(expected) or {expected}
-        clause_tokens = cls._build_clause_token_candidates(chunk, expected_tokens)
-        return any(
-            cls._clause_token_matches(token, expected_token)
-            for token in clause_tokens
-            for expected_token in expected_tokens
-        )
-
-    @staticmethod
-    def _count_object_hits(chunk: Chunk, obj: str) -> int:
-        """统计目标对象术语在 chunk 元数据与正文中的命中数。"""
-        if not obj:
-            return 0
-
-        combined = " ".join(
-            [
-                chunk.content,
-                chunk.embedding_text,
-                chunk.metadata.source_title,
-                " ".join(chunk.metadata.section_path),
-                " ".join(chunk.metadata.clause_ids),
-            ]
-        ).lower()
-        terms = {
-            term
-            for term in re.findall(r"[a-z0-9]+", obj.lower())
-            if len(term) >= 3
-        }
-        return sum(1 for term in terms if term in combined)
-
-    def _exact_match_features(
-        self,
-        chunk: Chunk,
-        target_hint: Any,
-    ) -> tuple[bool, bool, int]:
-        """返回 exact 检索使用的结构化命中特征。"""
-        normalized_hint = self._normalize_target_hint(target_hint)
-        return (
-            self._document_matches_hint(chunk, normalized_hint.get("document", "")),
-            self._clause_matches_hint(chunk, normalized_hint.get("clause", "")),
-            self._count_object_hits(chunk, normalized_hint.get("object", "")),
-        )
-
-    @staticmethod
-    def _is_low_value_exact_chunk(chunk: Chunk) -> bool:
-        title = chunk.metadata.source_title.lower()
-        section_text = " ".join(chunk.metadata.section_path).lower()
-        return any(
-            signal in title or signal in section_text
-            for signal in _LOW_VALUE_EXACT_SIGNALS
-        )
-
-    def _score_exact_chunk(
-        self,
-        chunk: Chunk,
-        intent_label: str | None,
-        target_hint: Any,
-    ) -> tuple[int, bool]:
-        """返回 exact 候选得分以及是否命中 direct anchor。"""
-        normalized_hint = self._normalize_target_hint(target_hint)
-        content = chunk.content.lower()
-
-        score = 0
-        direct_anchor = False
-
-        raw_anchor_hit = any(
-            pattern in content for pattern in self._anchor_patterns_for_intent(intent_label)
-        )
-        has_structured_hint = any(
-            normalized_hint.get(key, "")
-            for key in ("document", "clause", "object")
-        )
-
-        document = normalized_hint.get("document", "")
-
-        document_match, clause_match, object_hits = self._exact_match_features(
-            chunk,
-            normalized_hint,
-        )
-
-        if document_match:
-            score += 30
-        if clause_match:
-            score += 40
-        if object_hits:
-            score += min(object_hits, 3) * 10
-
-        if raw_anchor_hit and (
-            (
-                document_match
-                and (
-                    clause_match
-                    or object_hits >= 1
-                )
-            )
-            or (
-                not document
-                and (
-                    clause_match
-                    or object_hits >= 2
-                )
-            )
-        ):
-            score += 100
-            direct_anchor = True
-        elif raw_anchor_hit and not has_structured_hint and not self._is_low_value_exact_chunk(chunk):
-            score += 80
-            direct_anchor = True
-
-        if self._is_low_value_exact_chunk(chunk):
-            score -= 80
-
-        return score, direct_anchor
-
-    def _apply_exact_groundedness(
-        self,
-        chunks: list[Chunk],
-        scores: list[float],
-        intent_label: str | None,
-        target_hint: Any,
-    ) -> tuple[list[Chunk], list[float], str, list[str]]:
-        """依据 anchor/title/clause/object 命中，对 exact 检索结果重排并判定 groundedness。"""
-        if not chunks:
-            return chunks, scores, "exact_not_grounded", []
-
-        ranked_candidates: list[tuple[int, bool, bool, bool, int, float, int, Chunk]] = []
-        anchor_chunk_ids: list[str] = []
-        for index, chunk in enumerate(chunks):
-            document_match, clause_match, object_hits = self._exact_match_features(
-                chunk,
-                target_hint,
-            )
-            exact_score, direct_anchor = self._score_exact_chunk(chunk, intent_label, target_hint)
-            if direct_anchor:
-                anchor_chunk_ids.append(chunk.chunk_id)
-            rerank_score = scores[index] if index < len(scores) else 0.0
-            ranked_candidates.append(
-                (
-                    exact_score,
-                    direct_anchor,
-                    document_match,
-                    clause_match,
-                    object_hits,
-                    rerank_score,
-                    index,
-                    chunk,
-                )
-            )
-
-        if any(item[2] for item in ranked_candidates):
-            ranked_candidates = [item for item in ranked_candidates if item[2]]
-
-        if any(item[2] and item[3] for item in ranked_candidates):
-            ranked_candidates = [item for item in ranked_candidates if item[2] and item[3]]
-        elif any(item[2] and item[4] > 0 for item in ranked_candidates):
-            ranked_candidates = [
-                item for item in ranked_candidates if item[2] and item[4] > 0
-            ]
-        elif any(item[3] for item in ranked_candidates):
-            ranked_candidates = [item for item in ranked_candidates if item[3]]
-
-        if any(
-            direct_anchor or exact_score >= 80
-            for exact_score, direct_anchor, *_ in ranked_candidates
-        ):
-            ranked_candidates = [
-                item for item in ranked_candidates
-                if item[0] >= 30 or item[1]
-            ]
-
-        ranked_candidates.sort(
-            key=lambda item: (item[1], item[0], item[5], -item[6]),
-            reverse=True,
-        )
-
-        reordered_chunks = [item[7] for item in ranked_candidates]
-        reordered_scores = [item[5] for item in ranked_candidates]
-
-        if anchor_chunk_ids:
-            groundedness = "grounded"
-        elif any(score > 0 for score, *_ in ranked_candidates):
-            groundedness = "exact_not_grounded"
-        else:
-            groundedness = "exact_not_grounded"
-
-        return reordered_chunks, reordered_scores, groundedness, anchor_chunk_ids
+    def _infer_groundedness_from_scores(scores: list[float]) -> str:
+        """Infer evidence groundedness from reranker scores."""
+        if not scores:
+            return "not_grounded"
+        top = scores[0]
+        if top >= 0.85:
+            return "grounded"
+        if top >= 0.5:
+            return "partial"
+        return "not_grounded"
 
     @staticmethod
     def _rerank_text(chunk: Chunk) -> str:
@@ -1618,7 +1315,6 @@ class HybridRetriever:
         queries: list[str],
         original_query: str | None = None,
         filters: dict | None = None,
-        answer_mode: str | None = None,
         intent_label: str | None = None,
         question_type: str | QuestionType | None = None,
         guide_hint: GuideHint | dict[str, Any] | None = None,
@@ -1643,24 +1339,36 @@ class HybridRetriever:
             if normalize_reference_label(label)
         ]
         cfg = self.config
-        all_results: list[dict] = []
-        exact_probe_used = self._is_exact_mode(answer_mode)
+        result_groups: list[list[dict]] = []
+        normalized_hint = self._normalize_target_hint(target_hint)
+        has_metadata_probe_input = bool(
+            normalized_hint.get("document")
+            or normalized_hint.get("clause")
+            or normalized_hint.get("object")
+            or intent_label
+            or requested_objects
+        )
 
-        if exact_probe_used:
-            probe_results = await self._run_exact_probe(
-                queries=queries,
-                original_query=original_query,
-                filters=filters,
-                target_hint=target_hint,
-                intent_label=intent_label,
-            )
-            all_results = self._append_unique_results(all_results, probe_results)
+        if has_metadata_probe_input:
+            try:
+                probe_results = await self._run_metadata_probe(
+                    queries=queries,
+                    original_query=original_query,
+                    filters=filters,
+                    target_hint=target_hint,
+                    intent_label=intent_label,
+                )
+                if probe_results:
+                    result_groups.append(probe_results)
+            except Exception:
+                logger.warning("metadata_probe_failed", exc_info=True)
 
         # 多角度检索：每条查询分别跑向量 + BM25
         for q in queries:
             try:
                 vec = await self._vector_search(q, cfg.vector_top_k, filters)
-                all_results = self._append_unique_results(all_results, vec)
+                if vec:
+                    result_groups.append(vec)
             except Exception:
                 logger.warning("vector_search_failed", query=q[:80])
 
@@ -1669,11 +1377,12 @@ class HybridRetriever:
                     q, cfg.bm25_top_k, filters,
                     preferred_element_type=preferred_element_type,
                 )
-                all_results = self._append_unique_results(all_results, bm25)
+                if bm25:
+                    result_groups.append(bm25)
             except Exception:
                 logger.warning("bm25_search_failed", query=q[:80])
 
-        # 原始中文问题补充检索（向量 + BM25）
+        # 原始中文问题仅作为向量补召回信号；避免中文 BM25 给英文索引引入噪音。
         normalized_original = (original_query or "").strip()
         primary_query = queries[0] if queries else ""
         if normalized_original and normalized_original != primary_query.strip():
@@ -1681,25 +1390,15 @@ class HybridRetriever:
                 orig_vec = await self._vector_search(
                     normalized_original, cfg.vector_top_k, filters,
                 )
-                all_results = self._append_unique_results(all_results, orig_vec)
+                if orig_vec:
+                    result_groups.append(orig_vec)
             except Exception:
                 logger.warning("original_query_vector_search_failed")
-            try:
-                orig_bm25 = await self._bm25_search(
-                    normalized_original, cfg.bm25_top_k, filters,
-                    preferred_element_type=preferred_element_type,
-                )
-                all_results = self._append_unique_results(all_results, orig_bm25)
-            except Exception:
-                logger.warning("original_query_bm25_search_failed")
+
+        all_results = self._rrf_fuse_results(result_groups)
 
         # 跨文档聚合
-        # exact 问题需要保留同一 source 内的深层候选，避免条款锚点在聚合阶段被过早裁掉。
-        aggregated = (
-            all_results
-            if exact_probe_used
-            else self._cross_doc_aggregate(all_results, filters=filters)
-        )
+        aggregated = self._cross_doc_aggregate(all_results, filters=filters)
 
         # 获取完整 chunk 数据
         chunk_ids = [r["chunk_id"] for r in aggregated]
@@ -1708,8 +1407,7 @@ class HybridRetriever:
         # 重排序（使用原始中文问题，bge-reranker 支持跨语言）
         rerank_query = normalized_original or primary_query
         try:
-            rerank_top_n = len(chunks) if exact_probe_used else cfg.rerank_top_n
-            reranked = await self._rerank(rerank_query, chunks, rerank_top_n)
+            reranked = await self._rerank(rerank_query, chunks, cfg.rerank_top_n)
             final_chunks = [c for c, _ in reranked]
             scores = [s for _, s in reranked]
         except Exception:
@@ -1720,28 +1418,16 @@ class HybridRetriever:
             final_chunks = chunks[: cfg.rerank_top_n]
             scores = [0.0] * len(final_chunks)
 
-        groundedness = "open"
-        anchor_chunk_ids: list[str] = []
-        if exact_probe_used:
-            final_chunks, scores, groundedness, anchor_chunk_ids = self._apply_exact_groundedness(
-                final_chunks,
-                scores,
-                intent_label,
-                target_hint,
-            )
-            final_chunks = final_chunks[: cfg.rerank_top_n]
-            scores = scores[: cfg.rerank_top_n]
-
         final_chunks, scores, guide_chunks_from_main = self._split_normative_and_guide_chunks(
             final_chunks,
             scores,
         )
+        groundedness = self._infer_groundedness_from_scores(scores)
 
         # 获取父 chunk
         parent_chunks = await self._fetch_parent_chunks(final_chunks)
 
         # deterministic object lookup：显式请求对象 + 主条款直接引用对象
-        # 对所有 answer_mode 生效（不再限于 exact 模式），
         # 确保用户明确提到的 Table/Figure 始终能被检索到
         lookup_source = ""
         requested_object_ids: set[str] = set()
@@ -1755,13 +1441,7 @@ class HybridRetriever:
         existing_ids = {chunk.chunk_id for chunk in existing_chunks}
         resolved_object_ids = self._collect_object_ids(existing_chunks)
         resolved_object_keys = self._collect_object_keys(existing_chunks)
-        exact_anchor_chunks: list[Chunk] = []
-        if exact_probe_used and anchor_chunk_ids:
-            anchor_id_set = set(anchor_chunk_ids)
-            exact_anchor_chunks = [
-                chunk for chunk in final_chunks if chunk.chunk_id in anchor_id_set
-            ]
-        closure_seed_chunks = exact_anchor_chunks or final_chunks[:1]
+        closure_seed_chunks = final_chunks[:1]
         direct_ref_object_ids = self._collect_ref_object_ids(closure_seed_chunks)
         requested_object_keys = {
             self._object_reference_key(object_id)
@@ -1839,6 +1519,7 @@ class HybridRetriever:
             required_object_keys,
             requested_object_keys,
         )
+        groundedness = self._infer_groundedness_from_scores(scores)
         unresolved_required_keys = sorted(required_object_keys - resolved_object_keys)
         labels_by_key = {
             self._object_reference_key(object_id): label
@@ -1857,17 +1538,8 @@ class HybridRetriever:
             )
             for object_key in unresolved_required_keys
         )
-        if (
-            exact_probe_used
-            and groundedness != "grounded"
-            and not unresolved_required_keys
-            and final_chunks
-        ):
-            _, clause_match, object_hits = self._exact_match_features(final_chunks[0], target_hint)
-            if required_object_ids and (clause_match or object_hits > 0):
-                groundedness = "grounded"
-        if exact_probe_used and unresolved_required_keys:
-            groundedness = "exact_not_grounded"
+        if unresolved_required_keys and groundedness == "grounded":
+            groundedness = "partial"
 
         guide_chunks: list[Chunk] = []
         if self._should_fetch_guide_chunks(question_type, guide_hint):
@@ -1893,8 +1565,6 @@ class HybridRetriever:
             guide_example_chunks=guide_example_chunks,
             ref_chunks=ref_chunks,
             groundedness=groundedness,
-            anchor_chunk_ids=anchor_chunk_ids,
-            exact_probe_used=exact_probe_used,
             resolved_refs=resolved_refs,
             unresolved_refs=unresolved_refs,
         )

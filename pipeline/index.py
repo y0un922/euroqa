@@ -88,17 +88,57 @@ _ES_MAPPING = {
             "content": {"type": "text", "analyzer": "standard"},
             "embedding_text": {"type": "text", "analyzer": "standard"},
             "source": {"type": "keyword"},
-            "source_title": {"type": "keyword"},
-            "section_path": {"type": "keyword"},
+            "source_title": {
+                "type": "keyword",
+                "fields": {
+                    "text": {
+                        "type": "text",
+                        "analyzer": "standard",
+                    }
+                },
+            },
+            "section_path": {
+                "type": "keyword",
+                "fields": {
+                    "text": {
+                        "type": "text",
+                        "analyzer": "standard",
+                    }
+                },
+            },
             "page_numbers": {"type": "integer"},
-            "clause_ids": {"type": "keyword"},
+            "clause_ids": {
+                "type": "keyword",
+                "fields": {
+                    "text": {
+                        "type": "text",
+                        "analyzer": "standard",
+                    }
+                },
+            },
             "element_type": {"type": "keyword"},
             "cross_refs": {"type": "keyword"},
             "object_type": {"type": "keyword"},
             "object_label": {"type": "keyword"},
             "object_id": {"type": "keyword"},
-            "object_aliases": {"type": "keyword"},
-            "ref_labels": {"type": "keyword"},
+            "object_aliases": {
+                "type": "keyword",
+                "fields": {
+                    "text": {
+                        "type": "text",
+                        "analyzer": "standard",
+                    }
+                },
+            },
+            "ref_labels": {
+                "type": "keyword",
+                "fields": {
+                    "text": {
+                        "type": "text",
+                        "analyzer": "standard",
+                    }
+                },
+            },
             "ref_object_ids": {"type": "keyword"},
             "parent_chunk_id": {"type": "keyword"},
             "parent_text_chunk_id": {"type": "keyword"},

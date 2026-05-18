@@ -83,15 +83,35 @@ def _camelize_source_payload(source: dict) -> dict:
     payload = dict(source)
     for old_key, new_key in aliases.items():
         if old_key in source:
-            payload[new_key] = source[old_key]
+            value = source[old_key]
+            if old_key == "element_type" and value == "image":
+                value = "figure"
+            payload[new_key] = value
     return payload
+
+
+def _answer_mode_from_groundedness(groundedness: str | None) -> str:
+    """Map internal evidence state to the external answerMode contract."""
+    if groundedness == "grounded":
+        return "standard"
+    if groundedness == "partial":
+        return "cautious"
+    return "fallback"
+
+
+def _confidence_from_groundedness(groundedness: str | None) -> str:
+    """Provide a stable external confidence value when generation omits one."""
+    if groundedness == "grounded":
+        return "high"
+    if groundedness == "partial":
+        return "medium"
+    return "low"
 
 
 def _external_done_payload(
     data: dict,
     *,
     question_type: str | None,
-    answer_mode: str | None,
     groundedness: str | None,
     title: str | None,
 ) -> dict:
@@ -106,8 +126,9 @@ def _external_done_payload(
         "code": 200,
         "sources": sources,
         "relatedRefs": related_refs,
+        "confidence": data.get("confidence") or _confidence_from_groundedness(groundedness),
         "questionType": question_type or data.get("question_type"),
-        "answerMode": answer_mode,
+        "answerMode": _answer_mode_from_groundedness(groundedness),
         "groundedness": groundedness,
         "title": title,
     }
@@ -267,7 +288,6 @@ async def query(
         queries=analysis.expanded_queries,
         original_query=analysis.original_question,
         filters=filters,
-        answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
         intent_label=analysis.intent_label,
         question_type=analysis.question_type.value if analysis.question_type else None,
         guide_hint=analysis.guide_hint,
@@ -292,7 +312,6 @@ async def query(
         guide_example_chunks=result.guide_example_chunks,
         question_type=analysis.question_type,
         engineering_context=analysis.engineering_context,
-        answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
         groundedness=result.groundedness,
         resolved_refs=result.resolved_refs,
         unresolved_refs=result.unresolved_refs,
@@ -303,7 +322,6 @@ async def query(
             "conversation_id": conv.conversation_id,
             "question_type": analysis.question_type.value if analysis.question_type else None,
             "engineering_context": analysis.engineering_context.model_dump() if analysis.engineering_context else None,
-            "answer_mode": analysis.answer_mode.value if analysis.answer_mode else None,
             "groundedness": result.groundedness,
         }
     )
@@ -383,7 +401,6 @@ async def query_stream(
                 queries=analysis.expanded_queries,
                 original_query=analysis.original_question,
                 filters=filters,
-                answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
                 intent_label=analysis.intent_label,
                 question_type=analysis.question_type.value if analysis.question_type else None,
                 guide_hint=analysis.guide_hint,
@@ -477,7 +494,6 @@ async def query_stream(
                 guide_example_chunks=result.guide_example_chunks,
                 question_type=analysis.question_type,
                 engineering_context=analysis.engineering_context,
-                answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
                 groundedness=result.groundedness,
                 resolved_refs=result.resolved_refs,
                 unresolved_refs=result.unresolved_refs,
@@ -499,17 +515,11 @@ async def query_stream(
                             req.question,
                             answer_text,
                         )
-                    data = {
-                        **data,
-                        "answer_mode": analysis.answer_mode.value if analysis.answer_mode else None,
-                        "groundedness": result.groundedness,
-                    }
+                    data = {**data, "groundedness": result.groundedness}
                     data = _external_done_payload(
                         data,
                         question_type=analysis.question_type.value
                         if analysis.question_type else data.get("question_type"),
-                        answer_mode=analysis.answer_mode.value
-                        if analysis.answer_mode else None,
                         groundedness=result.groundedness,
                         title=title,
                     )
@@ -519,7 +529,7 @@ async def query_stream(
             yield {
                 "event": "error",
                 "data": json.dumps(
-                    {"message": "处理请求时发生内部错误，请重试"},
+                    {"code": 503, "message": "处理请求时发生内部错误，请重试"},
                     ensure_ascii=False,
                 ),
             }

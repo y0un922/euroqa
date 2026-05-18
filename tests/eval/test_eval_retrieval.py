@@ -67,7 +67,7 @@ class TestEvalMetricsHelpers:
             chunks=[],
             parent_chunks=[],
             scores=[],
-            groundedness="exact_not_grounded",
+            groundedness="partial",
             resolved_refs=["Table 3.1"],
             unresolved_refs=[],
         )
@@ -97,10 +97,10 @@ async def test_evaluate_passes_requested_objects_and_reports_cross_ref_metrics(
                 {
                     "id": "cross-ref-1",
                     "question": "3.1.7 里面混凝土受压应变限值怎么取？",
-                    "category": "exact_cross_ref",
+                    "category": "cross_ref",
                     "expected_sections": [],
                     "expected_keywords": [],
-                    "expected_mode": "exact",
+                    "expected_mode": "grounded",
                     "expected_document": "EN 1992-1-1:2004",
                     "expected_direct_refs": ["Table 3.1"],
                     "expected_reference_closure": True,
@@ -120,7 +120,6 @@ async def test_evaluate_passes_requested_objects_and_reports_cross_ref_metrics(
             rewritten_query=question,
             original_question=question,
             filters={},
-            answer_mode=SimpleNamespace(value="exact"),
             intent_label="limit",
             target_hint=SimpleNamespace(
                 document="EN 1992-1-1:2004",

@@ -65,9 +65,7 @@ def serialize_query_understanding(analysis: QueryAnalysis) -> dict[str, Any]:
         "matched_terms": dict(analysis.matched_terms),
         "requested_objects": list(analysis.requested_objects),
         "question_type": _enum_value(analysis.question_type),
-        "answer_mode": _enum_value(analysis.answer_mode),
         "intent_label": analysis.intent_label,
-        "intent_confidence": analysis.intent_confidence,
         "target_hint": _model_dump(analysis.target_hint),
         "reason_short": analysis.reason_short,
         "preferred_element_type": analysis.preferred_element_type,
@@ -104,8 +102,6 @@ def serialize_retrieval(
     return {
         "effective_filters": dict(effective_filters or {}),
         "groundedness": result.groundedness,
-        "exact_probe_used": result.exact_probe_used,
-        "anchor_chunk_ids": list(result.anchor_chunk_ids),
         "resolved_refs": list(result.resolved_refs),
         "unresolved_refs": list(result.unresolved_refs),
         "chunks": [
@@ -136,7 +132,6 @@ def serialize_answer(response: QueryResponse) -> dict[str, Any]:
         "degraded": response.degraded,
         "conversation_id": response.conversation_id,
         "question_type": response.question_type,
-        "answer_mode": response.answer_mode,
         "groundedness": response.groundedness,
         "source_count": len(response.sources),
         "sources": [source.model_dump() for source in response.sources],
@@ -196,7 +191,6 @@ def summarize_variance(runs: list[AnswerVarianceRun]) -> dict[str, Any]:
     query_changed = (
         len(set(_sequence(query_payloads, "rewritten_query"))) > 1
         or len(_unique_sequences(expanded_query_sequences)) > 1
-        or len(set(_sequence(query_payloads, "answer_mode"))) > 1
         or len(set(_sequence(query_payloads, "question_type"))) > 1
         or len(set(_sequence(query_payloads, "intent_label"))) > 1
     )
@@ -204,13 +198,11 @@ def summarize_variance(runs: list[AnswerVarianceRun]) -> dict[str, Any]:
         len(_unique_sequences(chunk_id_sequences)) > 1
         or len(_unique_sequences(chunk_score_signatures)) > 1
         or len(set(_sequence(retrieval_payloads, "groundedness"))) > 1
-        or len(set(_sequence(retrieval_payloads, "exact_probe_used"))) > 1
     )
     answer_changed = (
         len(set(_sequence(answer_payloads, "confidence"))) > 1
         or len(set(_sequence(answer_payloads, "degraded"))) > 1
         or len(set(answer_texts)) > 1
-        or len(set(_sequence(answer_payloads, "answer_mode"))) > 1
         or len(set(_sequence(answer_payloads, "groundedness"))) > 1
     )
 
@@ -229,7 +221,6 @@ def summarize_variance(runs: list[AnswerVarianceRun]) -> dict[str, Any]:
         "retrieval_changed": retrieval_changed,
         "generation_changed": answer_changed,
         "rewritten_queries": _sequence(query_payloads, "rewritten_query"),
-        "answer_modes": _sequence(query_payloads, "answer_mode"),
         "question_types": _sequence(query_payloads, "question_type"),
         "intent_labels": _sequence(query_payloads, "intent_label"),
         "groundedness": _sequence(retrieval_payloads, "groundedness"),
@@ -261,7 +252,6 @@ async def run_once(
         queries=analysis.expanded_queries,
         original_query=analysis.original_question,
         filters=filters,
-        answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
         intent_label=analysis.intent_label,
         question_type=analysis.question_type.value if analysis.question_type else None,
         guide_hint=analysis.guide_hint,
@@ -282,7 +272,6 @@ async def run_once(
         guide_example_chunks=result.guide_example_chunks,
         question_type=analysis.question_type,
         engineering_context=analysis.engineering_context,
-        answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
         groundedness=result.groundedness,
         resolved_refs=result.resolved_refs,
         unresolved_refs=result.unresolved_refs,
@@ -296,7 +285,6 @@ async def run_once(
             "engineering_context": analysis.engineering_context.model_dump()
             if analysis.engineering_context
             else None,
-            "answer_mode": analysis.answer_mode.value if analysis.answer_mode else None,
             "groundedness": result.groundedness,
         }
     )
@@ -375,17 +363,16 @@ def render_markdown_report(report: dict[str, Any]) -> str:
         "",
         "## Per-run Summary",
         "",
-        "| run | mode | groundedness | confidence | chunks | answer_chars | elapsed_ms |",
-        "| --- | --- | --- | --- | --- | ---: | ---: |",
+        "| run | groundedness | confidence | chunks | answer_chars | elapsed_ms |",
+        "| --- | --- | --- | --- | ---: | ---: |",
     ]
     for run in report["runs"]:
         chunk_ids = [
             chunk["chunk_id"] for chunk in run["retrieval"].get("chunks", [])
         ]
         lines.append(
-            "| {run} | {mode} | {groundedness} | {confidence} | {chunks} | {chars} | {elapsed} |".format(
+            "| {run} | {groundedness} | {confidence} | {chunks} | {chars} | {elapsed} |".format(
                 run=run["run_index"],
-                mode=run["query_understanding"].get("answer_mode") or "",
                 groundedness=run["retrieval"].get("groundedness") or "",
                 confidence=run["answer"].get("confidence") or "",
                 chunks=", ".join(chunk_ids) or "-",

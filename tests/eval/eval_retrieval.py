@@ -19,9 +19,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from server.config import ServerConfig
-from server.core.query_understanding import analyze_query
-from server.core.retrieval import HybridRetriever
+from server.config import ServerConfig  # noqa: E402
+from server.core.query_understanding import analyze_query  # noqa: E402
+from server.core.retrieval import HybridRetriever  # noqa: E402
 
 logger = structlog.get_logger()
 
@@ -85,17 +85,13 @@ def _must_not_include_hits(chunks: list[Any], forbidden: list[str]) -> list[str]
     return [term for term in forbidden if term.lower() in combined]
 
 
-def _predicted_mode(analysis: Any, result: Any) -> str:
-    """根据 query understanding + retrieval groundedness 推导最终模式。"""
-    answer_mode = getattr(analysis, "answer_mode", None)
-    answer_mode_value = getattr(answer_mode, "value", answer_mode)
+def _predicted_mode(result: Any) -> str:
+    """根据 retrieval groundedness 推导最终证据状态。"""
     groundedness = getattr(result, "groundedness", None)
 
-    if answer_mode_value == "exact" and groundedness == "grounded":
-        return "exact"
-    if answer_mode_value == "exact" and groundedness == "exact_not_grounded":
-        return "exact_not_grounded"
-    return "open"
+    if groundedness in {"grounded", "partial", "not_grounded"}:
+        return groundedness
+    return "not_grounded"
 
 
 def _normalize_ref_label(value: str) -> str:
@@ -129,7 +125,7 @@ def _direct_ref_hits(result: Any, expected_direct_refs: list[str]) -> list[str]:
 
 
 def _reference_closure_satisfied(result: Any, expected_direct_refs: list[str]) -> bool:
-    """判断 exact cross-ref 题是否真正形成证据闭环。"""
+    """判断 cross-ref 题是否真正形成证据闭环。"""
     if getattr(result, "groundedness", None) != "grounded":
         return False
 
@@ -164,11 +160,11 @@ async def evaluate(
             if key in data:
                 # 尝试类型转换
                 original_type = type(data[key])
-                if original_type == int:
+                if original_type is int:
                     data[key] = int(value)
-                elif original_type == float:
+                elif original_type is float:
                     data[key] = float(value)
-                elif original_type == bool:
+                elif original_type is bool:
                     data[key] = value.lower() in ("true", "1", "yes")
                 else:
                     data[key] = value
@@ -234,7 +230,6 @@ async def evaluate(
                     queries=analysis.expanded_queries,
                     original_query=analysis.original_question,
                     filters=filters,
-                    answer_mode=analysis.answer_mode.value if analysis.answer_mode else None,
                     intent_label=analysis.intent_label,
                     target_hint=analysis.target_hint,
                     requested_objects=getattr(analysis, "requested_objects", []),
@@ -288,7 +283,7 @@ async def evaluate(
                 _document_matches(chunk.metadata.source, expected_document)
                 for chunk in chunks
             ) if expected_document else True
-            predicted_mode = _predicted_mode(analysis, result)
+            predicted_mode = _predicted_mode(result)
             grounded_mode_match = None
             if expected_mode is not None:
                 grounded_mode_match = predicted_mode == expected_mode
@@ -323,8 +318,7 @@ async def evaluate(
             status = "PASS" if section_recall >= 0.5 else "FAIL"
             print(f"[{status}] {qid}: {question}")
             print(f"  改写: {analysis.rewritten_query}")
-            print(f"  routing: answer_mode={getattr(getattr(analysis, 'answer_mode', None), 'value', None)} | "
-                  f"intent_label={getattr(analysis, 'intent_label', None)} | "
+            print(f"  routing: intent_label={getattr(analysis, 'intent_label', None)} | "
                   f"predicted_mode={predicted_mode} | groundedness={getattr(result, 'groundedness', None)}")
             print(f"  过滤: {filters}")
             print(f"  section_recall: {section_recall:.2f} ({len(hit_sections)}/{len(expected_sections)})")
@@ -357,7 +351,7 @@ async def evaluate(
                 print(f"  noise_intrusion_rate: {noise_intrusion_rate:.2f}")
             if scores:
                 print(f"  rerank_scores: [{', '.join(f'{s:.3f}' for s in scores[:5])}{'...' if len(scores) > 5 else ''}]")
-            print(f"  检索到的 sections:")
+            print("  检索到的 sections:")
             for i, chunk in enumerate(chunks):
                 sec = " > ".join(chunk.metadata.section_path)
                 clauses = ", ".join(chunk.metadata.clause_ids[:3])
@@ -467,7 +461,7 @@ async def evaluate(
     }
 
     print(f"{'='*70}")
-    print(f"汇总:")
+    print("汇总:")
     print(f"  平均 section_recall@{top_k}: {avg_section_recall:.4f}")
     print(f"  平均 keyword_recall@{top_k}: {avg_keyword_recall:.4f}")
     if avg_anchor_hit_rate is None:

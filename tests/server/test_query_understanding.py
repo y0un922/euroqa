@@ -12,7 +12,7 @@ from server.core.query_understanding import (
     extract_preferred_element_type,
     _parse_expansion_result,
 )
-from server.models.schemas import AnswerMode, QuestionType
+from server.models.schemas import QuestionType
 
 
 class TestExtractFilters:
@@ -156,9 +156,7 @@ class TestParseExpansionResult:
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
             "terms": "plane sections remain plane",
-            "answer_mode": "exact",
             "intent_label": "assumption",
-            "confidence": 0.92,
             "target_hint": {
                 "document": "EN 1992-1-1",
                 "clause": "6.1",
@@ -170,9 +168,7 @@ class TestParseExpansionResult:
 
         assert result is not None
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.EXACT
         assert result.routing.intent_label == "assumption"
-        assert result.routing.intent_confidence == pytest.approx(0.92)
         assert result.routing.target_hint is not None
         assert result.routing.target_hint.document == "EN 1992-1-1"
         assert result.routing.target_hint.clause == "6.1"
@@ -195,9 +191,7 @@ class TestParseExpansionResult:
             "semantic": "test",
             "concepts": "test",
             "terms": "test",
-            "answer_mode": "unsupported_mode",
             "intent_label": 123,
-            "confidence": "high",
             "target_hint": "EN 1992-1-1 6.1",
             "reason_short": ["not", "a", "string"],
         })
@@ -206,19 +200,12 @@ class TestParseExpansionResult:
         assert result is not None
         assert result.routing is None
 
-    def test_exact_not_grounded_mode_is_explicitly_rejected_in_query_understanding(self):
+    def test_incomplete_routing_metadata_degrades_to_none(self):
         raw = json.dumps({
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
             "terms": "plane sections remain plane",
-            "answer_mode": "exact_not_grounded",
             "intent_label": "assumption",
-            "confidence": 0.92,
-            "target_hint": {
-                "document": "EN 1992-1-1",
-                "clause": "6.1",
-                "object": "basic assumptions",
-            },
             "reason_short": "groundedness is not decided in query understanding",
         })
 
@@ -227,20 +214,18 @@ class TestParseExpansionResult:
         assert result is not None
         assert result.routing is None
 
-    def test_bool_confidence_is_rejected(self):
+    def test_non_string_reason_is_rejected(self):
         raw = json.dumps({
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
             "terms": "plane sections remain plane",
-            "answer_mode": "exact",
             "intent_label": "assumption",
-            "confidence": True,
             "target_hint": {
                 "document": "EN 1992-1-1",
                 "clause": "6.1",
                 "object": "basic assumptions",
             },
-            "reason_short": "asks for direct normative assumptions",
+            "reason_short": ["not", "a", "string"],
         })
 
         result = _parse_expansion_result(raw)
@@ -253,9 +238,7 @@ class TestParseExpansionResult:
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
             "terms": "plane sections remain plane",
-            "answer_mode": "exact",
             "intent_label": "assumption",
-            "confidence": 0.92,
             "target_hint": {
                 "document": "  EN 1992-1-1  ",
                 "clause": "   ",
@@ -308,9 +291,7 @@ class TestExpandQueries:
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
             "terms": "plane sections remain plane",
-            "answer_mode": "exact",
             "intent_label": "assumption",
-            "confidence": 0.92,
             "target_hint": {
                 "document": "EN 1992-1-1",
                 "clause": "6.1",
@@ -324,7 +305,6 @@ class TestExpandQueries:
             result = await expand_queries("欧标的截面计算的基本假设前提是什么", {})
 
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.EXACT
         assert result.routing.intent_label == "assumption"
         assert result.routing.target_hint is not None
         assert result.routing.target_hint.clause == "6.1"
@@ -338,15 +318,13 @@ class TestExpandQueries:
             assert result.routing is None
 
     @pytest.mark.asyncio
-    async def test_low_confidence_routing_falls_back_safely(self):
+    async def test_invalid_routing_falls_back_safely(self):
         llm_response = json.dumps({
             "semantic": "section design assumptions",
             "concepts": "design assumptions",
             "terms": "plane sections",
-            "answer_mode": "exact",
             "intent_label": "assumption",
-            "confidence": 0.2,
-            "target_hint": {"document": "EN 1992-1-1"},
+            "target_hint": "EN 1992-1-1",
             "reason_short": "low confidence",
         })
         mock_llm = AsyncMock(return_value=llm_response)
@@ -364,9 +342,7 @@ class TestExpandQueries:
             "concepts": "serviceability fatigue commentary",
             "terms": "psi crack width",
             "question_type": "mechanism",
-            "answer_mode": "open",
             "intent_label": "explanation",
-            "confidence": 0.91,
             "target_hint": {
                 "document": "Designers' Guide EN 1992",
                 "clause": "2.4.2",
@@ -392,7 +368,6 @@ class TestExpandQueries:
         ]
         assert result.question_type == QuestionType.PARAMETER
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.EXACT
         assert result.routing.intent_label == "limit"
         assert result.routing.target_hint.document == "EN 1990 and EN 1992-1-1"
         assert result.routing.target_hint.clause is None
@@ -415,7 +390,6 @@ class TestExpandQueries:
 
         assert result.question_type == QuestionType.PARAMETER
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.EXACT
         assert result.routing.target_hint.document == "EN 1990 and EN 1992-1-1"
         assert "γF" in result.queries[2]
         assert "gamma_F" in result.queries[2]
@@ -437,7 +411,6 @@ class TestExpandQueries:
 
         assert result.question_type == QuestionType.PARAMETER
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.EXACT
         assert result.routing.target_hint.object == "partial factors for actions and materials"
 
     @pytest.mark.asyncio
@@ -447,9 +420,7 @@ class TestExpandQueries:
             "concepts": "creep shrinkage humidity member size",
             "terms": "phi epsilon_cs",
             "question_type": "mechanism",
-            "answer_mode": "open",
             "intent_label": "mechanism",
-            "confidence": 0.82,
             "target_hint": {
                 "document": "EN 1992-1-1",
                 "clause": None,
@@ -465,7 +436,6 @@ class TestExpandQueries:
         assert result.queries[0] == "concrete creep and shrinkage factors"
         assert result.question_type == QuestionType.MECHANISM
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.OPEN
 
     @pytest.mark.asyncio
     async def test_does_not_stabilize_generic_why_question(self):
@@ -474,9 +444,7 @@ class TestExpandQueries:
             "concepts": "safety factor explanation",
             "terms": "gamma explanation",
             "question_type": "mechanism",
-            "answer_mode": "open",
             "intent_label": "explanation",
-            "confidence": 0.84,
             "target_hint": {
                 "document": "EN 1990",
                 "clause": None,
@@ -492,7 +460,6 @@ class TestExpandQueries:
         assert result.queries[0] == "why are safety factors used"
         assert result.question_type == QuestionType.MECHANISM
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.OPEN
 
     @pytest.mark.asyncio
     async def test_does_not_stabilize_concrete_material_question_without_action_context(self):
@@ -501,9 +468,7 @@ class TestExpandQueries:
             "concepts": "materials concrete factors",
             "terms": "gamma",
             "question_type": "parameter",
-            "answer_mode": "open",
             "intent_label": "explanation",
-            "confidence": 0.87,
             "target_hint": {
                 "document": "EN 1992-1-1",
                 "clause": None,
@@ -519,7 +484,6 @@ class TestExpandQueries:
         assert result.queries[0] == "concrete material partial factors"
         assert result.question_type == QuestionType.PARAMETER
         assert result.routing is not None
-        assert result.routing.answer_mode == AnswerMode.OPEN
 
 
 class TestAnalyzeQuery:
@@ -540,9 +504,7 @@ class TestAnalyzeQuery:
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
             "terms": "plane sections remain plane",
-            "answer_mode": "exact",
             "intent_label": "assumption",
-            "confidence": 0.92,
             "target_hint": {
                 "document": "EN 1992-1-1",
                 "clause": "6.1",
@@ -555,9 +517,7 @@ class TestAnalyzeQuery:
         with patch("server.core.query_understanding._call_llm", mock_llm):
             result = await analyze_query("欧标的截面计算的基本假设前提是什么", {})
 
-        assert result.answer_mode == AnswerMode.EXACT
         assert result.intent_label == "assumption"
-        assert result.intent_confidence == pytest.approx(0.92)
         assert result.target_hint is not None
         assert result.target_hint.document == "EN 1992-1-1"
         assert result.target_hint.clause == "6.1"
@@ -594,9 +554,7 @@ class TestAnalyzeQuery:
             "concepts": "commentary guide",
             "terms": "psi fatigue",
             "question_type": "mechanism",
-            "answer_mode": "open",
             "intent_label": "explanation",
-            "confidence": 0.9,
             "target_hint": {
                 "document": "Designers' Guide",
                 "clause": "2.4.2.4",
@@ -616,9 +574,7 @@ class TestAnalyzeQuery:
             "concrete structural design Eurocode partial factors for actions and materials"
         )
         assert result.question_type == QuestionType.PARAMETER
-        assert result.answer_mode == AnswerMode.EXACT
         assert result.intent_label == "limit"
-        assert result.intent_confidence == pytest.approx(1.0)
         assert result.target_hint is not None
         assert result.target_hint.document == "EN 1990 and EN 1992-1-1"
         assert result.target_hint.clause is None

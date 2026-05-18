@@ -9,7 +9,7 @@ import pytest
 from server.core.query_understanding import QueryAnalysis
 from server.core.retrieval import RetrievalResult
 from server.debug import answer_variance
-from server.models.schemas import AnswerMode, ElementType, QueryResponse, QuestionType, Source
+from server.models.schemas import ElementType, QueryResponse, QuestionType, Source
 
 
 def _run_snapshot(index: int, *, chunks: list[str], confidence: str = "high"):
@@ -19,20 +19,17 @@ def _run_snapshot(index: int, *, chunks: list[str], confidence: str = "high"):
         query_understanding={
             "rewritten_query": "design working life",
             "expanded_queries": ["design working life"],
-            "answer_mode": "exact",
             "question_type": "rule",
             "intent_label": "definition",
         },
         retrieval={
             "groundedness": "grounded",
-            "exact_probe_used": True,
             "chunks": [{"chunk_id": chunk_id, "score": 0.9} for chunk_id in chunks],
         },
         answer={
             "answer": f"answer {index}",
             "confidence": confidence,
             "degraded": False,
-            "answer_mode": "exact",
             "groundedness": "grounded",
         },
     )
@@ -50,15 +47,12 @@ class TestAnswerVarianceSerialization:
             scores=[0.91, 0.82],
             ref_chunks=[sample_table_chunk],
             groundedness="grounded",
-            anchor_chunk_ids=["chunk_023"],
-            exact_probe_used=True,
             resolved_refs=["Table 2.1"],
         )
 
         payload = answer_variance.serialize_retrieval(result)
 
         assert payload["groundedness"] == "grounded"
-        assert payload["exact_probe_used"] is True
         assert payload["chunks"][0]["chunk_id"] == "chunk_023"
         assert payload["chunks"][0]["score"] == 0.91
         assert payload["chunks"][1]["element_type"] == "table"
@@ -162,7 +156,6 @@ class TestAnswerVarianceRunner:
                 expanded_queries=["design working life"],
                 filters={},
                 question_type=QuestionType.RULE,
-                answer_mode=AnswerMode.EXACT,
                 intent_label="definition",
             ),
             QueryAnalysis(
@@ -170,7 +163,6 @@ class TestAnswerVarianceRunner:
                 expanded_queries=["design working lifetime"],
                 filters={},
                 question_type=QuestionType.RULE,
-                answer_mode=AnswerMode.EXACT,
                 intent_label="definition",
             ),
         ]

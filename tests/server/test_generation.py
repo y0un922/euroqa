@@ -8,10 +8,6 @@ import pytest
 
 from server.config import ServerConfig
 from server.core.generation import (
-    _collect_exact_evidence_candidates,
-    _build_exact_evidence_pack,
-    build_exact_not_grounded_system_prompt,
-    build_exact_system_prompt,
     build_open_system_prompt,
     _build_sources_from_chunks,
     _build_source_translation_prompt,
@@ -125,43 +121,6 @@ class TestAnswerPrompts:
         assert "依据：《文档名》，条款/章节：XXX，页码：XXX" in prompt
         assert "不要用文件名/条款号/页码格式替代 [Ref-N]" not in prompt
 
-    def test_exact_template_uses_same_evidence_organizer_contract(self):
-        prompt = build_exact_system_prompt()
-        assert "回答整理助手" in prompt
-        assert "只能依据输入证据作答" in prompt
-        assert "依据位置格式要求" in prompt
-        assert "正文中不要输出 [Ref-N] 或 【Ref-N】" in prompt
-
-    def test_exact_template_requires_binding_key_conclusions_to_sources(self):
-        prompt = build_exact_system_prompt()
-        assert "每一个关键结论都要尽量绑定出处" in prompt
-        assert "文档名" in prompt
-        assert "条款号/章节号" in prompt
-
-    def test_exact_system_prompt_structure(self):
-        prompt = build_exact_system_prompt()
-        assert "直接结论" in prompt
-        assert "依据与说明" in prompt
-        assert "计算步骤" in prompt
-        assert "依据位置" in prompt
-
-    def test_exact_assumption_prompt_still_keeps_evidence_boundaries(self):
-        prompt = build_exact_system_prompt(intent_label="assumption")
-        assert "现有证据不足" in prompt
-        assert "不得强行补全" in prompt
-
-    def test_exact_limit_prompt_keeps_numeric_extraction_requirement(self):
-        prompt = build_exact_system_prompt(intent_label="limit")
-        assert "先给出明确数值或规则" in prompt
-        assert "适用条件" in prompt
-
-    def test_exact_not_grounded_system_prompt_has_guardrails(self):
-        prompt = build_exact_not_grounded_system_prompt()
-        assert "根据当前检索结果无法确定" in prompt
-        assert "现有证据不足" in prompt
-        assert "不要输出猜测性内容" in prompt
-        assert "exact_not_grounded" not in prompt
-
     def test_engineering_context_injected_in_all_templates(self):
         from server.models.schemas import EngineeringContext
         ctx = EngineeringContext(country="Germany", structure_type="bridge")
@@ -180,10 +139,10 @@ class TestAnswerPrompts:
         assert "根据输入证据直接组织回答" in prompt
 
     def test_decide_generation_mode_prefers_groundedness(self):
-        assert decide_generation_mode("exact", "grounded") == "exact"
-        assert decide_generation_mode("exact", "exact_not_grounded") == "exact_not_grounded"
-        assert decide_generation_mode("open", "grounded") == "open"
-        assert decide_generation_mode(None, "grounded") == "open"
+        assert decide_generation_mode("grounded") == "grounded"
+        assert decide_generation_mode("partial") == "partial"
+        assert decide_generation_mode("not_grounded") == "not_grounded"
+        assert decide_generation_mode(None) == "partial"
 
     @pytest.mark.parametrize("qt", ["parameter", "rule", "calculation", "mechanism"])
     def test_all_templates_target_chinese_engineers(self, qt):
@@ -396,176 +355,6 @@ class TestSourceTranslationFill:
         assert sources[0].bbox == [186.0, 591.0, 858.0, 768.0]
         assert sources[0].highlight_text.startswith("Table 2.1 - Indicative design working life")
 
-    def test_build_exact_evidence_pack_prefers_text_clause_then_visual_support(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        evidence = _build_exact_evidence_pack(
-            [sample_table_chunk, sample_text_chunk],
-            question="设计使用年限怎么确定？",
-        )
-
-        assert evidence["primary_clause"] is sample_text_chunk
-        assert evidence["supporting_visuals"] == [sample_table_chunk]
-
-    def test_collect_exact_evidence_candidates_keeps_parent_visuals_only(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        parent_text = sample_text_chunk.model_copy(
-            update={"chunk_id": "parent-text"}
-        )
-        candidates = _collect_exact_evidence_candidates(
-            [sample_text_chunk],
-            [parent_text, sample_table_chunk],
-            [],
-        )
-
-        assert [chunk.chunk_id for chunk in candidates] == [
-            sample_text_chunk.chunk_id,
-            sample_table_chunk.chunk_id,
-        ]
-
-    def test_build_sources_from_chunks_can_prioritize_exact_evidence_order(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        sources = _build_sources_from_chunks(
-            [sample_table_chunk, sample_text_chunk],
-            prioritized_chunks=[sample_text_chunk, sample_table_chunk],
-        )
-
-        assert [source.element_type for source in sources] == ["text", "table"]
-
-    def test_build_exact_evidence_pack_prefers_ref_visuals_before_parent_visuals(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        parent_visual = sample_table_chunk.model_copy(
-            update={"chunk_id": "parent-table", "content": "Parent table context"}
-        )
-
-        evidence = _build_exact_evidence_pack(
-            [sample_text_chunk, sample_table_chunk, parent_visual],
-            question="设计使用年限怎么确定？",
-        )
-
-        assert [chunk.chunk_id for chunk in evidence["supporting_visuals"]] == [
-            sample_table_chunk.chunk_id,
-            "parent-table",
-        ]
-
-    def test_build_exact_evidence_pack_filters_unrelated_support_for_assumption(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        primary_clause = sample_text_chunk.model_copy(
-            update={
-                "chunk_id": "clause-6-1-1",
-                "content": "(1) In section analysis the following assumptions are made.",
-                "metadata": sample_text_chunk.metadata.model_copy(
-                    update={
-                        "section_path": ["Section 6 ULS", "6.1 Bending with or without axial force"],
-                        "clause_ids": ["6.1(1)"],
-                        "cross_refs": ["3.1.7"],
-                    }
-                ),
-            }
-        )
-        sibling_clause = sample_text_chunk.model_copy(
-            update={
-                "chunk_id": "clause-6-1-2",
-                "content": "(2) Plane sections remain plane after deformation.",
-                "metadata": sample_text_chunk.metadata.model_copy(
-                    update={
-                        "section_path": ["Section 6 ULS", "6.1 Bending with or without axial force"],
-                        "clause_ids": ["6.1(2)"],
-                    }
-                ),
-            }
-        )
-        unrelated_text = sample_text_chunk.model_copy(
-            update={
-                "chunk_id": "clause-5-8-9",
-                "content": "(1) Members in biaxial bending shall be checked...",
-                "metadata": sample_text_chunk.metadata.model_copy(
-                    update={
-                        "section_path": ["Section 5 Analysis", "5.8.9 Biaxial bending"],
-                        "clause_ids": ["5.8.9(1)"],
-                    }
-                ),
-            }
-        )
-        unrelated_table = sample_table_chunk.model_copy(
-            update={
-                "chunk_id": "table-3-1",
-                "content": "Table 3.1 strain limits",
-                "metadata": sample_table_chunk.metadata.model_copy(
-                    update={
-                        "section_path": ["Section 3 Materials", "3.1.7 Stress-strain relation"],
-                        "clause_ids": ["Table 3.1"],
-                    }
-                ),
-            }
-        )
-
-        evidence = _build_exact_evidence_pack(
-            [unrelated_table, primary_clause, unrelated_text, sibling_clause],
-            question="欧标的截面计算的基本假设前提是什么？",
-            intent_label="assumption",
-        )
-
-        assert evidence["primary_clause"] is primary_clause
-        assert evidence["supporting_visuals"] == []
-        assert evidence["supporting_context"] == [sibling_clause]
-
-    def test_build_exact_evidence_pack_keeps_visual_support_for_limit(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        evidence = _build_exact_evidence_pack(
-            [sample_table_chunk, sample_text_chunk],
-            question="设计使用年限的推荐值是多少？",
-            intent_label="limit",
-        )
-
-        assert evidence["primary_clause"] is sample_text_chunk
-        assert evidence["supporting_visuals"] == [sample_table_chunk]
-
-    def test_build_prompt_exact_orders_primary_clause_before_background_candidates(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        primary_clause = sample_text_chunk.model_copy(
-            update={
-                "chunk_id": "clause-6-1-1",
-                "content": "(1) In section analysis the following assumptions are made.",
-                "metadata": sample_text_chunk.metadata.model_copy(
-                    update={
-                        "section_path": ["Section 6 ULS", "6.1 Bending with or without axial force"],
-                        "clause_ids": ["6.1(1)"],
-                    }
-                ),
-            }
-        )
-        background_table = sample_table_chunk.model_copy(
-            update={
-                "chunk_id": "table-3-1",
-                "content": "Table 3.1 strain limits",
-                "metadata": sample_table_chunk.metadata.model_copy(
-                    update={
-                        "section_path": ["Section 3 Materials", "3.1.7 Stress-strain relation"],
-                        "clause_ids": ["Table 3.1"],
-                    }
-                ),
-            }
-        )
-
-        prompt = build_prompt(
-            "欧标的截面计算的基本假设前提是什么？",
-            [background_table, primary_clause],
-            [],
-            generation_mode="exact",
-            intent_label="assumption",
-        )
-
-        assert "检索到的规范内容（按回答优先级排序）" in prompt
-        assert prompt.index(primary_clause.content) < prompt.index(background_table.content)
-        assert "其他相关片段：另有 1 个候选片段仅作背景参考" in prompt
-
     @pytest.mark.asyncio
     async def test_fill_missing_source_translations_uses_llm_result(
         self, sample_text_chunk
@@ -657,35 +446,7 @@ class TestSourceTranslationFill:
 
 class TestGenerateAnswer:
     @pytest.mark.asyncio
-    async def test_generate_answer_exact_prompt_includes_evidence_pack_sections(
-        self, sample_text_chunk, sample_table_chunk
-    ):
-        seen_user_prompts: list[str] = []
-        raw = json.dumps({"answer": "可直接确认。", "sources": [], "related_refs": [], "confidence": "high"})
-
-        class _FakeClient:
-            def __init__(self, *args, **kwargs):
-                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-            async def _create(self, **kwargs):
-                seen_user_prompts.append(kwargs["messages"][1]["content"])
-                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=raw))], usage=None)
-
-        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            await generate_answer(
-                "设计使用年限怎么确定？",
-                [sample_text_chunk],
-                [sample_table_chunk],
-                answer_mode="exact",
-                groundedness="grounded",
-            )
-
-        assert seen_user_prompts
-        assert "主依据条款" in seen_user_prompts[0]
-        assert "相关表/图/公式" in seen_user_prompts[0]
-
-    @pytest.mark.asyncio
-    async def test_generate_answer_exact_prompt_includes_resolved_and_unresolved_refs(
+    async def test_generate_answer_prompt_includes_resolved_and_unresolved_refs(
         self, sample_text_chunk, sample_table_chunk
     ):
         seen_user_prompts: list[str] = []
@@ -705,8 +466,7 @@ class TestGenerateAnswer:
                 [sample_text_chunk],
                 [],
                 ref_chunks=[sample_table_chunk],
-                answer_mode="exact",
-                groundedness="exact_not_grounded",
+                groundedness="partial",
                 resolved_refs=["Table 2.1"],
                 unresolved_refs=["Annex A"],
             )
@@ -716,62 +476,6 @@ class TestGenerateAnswer:
         assert "Table 2.1" in seen_user_prompts[0]
         assert "尚未补齐的直接引用" in seen_user_prompts[0]
         assert "Annex A" in seen_user_prompts[0]
-
-    @pytest.mark.asyncio
-    async def test_generate_answer_uses_exact_system_prompt(self, sample_text_chunk):
-        seen_system_prompts: list[str] = []
-        raw = json.dumps({"answer": "可直接确认。", "sources": [], "related_refs": [], "confidence": "high"})
-
-        class _FakeClient:
-            def __init__(self, *args, **kwargs):
-                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-            async def _create(self, **kwargs):
-                seen_system_prompts.append(kwargs["messages"][0]["content"])
-                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=raw))], usage=None)
-
-        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            await generate_answer(
-                "基本假设是什么？",
-                [sample_text_chunk],
-                [],
-                answer_mode="exact",
-                groundedness="grounded",
-                intent_label="assumption",
-            )
-
-        assert seen_system_prompts
-        assert "八个三级标题" not in seen_system_prompts[0]
-        assert "回答必须简短" not in seen_system_prompts[0]
-        assert "必要解释" in seen_system_prompts[0] or "中度展开" in seen_system_prompts[0]
-        assert "优先直接枚举主依据条款中的结论" in seen_system_prompts[0]
-
-    @pytest.mark.asyncio
-    async def test_generate_answer_uses_exact_not_grounded_system_prompt(self, sample_text_chunk):
-        seen_system_prompts: list[str] = []
-        raw = json.dumps({"answer": "当前可确认有限。", "sources": [], "related_refs": [], "confidence": "low"})
-
-        class _FakeClient:
-            def __init__(self, *args, **kwargs):
-                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-            async def _create(self, **kwargs):
-                seen_system_prompts.append(kwargs["messages"][0]["content"])
-                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=raw))], usage=None)
-
-        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            await generate_answer(
-                "基本假设是什么？",
-                [sample_text_chunk],
-                [],
-                answer_mode="exact",
-                groundedness="exact_not_grounded",
-            )
-
-        assert seen_system_prompts
-        assert "不要输出猜测性内容" in seen_system_prompts[0]
-        assert "不要在回答中暴露内部模式名" in seen_system_prompts[0]
-        assert "exact_not_grounded" not in seen_system_prompts[0]
 
     @pytest.mark.asyncio
     async def test_generate_answer_includes_retrieval_context_snapshot(
@@ -902,7 +606,134 @@ class TestGenerateAnswer:
         assert result.retrieval_context.unresolved_refs == ["Annex A"]
 
     @pytest.mark.asyncio
-    async def test_generate_answer_exact_sources_follow_evidence_order(
+    async def test_generate_answer_dedupes_chunks_before_prompt_and_context(
+        self, sample_text_chunk, sample_table_chunk
+    ):
+        duplicate_chunk = sample_text_chunk.model_copy(
+            update={"content": "DUPLICATE MAIN CONTENT SHOULD NOT APPEAR"}
+        )
+        duplicate_parent = sample_table_chunk.model_copy(
+            update={"content": "DUPLICATE PARENT CONTENT SHOULD NOT APPEAR"}
+        )
+        guide_chunk = sample_text_chunk.model_copy(
+            update={
+                "chunk_id": "guide-1",
+                "content": "Guide primary content.",
+            }
+        )
+        duplicate_guide = guide_chunk.model_copy(
+            update={"content": "DUPLICATE GUIDE CONTENT SHOULD NOT APPEAR"}
+        )
+        seen_user_prompts: list[str] = []
+        raw = json.dumps(
+            {
+                "answer": "根据条文应予规定。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_user_prompts.append(kwargs["messages"][1]["content"])
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))]
+                )
+
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            result = await generate_answer(
+                "设计使用年限怎么确定？",
+                [sample_text_chunk, duplicate_chunk],
+                [sample_table_chunk, duplicate_parent],
+                scores=[0.91, 0.12],
+                ref_chunks=[sample_table_chunk, duplicate_parent],
+                guide_chunks=[guide_chunk, duplicate_guide],
+            )
+
+        assert "DUPLICATE MAIN CONTENT SHOULD NOT APPEAR" not in seen_user_prompts[0]
+        assert "DUPLICATE PARENT CONTENT SHOULD NOT APPEAR" not in seen_user_prompts[0]
+        assert "DUPLICATE GUIDE CONTENT SHOULD NOT APPEAR" not in seen_user_prompts[0]
+        assert result.retrieval_context is not None
+        assert [item["chunk_id"] for item in result.retrieval_context.chunks] == [
+            sample_text_chunk.chunk_id
+        ]
+        assert result.retrieval_context.chunks[0]["score"] == 0.91
+        assert [item["chunk_id"] for item in result.retrieval_context.parent_chunks] == [
+            sample_table_chunk.chunk_id
+        ]
+        assert [item["chunk_id"] for item in result.retrieval_context.ref_chunks] == [
+            sample_table_chunk.chunk_id
+        ]
+        assert [item["chunk_id"] for item in result.retrieval_context.guide_chunks] == [
+            "guide-1"
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_stream_dedupes_done_payload_context(
+        self, sample_text_chunk
+    ):
+        duplicate_chunk = sample_text_chunk.model_copy(
+            update={"content": "DUPLICATE STREAM CONTENT SHOULD NOT APPEAR"}
+        )
+
+        class _FakeStream:
+            def __aiter__(self):
+                async def _iterate():
+                    yield SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="回答", reasoning_content=None),
+                                finish_reason=None,
+                            )
+                        ]
+                    )
+                    yield SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content=None, reasoning_content=None),
+                                finish_reason="stop",
+                            )
+                        ]
+                    )
+
+                return _iterate()
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                return _FakeStream()
+
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            events = [
+                event
+                async for event in generate_answer_stream(
+                    "设计使用年限怎么确定？",
+                    [sample_text_chunk, duplicate_chunk],
+                    [],
+                    scores=[0.91, 0.12],
+                )
+            ]
+
+        done_payload = next(data for event_type, data in events if event_type == "done")
+        assert len(done_payload["retrieval_context"]["chunks"]) == 1
+        assert done_payload["retrieval_context"]["chunks"][0]["chunk_id"] == (
+            sample_text_chunk.chunk_id
+        )
+        assert done_payload["retrieval_context"]["chunks"][0]["score"] == 0.91
+        assert len(done_payload["sources"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_sources_follow_retrieval_then_ref_order(
         self, sample_text_chunk, sample_table_chunk
     ):
         raw = json.dumps(
@@ -934,14 +765,13 @@ class TestGenerateAnswer:
                 [extra_text, sample_text_chunk],
                 [],
                 ref_chunks=[sample_table_chunk],
-                answer_mode="exact",
                 groundedness="grounded",
             )
 
         assert [source.clause for source in result.sources[:3]] == [
             "2.3(1)",
-            "Table 2.1",
             "2.3(1)",
+            "Table 2.1",
         ]
 
     @pytest.mark.asyncio

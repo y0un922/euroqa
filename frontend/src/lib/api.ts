@@ -30,6 +30,7 @@ import type {
   SourceTranslationRequest,
   SourceTranslationResponse,
   StreamDonePayload,
+  StreamErrorPayload,
   StreamReasoningPayload,
   SuggestResponse
 } from "./types";
@@ -356,7 +357,7 @@ export async function queryStream(
     }
 
     if (message.event === "error") {
-      const payload = JSON.parse(message.data) as { message?: string };
+      const payload = JSON.parse(message.data) as StreamErrorPayload;
       streamError = new Error(payload.message || "LLM 服务暂时不可用");
     }
   }, signal);

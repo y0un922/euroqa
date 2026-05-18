@@ -16,7 +16,8 @@
 - 未携带 `sessionId` 时，问答入口不向生成层传递历史问答；每次请求都按独立对话处理。
 - `conversation_id` 字段仅作为旧请求/响应关联标识保留，不驱动多轮 history 记忆。
 - 携带 `sessionId` 时，问答入口会从 Redis 会话管理器读取 `context:{sessionId}` 历史并在完成后追加本轮 Q&A。
-- `/query/stream` 的 `done` 事件会额外补齐外部对接所需的 `code`、`questionType`、`answerMode`、`relatedRefs`、`title` 和来源字段 camelCase 别名。
+- `/query/stream` 的 `done` 事件会额外补齐外部对接所需的 `code`、`confidence`、`questionType`、`answerMode`、`relatedRefs`、`title` 和来源字段 camelCase 别名；其中内部 `image` 来源类型对外输出为 `figure`。
+- `/query/stream` 的 `error` 事件必须输出 `{code, message}`，普通 HTTP 错误由全局异常处理器输出 `{code, message, detail}`。
 - 请求体兼容 `sessionId`，并将其视为接口文档定义的外部会话标识。
 
 ## 依赖关系

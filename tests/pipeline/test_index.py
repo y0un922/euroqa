@@ -6,6 +6,7 @@ from pymilvus.exceptions import MilvusException
 
 from pipeline.config import PipelineConfig
 from pipeline.index import (
+    _ES_MAPPING,
     _init_milvus_collection,
     delete_document_from_milvus,
     index_to_milvus,
@@ -41,6 +42,24 @@ class _FakeEmbeddingClient:
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         self.calls.append(texts)
         return [[0.1, 0.2]]
+
+
+def test_es_mapping_keeps_keyword_fields_with_text_subfields_for_bm25():
+    properties = _ES_MAPPING["mappings"]["properties"]
+
+    for field_name in (
+        "source_title",
+        "section_path",
+        "clause_ids",
+        "object_aliases",
+        "ref_labels",
+    ):
+        field = properties[field_name]
+        assert field["type"] == "keyword"
+        assert field["fields"]["text"] == {
+            "type": "text",
+            "analyzer": "standard",
+        }
 
 
 @pytest.mark.asyncio

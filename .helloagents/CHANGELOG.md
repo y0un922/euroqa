@@ -7,6 +7,20 @@
   - 方案: [202605151957_frontend-minio-session-proxy](plan/202605151957_frontend-minio-session-proxy/)
   - 决策: frontend-minio-session-proxy#D001(后端代理上传)
 
+### 优化
+- **[server.core.retrieval / server.core.generation / server.api.v1.query]**: 优化检索候选合并与生成前证据去重，`original_query` 仅保留 vector-only 补召回，expanded queries 继续直连检索入口，BM25 默认字段加入标题/章节/条款/对象别名权重，vector/BM25 改用 RRF 融合，回答生成前按 `chunk_id` 去重以减少重复证据污染 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/core/retrieval.py; server/core/generation.py; tests/server/test_retrieval.py; tests/server/test_generation.py; tests/server/test_api.py
+- **[server.core.query_understanding / server.core.retrieval / server.core.generation / server.api.v1.query]**: 删除 `answer_mode` 的 exact/open 路由分叉，metadata probe 改为基于 `target_hint`、`intent_label`、`requested_objects` 的通用结构化补召回，`groundedness` 统一由 rerank score 推断为 `grounded` / `partial` / `not_grounded`，生成层同步移除 exact prompt 分支 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/core/query_understanding.py; server/models/schemas.py; server/core/retrieval.py; server/core/generation.py; server/api/v1/query.py; server/debug/answer_variance.py; tests/server/test_query_understanding.py; tests/server/test_generation.py; tests/server/test_retrieval.py; tests/server/test_api.py; tests/server/test_answer_variance_debug.py; tests/eval/eval_retrieval.py; tests/eval/test_eval_retrieval.py; tests/eval/test_questions.json; tests/eval/eval_results.json; tests/eval/eval_results.sync-conflict-20260410-105311-MZV26SU.json
+- **[pipeline.index / server.core.retrieval / tests.pipeline.test_index / tests.server.test_retrieval]**: 将 ES 索引映射改为 keyword + text multi-field，`source_title`、`section_path`、`clause_ids`、`object_aliases`、`ref_labels` 继续保留精确过滤能力，同时为 BM25 检索提供 analyzed 文本子字段，检索默认字段同步切到 `.text` 以提升命中质量 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: pipeline/index.py; server/core/retrieval.py; tests/pipeline/test_index.py; tests/server/test_retrieval.py
+- **[server.api.v1.query / server.main / frontend.lib.api / frontend.lib.types]**: 按 `接口文档.md` 对齐外部接口契约，`/api/v1/query/stream` 的 `done` 事件固定补齐 `code`、`confidence`、`questionType`、`answerMode`、`relatedRefs`、`title` 和来源 camelCase 别名，内部 `image` 来源类型对外映射为 `figure`，SSE `error` 与普通 HTTP 错误统一返回 `{code, message, detail?}` 结构 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/query.py; server/main.py; frontend/src/lib/api.ts; frontend/src/lib/types.ts; tests/server/test_api.py; frontend/src/lib/api.test.ts; .helloagents/modules/server.api.v1.query.md
+
 ## [0.1.24] - 2026-05-15
 
 ### 新增

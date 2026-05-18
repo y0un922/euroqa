@@ -44,13 +44,6 @@ class QuestionType(str, Enum):
     MECHANISM = "mechanism"
 
 
-class AnswerMode(str, Enum):
-    """问答路由模式。"""
-    EXACT = "exact"
-    OPEN = "open"
-    EXACT_NOT_GROUNDED = "exact_not_grounded"
-
-
 class EngineeringContext(BaseModel):
     """从用户问题中提取的工程上下文字段。"""
     country: Optional[str] = None
@@ -81,9 +74,7 @@ class RoutingTargetHint(BaseModel):
 
 class RoutingDecision(BaseModel):
     """查询理解阶段的路由决策。"""
-    answer_mode: AnswerMode
     intent_label: str
-    intent_confidence: float
     target_hint: RoutingTargetHint
     reason_short: str
 
@@ -194,7 +185,6 @@ class QueryResponse(BaseModel):
     retrieval_context: RetrievalContext | None = None
     question_type: Optional[str] = None
     engineering_context: Optional[dict[str, object]] = None
-    answer_mode: Optional[str] = None
     groundedness: Optional[str] = None
 
 

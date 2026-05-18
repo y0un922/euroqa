@@ -36,14 +36,19 @@ export type Source = {
   file: string;
   document_id?: string;
   element_type?: "text" | "table" | "formula" | "image";
+  docId?: string;
+  elementType?: "text" | "table" | "figure" | "formula";
   bbox?: number[];
   title: string;
   section: string;
   page: number | string;
   clause: string;
   original_text: string;
+  originalText?: string;
   highlight_text?: string;
+  highlightText?: string;
   locator_text?: string;
+  locatorText?: string;
   translation: string;
 };
 
@@ -92,9 +97,15 @@ export type QueryResponse = {
 };
 
 export type StreamDonePayload = {
+  code?: number;
   sources: Source[];
   related_refs: string[];
+  relatedRefs?: string[];
   confidence: Confidence;
+  questionType?: QuestionType | null;
+  answerMode?: string;
+  title?: string | null;
+  groundedness?: string | null;
   retrieval_context?: RetrievalContext | null;
   question_type?: QuestionType | null;
   engineering_context?: Record<string, unknown> | null;
@@ -102,6 +113,11 @@ export type StreamDonePayload = {
 
 export type StreamReasoningPayload = {
   text?: string;
+};
+
+export type StreamErrorPayload = {
+  code?: number;
+  message?: string;
 };
 
 export type QueryProgressStage =

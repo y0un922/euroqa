@@ -18,7 +18,7 @@ from server.models.schemas import QueryResponse, RetrievalContext
 def _analysis_stub(
     question: str,
     *,
-    answer_mode: str | None = None,
+    expanded_queries: list[str] | None = None,
     intent_label: str | None = None,
     target_hint: object = None,
     requested_objects: list[str] | None = None,
@@ -27,12 +27,11 @@ def _analysis_stub(
     guide_hint: object = None,
 ):
     return SimpleNamespace(
-        expanded_queries=[question],
+        expanded_queries=expanded_queries or [question],
         rewritten_query=question,
         original_question=question,
         filters={},
         matched_terms={},
-        answer_mode=SimpleNamespace(value=answer_mode) if answer_mode else None,
         intent_label=intent_label,
         target_hint=target_hint,
         requested_objects=requested_objects or [],
@@ -54,11 +53,15 @@ def client():
 class TestQueryEndpoint:
     def test_query_validation_missing_question(self, client):
         resp = client.post("/api/v1/query", json={})
-        assert resp.status_code == 422
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 400
+        assert resp.json()["message"] == "参数错误"
 
     def test_question_max_length(self, client):
         resp = client.post("/api/v1/query", json={"question": "x" * 501})
-        assert resp.status_code == 422
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 400
+        assert resp.json()["message"] == "参数错误"
 
     def test_stream_query_does_not_500_when_query_rewrite_llm_fails(self, client):
         class _FakeRetriever:
@@ -430,7 +433,6 @@ class TestQueryEndpoint:
         async def _fake_analyze_query(question, glossary, config):
             return _analysis_stub(
                 question,
-                answer_mode="exact",
                 intent_label="assumption",
                 target_hint=SimpleNamespace(
                     document="EN 1992-1-1",
@@ -467,7 +469,6 @@ class TestQueryEndpoint:
                 "queries": ["地铁的设计使用年限是多久？"],
                 "original_query": "地铁的设计使用年限是多久？",
                 "filters": {},
-                "answer_mode": "exact",
                 "intent_label": "assumption",
                 "question_type": None,
                 "guide_hint": None,
@@ -479,6 +480,69 @@ class TestQueryEndpoint:
                 "requested_objects": ["6.1"],
                 "preferred_element_type": None,
             }
+        ]
+
+    def test_query_endpoint_passes_expanded_queries_to_retriever(self, client):
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1",
+                    history=[],
+                )
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+        app.dependency_overrides[deps.get_conversation_manager] = (
+            lambda: _FakeConversationManager()
+        )
+
+        seen_queries: list[list[str]] = []
+
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                seen_queries.append(kwargs["queries"])
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(
+                question,
+                expanded_queries=[
+                    "design working life metro",
+                    "design working life concept",
+                    "design working life terms",
+                ],
+            )
+
+        async def _fake_generate_answer(**kwargs):
+            return QueryResponse(
+                answer="ok",
+                sources=[],
+                related_refs=[],
+                confidence="low",
+                degraded=False,
+                conversation_id="conv-1",
+            )
+
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+        ):
+            resp = client.post(
+                "/api/v1/query",
+                json={"question": "地铁的设计使用年限是多久？"},
+            )
+
+        assert resp.status_code == 200
+        assert seen_queries == [
+            [
+                "design working life metro",
+                "design working life concept",
+                "design working life terms",
+            ]
         ]
 
     def test_query_endpoint_returns_retrieval_context(self, client):
@@ -509,7 +573,6 @@ class TestQueryEndpoint:
         async def _fake_analyze_query(question, glossary, config):
             return _analysis_stub(
                 question,
-                answer_mode="exact",
                 intent_label="assumption",
             )
 
@@ -524,7 +587,6 @@ class TestQueryEndpoint:
                 confidence="low",
                 degraded=False,
                 conversation_id="conv-1",
-                answer_mode=None,
                 groundedness=None,
                 retrieval_context=RetrievalContext(
                     chunks=[
@@ -587,7 +649,6 @@ class TestQueryEndpoint:
             == "Bridge_Designers_Guide2024"
         )
         assert resp.json()["retrieval_context"]["guide_example_chunks"][0]["chunk_id"] == "guide-example-1"
-        assert resp.json()["answer_mode"] == "exact"
         assert resp.json()["groundedness"] == "grounded"
 
     def test_query_stream_endpoint_ignores_blank_llm_override_values(self, client):
@@ -687,7 +748,6 @@ class TestQueryEndpoint:
         async def _fake_analyze_query(question, glossary, config):
             return _analysis_stub(
                 question,
-                answer_mode="exact",
                 intent_label="assumption",
             )
 
@@ -698,7 +758,6 @@ class TestQueryEndpoint:
                     "sources": [],
                     "related_refs": [],
                     "confidence": "low",
-                    "answer_mode": "exact",
                     "groundedness": "grounded",
                     "retrieval_context": {
                         "chunks": [
@@ -766,8 +825,9 @@ class TestQueryEndpoint:
         assert '"score": 0.91' in resp.text
         assert '"guide_chunks"' in resp.text
         assert '"guide_example_chunks"' in resp.text
-        assert '"answer_mode": "exact"' in resp.text
         assert '"groundedness": "grounded"' in resp.text
+        assert '"answerMode": "standard"' in resp.text
+        assert '"confidence": "low"' in resp.text
 
     def test_query_stream_emits_user_friendly_progress_events(self, client):
         class _FakeRetriever:
@@ -791,14 +851,13 @@ class TestQueryEndpoint:
         async def _fake_analyze_query(question, glossary, config):
             return _analysis_stub(
                 question,
-                answer_mode="open",
                 intent_label="limit",
                 question_type=SimpleNamespace(value="parameter"),
                 target_hint=SimpleNamespace(document="EN 1990", clause="2.3", object=None),
             )
 
         async def _fake_generate_answer_stream(**kwargs):
-            yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
+            yield ("done", {"sources": [], "related_refs": []})
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
         app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
@@ -856,7 +915,6 @@ class TestQueryEndpoint:
         async def _fake_analyze_query(question, glossary, config):
             return _analysis_stub(
                 question,
-                answer_mode="open",
                 intent_label="calculation",
                 question_type=SimpleNamespace(value="calculation"),
                 guide_hint=SimpleNamespace(
@@ -876,14 +934,14 @@ class TestQueryEndpoint:
         assert seen_retrieval_kwargs["question_type"] == "calculation"
         assert seen_retrieval_kwargs["guide_hint"].need_example is True
 
-    def test_query_endpoint_returns_answer_mode_and_groundedness(self, client):
+    def test_query_endpoint_returns_groundedness(self, client):
         class _FakeRetriever:
             async def retrieve(self, **kwargs):
                 return RetrievalResult(
                     chunks=[],
                     parent_chunks=[],
                     scores=[],
-                    groundedness="exact_not_grounded",
+                    groundedness="not_grounded",
                 )
 
         class _FakeConversationManager:
@@ -908,7 +966,7 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         async def _fake_analyze_query(question, glossary, config):
-            return _analysis_stub(question, answer_mode="exact", intent_label="assumption")
+            return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.api.v1.query.analyze_query", _fake_analyze_query),
@@ -917,10 +975,9 @@ class TestQueryEndpoint:
             resp = client.post("/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"})
 
         assert resp.status_code == 200
-        assert resp.json()["answer_mode"] == "exact"
-        assert resp.json()["groundedness"] == "exact_not_grounded"
+        assert resp.json()["groundedness"] == "not_grounded"
 
-    def test_query_stream_done_event_includes_answer_mode_and_groundedness(self, client):
+    def test_query_stream_done_event_includes_groundedness(self, client):
         class _FakeRetriever:
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
@@ -933,14 +990,14 @@ class TestQueryEndpoint:
                 return None
 
         async def _fake_generate_answer_stream(**kwargs):
-            yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
+            yield ("done", {"sources": [], "related_refs": []})
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
         app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         async def _fake_analyze_query(question, glossary, config):
-            return _analysis_stub(question, answer_mode="exact", intent_label="assumption")
+            return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.api.v1.query.analyze_query", _fake_analyze_query),
@@ -953,8 +1010,9 @@ class TestQueryEndpoint:
             segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
         )
         done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
-        assert done_payload["answer_mode"] == "exact"
         assert done_payload["groundedness"] == "grounded"
+        assert done_payload["answerMode"] == "standard"
+        assert done_payload["confidence"] == "high"
 
     def test_query_stream_accepts_session_id_and_emits_external_done_aliases(
         self, client
@@ -981,7 +1039,7 @@ class TestQueryEndpoint:
                         {
                             "file": "EN 1990:2002",
                             "document_id": "EN_1990_2002",
-                            "element_type": "text",
+                            "element_type": "image",
                             "title": "Eurocode - Basis of structural design",
                             "section": "Section 2",
                             "page": "28",
@@ -1004,7 +1062,6 @@ class TestQueryEndpoint:
         async def _fake_analyze_query(question, glossary, config):
             return _analysis_stub(
                 question,
-                answer_mode="open",
                 intent_label="parameter",
                 question_type=SimpleNamespace(value="parameter"),
             )
@@ -1030,10 +1087,12 @@ class TestQueryEndpoint:
         assert seen_conversation_ids == ["1001_abc123"]
         assert done_payload["code"] == 200
         assert done_payload["questionType"] == "parameter"
-        assert done_payload["answerMode"] == "open"
+        assert done_payload["answerMode"] == "standard"
+        assert done_payload["confidence"] == "high"
         assert done_payload["relatedRefs"] == ["Table 2.1"]
         assert done_payload["title"] is None
         assert done_payload["sources"][0]["docId"] == "EN_1990_2002"
+        assert done_payload["sources"][0]["elementType"] == "figure"
         assert done_payload["sources"][0]["originalText"] == (
             "The design working life should be specified."
         )
@@ -1069,7 +1128,7 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         async def _fake_analyze_query(question, glossary, config):
-            return _analysis_stub(question, answer_mode="exact", intent_label="assumption")
+            return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.api.v1.query.analyze_query", _fake_analyze_query),
@@ -1103,7 +1162,7 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         async def _fake_analyze_query(question, glossary, config):
-            return _analysis_stub(question, answer_mode="exact", intent_label="assumption")
+            return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.api.v1.query.analyze_query", _fake_analyze_query),
@@ -1113,6 +1172,38 @@ class TestQueryEndpoint:
 
         assert resp.status_code == 200
         assert seen_kwargs["intent_label"] == "assumption"
+
+    def test_query_stream_error_event_uses_external_contract(self, client):
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                raise RuntimeError("retrieval unavailable")
+
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(question, intent_label="assumption")
+
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        with patch("server.api.v1.query.analyze_query", _fake_analyze_query):
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True},
+            )
+
+        assert resp.status_code == 200
+        error_event = next(
+            segment for segment in resp.text.split("\r\n\r\n") if "event: error" in segment
+        )
+        error_payload = json.loads(error_event.split("data: ", 1)[1].strip())
+        assert error_payload == {
+            "code": 503,
+            "message": "处理请求时发生内部错误，请重试",
+        }
 
 
 class TestLlmSettingsEndpoint:
@@ -1283,6 +1374,8 @@ class TestDocumentsEndpoint:
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
         assert resp.status_code == 404
+        assert resp.json()["code"] == 404
+        assert resp.json()["message"] == "Document EN1990_2002 not found"
 
     def test_get_document_file_returns_404_when_path_is_directory(
         self, client, tmp_path: Path
@@ -1293,6 +1386,8 @@ class TestDocumentsEndpoint:
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
         assert resp.status_code == 404
+        assert resp.json()["code"] == 404
+        assert resp.json()["message"] == "Document EN1990_2002 not found"
 
     def test_delete_document_removes_current_and_legacy_index_sources(
         self, client, tmp_path: Path
@@ -1515,6 +1610,11 @@ class TestDocumentsEndpoint:
         )
 
         assert resp.status_code == 400
+        assert resp.json() == {
+            "code": 400,
+            "message": "只接受 PDF 文件",
+            "detail": None,
+        }
 
     def test_batch_document_status_contract_returns_camel_case_fields(
         self, client, tmp_path: Path
@@ -1655,7 +1755,9 @@ class TestSourcesEndpoint:
 
         resp = client.post("/api/v1/sources/translate", json=payload)
 
-        assert resp.status_code == 422
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 400
+        assert resp.json()["message"] == "参数错误"
 
     def test_translate_source_returns_http_error_when_helper_returns_empty_list(
         self, client
@@ -1678,6 +1780,11 @@ class TestSourcesEndpoint:
             resp = client.post("/api/v1/sources/translate", json=payload)
 
         assert resp.status_code == 502
+        assert resp.json() == {
+            "code": 502,
+            "message": "Source translation unavailable",
+            "detail": None,
+        }
 
     def test_translate_source_returns_http_error_when_translation_empty(
         self, client
@@ -1700,6 +1807,11 @@ class TestSourcesEndpoint:
             resp = client.post("/api/v1/sources/translate", json=payload)
 
         assert resp.status_code == 502
+        assert resp.json() == {
+            "code": 502,
+            "message": "Source translation unavailable",
+            "detail": None,
+        }
 
     def test_translate_text_contract_returns_code_and_translation(self, client):
         translated_source = SimpleNamespace(translation="应规定设计使用年限。")

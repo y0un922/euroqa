@@ -41,6 +41,45 @@ def _extract_json_text(raw: str) -> str:
     return cleaned
 
 
+def _dedupe_chunks_by_id(chunks: list[Chunk] | None) -> list[Chunk]:
+    """Return chunks with duplicate chunk_id entries removed, preserving order."""
+    deduped: list[Chunk] = []
+    seen: set[str] = set()
+    for chunk in chunks or []:
+        if chunk.chunk_id in seen:
+            continue
+        seen.add(chunk.chunk_id)
+        deduped.append(chunk)
+    return deduped
+
+
+def _dedupe_chunks_and_scores(
+    chunks: list[Chunk],
+    scores: list[float] | None,
+) -> tuple[list[Chunk], list[float] | None]:
+    """Deduplicate chunks while keeping the first matching score aligned."""
+    deduped_chunks: list[Chunk] = []
+    deduped_scores: list[float] = []
+    seen: set[str] = set()
+    if scores is None:
+        for chunk in chunks:
+            if chunk.chunk_id in seen:
+                continue
+            seen.add(chunk.chunk_id)
+            deduped_chunks.append(chunk)
+        return deduped_chunks, None
+
+    score_values = list(scores or [])
+
+    for index, chunk in enumerate(chunks):
+        if chunk.chunk_id in seen:
+            continue
+        seen.add(chunk.chunk_id)
+        deduped_chunks.append(chunk)
+        deduped_scores.append(score_values[index] if index < len(score_values) else 0.0)
+    return deduped_chunks, deduped_scores
+
+
 def _collect_pending_source_indexes(sources: list[Source]) -> list[int]:
     """收集仍需补齐翻译的 source 下标。"""
     return [
@@ -518,18 +557,14 @@ _STREAM_BASE_RULES = [
 
 
 def decide_generation_mode(
-    answer_mode: str | None,
     groundedness: str | None,
 ) -> str:
-    """根据路由意图和 groundedness 决定最终回答模板。"""
-    normalized_answer_mode = (answer_mode or "").strip().lower()
+    """Normalize retrieval groundedness into the generation mode."""
     normalized_groundedness = (groundedness or "").strip().lower()
 
-    if normalized_answer_mode == "exact" and normalized_groundedness == "grounded":
-        return "exact"
-    if normalized_answer_mode == "exact" and normalized_groundedness == "exact_not_grounded":
-        return "exact_not_grounded"
-    return "open"
+    if normalized_groundedness in {"grounded", "partial", "not_grounded"}:
+        return normalized_groundedness
+    return "partial"
 
 
 def _normalize_question_type(question_type: str | QuestionType | None) -> str | None:
@@ -542,106 +577,6 @@ def _normalize_question_type(question_type: str | QuestionType | None) -> str | 
         except ValueError:
             return None
     return None
-
-
-def _normalize_intent_label(intent_label: str | None) -> str | None:
-    """Normalize routed exact intent labels to a known small set."""
-    if not isinstance(intent_label, str):
-        return None
-    normalized = intent_label.strip().lower()
-    if normalized in {
-        "definition",
-        "assumption",
-        "applicability",
-        "formula",
-        "limit",
-        "clause_lookup",
-    }:
-        return normalized
-    return None
-
-
-_CLAUSE_FAMILY_RE = re.compile(r"\d+(?:\.\d+)*")
-_VISUAL_QUERY_RE = re.compile(
-    r"(?:表格?|图示?|图表|公式|方程|表达式|table|figure|fig\.?|equation|formula)",
-    re.IGNORECASE,
-)
-
-
-def _extract_clause_families(chunk: Chunk) -> set[str]:
-    """Extract coarse clause families from a chunk's clause IDs and headings."""
-    families: set[str] = set()
-    for value in [*chunk.metadata.clause_ids, *chunk.metadata.section_path]:
-        if not value:
-            continue
-        matches = _CLAUSE_FAMILY_RE.findall(value)
-        if matches:
-            families.add(matches[0])
-    return families
-
-
-def _question_requests_visual_support(question: str) -> bool:
-    """Detect whether the user explicitly asks about tables, figures, or formulas."""
-    return bool(_VISUAL_QUERY_RE.search(question or ""))
-
-
-def _chunks_share_exact_neighborhood(primary_clause: Chunk, candidate: Chunk) -> bool:
-    """Check whether a candidate chunk is in the same local clause neighborhood."""
-    if candidate.metadata.source != primary_clause.metadata.source:
-        return False
-    if candidate.metadata.parent_text_chunk_id == primary_clause.chunk_id:
-        return True
-    if primary_clause.metadata.parent_text_chunk_id == candidate.chunk_id:
-        return True
-    if (
-        candidate.metadata.section_path
-        and candidate.metadata.section_path == primary_clause.metadata.section_path
-    ):
-        return True
-    return bool(_extract_clause_families(primary_clause) & _extract_clause_families(candidate))
-
-
-def _chunk_matches_primary_cross_refs(primary_clause: Chunk, candidate: Chunk) -> bool:
-    """Check whether a candidate matches explicit cross references mentioned by primary."""
-    refs = {ref.strip().lower() for ref in primary_clause.metadata.cross_refs if ref.strip()}
-    if not refs:
-        return False
-    labels = {
-        label.strip().lower()
-        for label in (
-            [candidate.metadata.object_label]
-            + candidate.metadata.object_aliases
-            + candidate.metadata.clause_ids
-        )
-        if label and label.strip()
-    }
-    return bool(refs & labels)
-
-
-def _should_surface_exact_visual_support(
-    primary_clause: Chunk,
-    candidate: Chunk,
-    question: str,
-    intent_label: str | None,
-) -> bool:
-    """Decide whether a non-text chunk should be surfaced as exact supporting evidence."""
-    normalized_intent = _normalize_intent_label(intent_label)
-    if _question_requests_visual_support(question):
-        return True
-    if normalized_intent in {"assumption", "definition", "applicability", "clause_lookup"}:
-        return False
-    return (
-        _chunks_share_exact_neighborhood(primary_clause, candidate)
-        or _chunk_matches_primary_cross_refs(primary_clause, candidate)
-    )
-
-
-def _should_surface_exact_text_support(
-    primary_clause: Chunk,
-    candidate: Chunk,
-) -> bool:
-    """Decide whether a text chunk is close enough to support the primary clause."""
-    return _chunks_share_exact_neighborhood(primary_clause, candidate)
 
 
 def _normalize_engineering_context(
@@ -709,10 +644,9 @@ def _build_engineering_context_guidance(
 
 
 def _build_evidence_organizer_system_prompt(
-    mode: str,
+    groundedness: str,
     question_type: str | QuestionType | None = None,
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
-    intent_label: str | None = None,
 ) -> str:
     lines: list[str] = [
         "你是“欧洲工程规范智能问答系统”的回答整理助手，服务对象是使用中文提问的工程师。",
@@ -737,22 +671,13 @@ def _build_evidence_organizer_system_prompt(
         "",
         "模式补充：",
     ]
-    if mode == "exact_not_grounded":
-        lines.append("当现有证据不足以支撑完整结论时，应明确说明缺少哪类信息，不要输出猜测性内容。")
-        lines.append("不要在回答中暴露内部模式名、路由状态或 groundedness 判断。")
-    elif mode == "exact":
-        lines.append("当前模式是 exact：若证据足够，直接给出结论并绑定依据位置；只补必要解释，不扩写成长篇泛论。")
+    if groundedness == "not_grounded":
+        lines.append("当前检索证据与问题相关性不足。必须明确说明现有证据不足，不要输出猜测性结论。")
+        lines.append("如果能从证据中确认很少量事实，只能作为有限事实列出，并说明缺少哪类依据。")
+    elif groundedness == "grounded":
+        lines.append("当前检索证据相关性较强。可以直接给出结论，但所有关键结论仍必须绑定证据位置。")
     else:
-        lines.append("当前模式是 open：在保证证据约束的前提下，允许做多证据整合与结构化整理。")
-
-    normalized_intent = _normalize_intent_label(intent_label)
-    if mode == "exact" and normalized_intent in {"assumption", "definition", "applicability"}:
-        lines.append("意图补充：优先直接枚举主依据条款中的结论，不要因为检索里顺带包含表格或辅助条文，就把答案重心转移。")
-    if mode == "exact" and normalized_intent == "limit":
-        lines.append("意图补充：若问题在问限值或取值，先给出明确数值或规则，再补充适用条件。")
-    exact_intent_guidance = _build_exact_intent_guidance(intent_label) if mode == "exact" else ""
-    if exact_intent_guidance:
-        lines.extend(["", exact_intent_guidance])
+        lines.append("当前检索证据只能支持部分回答。先写可由证据确认的内容，再说明仍需补充的信息。")
 
     lines.extend([
         "",
@@ -769,85 +694,9 @@ def build_open_system_prompt(
     question_type: str | QuestionType | None = None,
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
 ) -> str:
-    """构建开放式整理回答的统一系统提示词。"""
+    """构建默认整理回答的统一系统提示词。"""
     return _build_evidence_organizer_system_prompt(
-        "open",
-        question_type=question_type,
-        engineering_context=engineering_context,
-    )
-
-
-def _build_exact_intent_guidance(intent_label: str | None) -> str:
-    """Provide extra exact-answering guardrails for routed exact intents."""
-    normalized = _normalize_intent_label(intent_label)
-    if normalized in {"assumption", "definition", "applicability"}:
-        return (
-            "意图补充：当前问题属于 assumption / definition / applicability 类精确问法。\n"
-            "优先直接枚举主依据条款中的结论，不要先绕去支持性表格、图示或辅助条文。\n"
-            "只有当主依据条款本身明确依赖某个表格、图示或辅助条文，且这些内容对当前问题直接必要时，才补充展开。\n"
-            "不要因为检索里顺带包含表格、图示或相关条文，就把答案重心转移到这些支持材料上。"
-        )
-    if normalized == "limit":
-        return (
-            "意图补充：当前问题属于 limit 类精确问法。\n"
-            "如果问题在问限值，必须直接提取并引用这些数值。\n"
-            "如果主依据或直接引用中给出了限值、阈值、范围或取值条件，必须直接提取并引用这些数值，不要只描述原则。"
-        )
-    if normalized == "formula":
-        return (
-            "意图补充：当前问题属于 formula 类精确问法。\n"
-            "优先给出主依据中的公式表达式、变量含义和适用条件；只有在公式求值直接需要时，才补充相关参数表。"
-        )
-    if normalized == "clause_lookup":
-        return (
-            "意图补充：当前问题属于 clause_lookup 类精确问法。\n"
-            "先明确回答具体文档、条款号或标题定位，再给出该条款的核心内容，不要展开无关推导。"
-        )
-    return ""
-
-
-def _build_exact_answer_focus_note(intent_label: str | None) -> str:
-    """Add a short focus note to the evidence pack for exact answers."""
-    normalized = _normalize_intent_label(intent_label)
-    if normalized in {"assumption", "definition", "applicability"}:
-        return (
-            "先用主依据条款直接回答问题；支持性表格、图示、辅助条文只在主条款明确需要时才补充，"
-            "不要让支持材料取代主答案。"
-        )
-    if normalized == "limit":
-        return "优先提取主依据中的限值、阈值、范围和适用条件，不要只给原则表述。"
-    if normalized == "formula":
-        return "优先给出公式本体、变量含义和适用条件，再补充求值所需参数。"
-    if normalized == "clause_lookup":
-        return "先回答文档与条款定位，再概括该条款的核心内容。"
-    return ""
-
-
-def build_exact_system_prompt(
-    intent_label: str | None = None,
-    question_type: str | QuestionType | None = None,
-    engineering_context: EngineeringContext | dict[str, Any] | None = None,
-) -> str:
-    """构建精确型回答的统一系统提示词。"""
-    return _build_evidence_organizer_system_prompt(
-        "exact",
-        question_type=(
-            "parameter"
-            if _normalize_intent_label(intent_label) == "limit"
-            else question_type or "rule"
-        ),
-        engineering_context=engineering_context,
-        intent_label=intent_label,
-    )
-
-
-def build_exact_not_grounded_system_prompt(
-    question_type: str | QuestionType | None = None,
-    engineering_context: EngineeringContext | dict[str, Any] | None = None,
-) -> str:
-    """构建证据不足时的统一系统提示词。"""
-    return _build_evidence_organizer_system_prompt(
-        "exact_not_grounded",
+        "partial",
         question_type=question_type,
         engineering_context=engineering_context,
     )
@@ -860,25 +709,10 @@ def _build_json_system_prompt(
     intent_label: str | None = None,
 ) -> str:
     """为非流式 JSON 回答选择 system prompt。"""
-    if mode == "exact":
-        return (
-            build_exact_system_prompt(
-                intent_label=intent_label,
-                question_type=question_type,
-                engineering_context=engineering_context,
-            )
-            + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
-        )
-    if mode == "exact_not_grounded":
-        return (
-            build_exact_not_grounded_system_prompt(
-                question_type=question_type,
-                engineering_context=engineering_context,
-            )
-            + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
-        )
+    del intent_label
     return (
-        build_open_system_prompt(
+        _build_evidence_organizer_system_prompt(
+            mode,
             question_type=question_type,
             engineering_context=engineering_context,
         )
@@ -893,18 +727,12 @@ def _build_stream_mode_system_prompt(
     intent_label: str | None = None,
 ) -> str:
     """为流式 Markdown 回答选择 system prompt。"""
-    if mode == "exact":
-        return build_exact_system_prompt(
-            intent_label=intent_label,
-            question_type=question_type,
-            engineering_context=engineering_context,
-        )
-    if mode == "exact_not_grounded":
-        return build_exact_not_grounded_system_prompt(
-            question_type=question_type,
-            engineering_context=engineering_context,
-        )
-    return build_open_system_prompt(question_type, engineering_context)
+    del intent_label
+    return _build_evidence_organizer_system_prompt(
+        mode,
+        question_type=question_type,
+        engineering_context=engineering_context,
+    )
 
 
 _SOURCE_TRANSLATION_SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eurocode）的专家，负责把规范原文片段翻译成简洁、准确的中文解释。
@@ -1014,86 +842,23 @@ def build_prompt(
 
     parts.append(f"用户问题：\n{question}\n")
 
-    if generation_mode in {"exact", "exact_not_grounded"}:
-        exact_candidates = _collect_exact_evidence_candidates(
-            chunks,
-            parent_chunks,
-            ref_chunks,
-        )
-        evidence = _build_exact_evidence_pack(
-            exact_candidates,
-            question,
-            intent_label=intent_label,
-        )
-        primary_clause: Chunk | None = evidence["primary_clause"]
-        supporting_visuals: list[Chunk] = evidence["supporting_visuals"]
-        supporting_context: list[Chunk] = evidence["supporting_context"]
-        parts.append("exact 证据包（回答时优先使用，不要遗漏）：\n")
-        focus_note = _build_exact_answer_focus_note(intent_label)
-        if focus_note:
-            parts.append(f"回答重心提示：{focus_note}\n")
-        if primary_clause is not None:
-            meta = primary_clause.metadata
-            parts.append(
-                "主依据条款：\n"
-                f"- 来源：{meta.source}\n"
-                f"- 章节：{' > '.join(meta.section_path)}\n"
-                f"- 条款：{', '.join(meta.clause_ids[:3]) if meta.clause_ids else '无'}\n"
-                f"- 内容：{primary_clause.content}\n"
-            )
-        if supporting_visuals:
-            parts.append("相关表/图/公式：\n")
-            for item in supporting_visuals:
-                meta = item.metadata
-                parts.append(
-                    f"- {meta.element_type.value}: {meta.source} | "
-                    f"{' > '.join(meta.section_path)} | "
-                    f"{', '.join(meta.clause_ids[:2]) if meta.clause_ids else '无编号'}\n"
-                    f"  {item.content}\n"
-                )
-        if supporting_context:
-            parts.append("辅助说明片段：\n")
-            for item in supporting_context:
-                meta = item.metadata
-                parts.append(
-                    f"- {meta.source} | {' > '.join(meta.section_path)} | "
-                    f"{', '.join(meta.clause_ids[:2]) if meta.clause_ids else '无编号'}\n"
-                    f"  {item.content}\n"
-                )
-        selected_chunk_ids = {
-            chunk.chunk_id
-            for chunk in [primary_clause, *supporting_visuals, *supporting_context]
-            if chunk is not None
-        }
-        deferred_count = sum(
-            1 for chunk in exact_candidates if chunk.chunk_id not in selected_chunk_ids
-        )
-        if deferred_count:
-            parts.append(
-                "其他相关片段："
-                f"另有 {deferred_count} 个候选片段仅作背景参考；"
-                "除非主依据条款明确需要，否则不要让这些片段主导答案。\n"
-            )
-        if resolved_refs:
-            parts.append("已补齐的直接引用：\n")
-            for ref in resolved_refs:
-                parts.append(f"- {ref}\n")
-        if unresolved_refs:
-            parts.append("尚未补齐的直接引用：\n")
-            for ref in unresolved_refs:
-                parts.append(f"- {ref}\n")
+    if generation_mode:
+        parts.append(f"证据相关性状态：{generation_mode}\n")
+    if resolved_refs:
+        parts.append("已补齐的直接引用：\n")
+        for ref in resolved_refs:
+            parts.append(f"- {ref}\n")
+    if unresolved_refs:
+        parts.append("尚未补齐的直接引用：\n")
+        for ref in unresolved_refs:
+            parts.append(f"- {ref}\n")
 
     ordered_citable = _build_prioritized_source_chunks(
         chunks,
         parent_chunks,
         ref_chunks=ref_chunks,
-        generation_mode=generation_mode,
-        question=question,
-        intent_label=intent_label,
     )
     parts.append("已检索到的规范证据片段：\n")
-    if generation_mode in {"exact", "exact_not_grounded"}:
-        parts.append("检索到的规范内容（按回答优先级排序）：\n")
     for i, chunk in enumerate(ordered_citable, 1):
         parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]"))
 
@@ -1109,7 +874,7 @@ def build_prompt(
         for index, parent_chunk in enumerate(deduped_parents, 1):
             parts.append(_format_prompt_chunk_block(parent_chunk, f"[Parent-{index}]"))
 
-    if ref_chunks and generation_mode not in {"exact", "exact_not_grounded"}:
+    if ref_chunks:
         parts.append("交叉引用补充：\n")
         for index, ref_chunk in enumerate(ref_chunks, 1):
             parts.append(_format_prompt_chunk_block(ref_chunk, f"[CrossRef-{index}]"))
@@ -1148,86 +913,6 @@ def build_prompt(
     return "\n".join(parts)
 
 
-def _collect_exact_evidence_candidates(
-    chunks: list[Chunk],
-    parent_chunks: list[Chunk],
-    ref_chunks: list[Chunk] | None = None,
-) -> list[Chunk]:
-    """收集 exact 模式可用于组织回答的证据候选。
-
-    主检索片段和交叉引用片段始终纳入；父级上下文仅吸收表/图/公式等视觉证据，
-    避免把整段父级文本误当成直接引用源。
-    """
-    candidates: list[Chunk] = []
-    seen_ids: set[str] = set()
-
-    def append_unique(items: list[Chunk]) -> None:
-        for item in items:
-            if item.chunk_id not in seen_ids:
-                seen_ids.add(item.chunk_id)
-                candidates.append(item)
-
-    append_unique(list(chunks))
-    append_unique(list(ref_chunks or []))
-    append_unique(
-        [
-            chunk for chunk in parent_chunks
-            if chunk.metadata.element_type in (
-                ElementType.TABLE,
-                ElementType.FORMULA,
-                ElementType.IMAGE,
-            )
-        ]
-    )
-    return candidates
-
-
-def _build_exact_evidence_pack(
-    chunks: list[Chunk],
-    question: str,
-    intent_label: str | None = None,
-) -> dict[str, Any]:
-    """为 exact 模式挑选主条款、相关表图和少量辅助上下文。"""
-    if not chunks:
-        return {
-            "primary_clause": None,
-            "supporting_visuals": [],
-            "supporting_context": [],
-        }
-
-    primary_clause = next(
-        (chunk for chunk in chunks if chunk.metadata.element_type == ElementType.TEXT),
-        chunks[0],
-    )
-    supporting_visuals = [
-        chunk for chunk in chunks
-        if chunk.chunk_id != primary_clause.chunk_id
-        and chunk.metadata.element_type in (
-            ElementType.TABLE,
-            ElementType.FORMULA,
-            ElementType.IMAGE,
-        )
-        and _should_surface_exact_visual_support(
-            primary_clause,
-            chunk,
-            question,
-            intent_label,
-        )
-    ]
-    supporting_context = [
-        chunk for chunk in chunks
-        if chunk.chunk_id != primary_clause.chunk_id
-        and chunk.metadata.element_type == ElementType.TEXT
-        and _should_surface_exact_text_support(primary_clause, chunk)
-    ][:2]
-
-    return {
-        "primary_clause": primary_clause,
-        "supporting_visuals": supporting_visuals,
-        "supporting_context": supporting_context,
-    }
-
-
 def _build_prioritized_source_chunks(
     chunks: list[Chunk],
     parent_chunks: list[Chunk],
@@ -1236,25 +921,11 @@ def _build_prioritized_source_chunks(
     question: str = "",
     intent_label: str | None = None,
 ) -> list[Chunk]:
-    """Build source ordering that follows the exact evidence pack when needed."""
-    if generation_mode not in {"exact", "exact_not_grounded"}:
-        return list(chunks) + list(ref_chunks or [])
-
-    evidence = _build_exact_evidence_pack(
-        _collect_exact_evidence_candidates(chunks, parent_chunks, ref_chunks),
-        question=question,
-        intent_label=intent_label,
-    )
-    prioritized: list[Chunk] = []
-    for key in ("primary_clause",):
-        chunk = evidence.get(key)
-        if chunk is not None:
-            prioritized.append(chunk)
-    prioritized.extend(evidence.get("supporting_visuals", []))
-    prioritized.extend(evidence.get("supporting_context", []))
-    ordered: list[Chunk] = []
+    """Build source ordering for prompt and source metadata."""
+    del parent_chunks, generation_mode, question, intent_label
     seen_ids: set[str] = set()
-    for chunk in prioritized + list(chunks) + list(ref_chunks or []):
+    ordered: list[Chunk] = []
+    for chunk in list(chunks) + list(ref_chunks or []):
         if chunk.chunk_id not in seen_ids:
             seen_ids.add(chunk.chunk_id)
             ordered.append(chunk)
@@ -1542,7 +1213,6 @@ async def generate_answer_stream(
     guide_example_chunks: list[Chunk] | None = None,
     question_type: str | QuestionType | None = None,
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
-    answer_mode: str | None = None,
     groundedness: str | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
@@ -1557,9 +1227,14 @@ async def generate_answer_stream(
         (event_type, data) 元组
     """
     cfg = config or ServerConfig()
+    chunks, scores = _dedupe_chunks_and_scores(chunks, scores)
+    parent_chunks = _dedupe_chunks_by_id(parent_chunks)
+    ref_chunks = _dedupe_chunks_by_id(ref_chunks)
+    guide_chunks = _dedupe_chunks_by_id(guide_chunks)
+    guide_example_chunks = _dedupe_chunks_by_id(guide_example_chunks)
     qt_normalized = _normalize_question_type(question_type)
     ctx_normalized = _normalize_engineering_context(engineering_context)
-    generation_mode = decide_generation_mode(answer_mode, groundedness)
+    generation_mode = decide_generation_mode(groundedness)
     prompt = build_prompt(
         question,
         chunks,
@@ -1683,7 +1358,6 @@ async def generate_answer(
     guide_example_chunks: list[Chunk] | None = None,
     question_type: str | QuestionType | None = None,
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
-    answer_mode: str | None = None,
     groundedness: str | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
@@ -1704,6 +1378,11 @@ async def generate_answer(
         结构化的 QueryResponse；LLM 调用失败时返回降级响应
     """
     cfg = config or ServerConfig()
+    chunks, scores = _dedupe_chunks_and_scores(chunks, scores)
+    parent_chunks = _dedupe_chunks_by_id(parent_chunks)
+    ref_chunks = _dedupe_chunks_by_id(ref_chunks)
+    guide_chunks = _dedupe_chunks_by_id(guide_chunks)
+    guide_example_chunks = _dedupe_chunks_by_id(guide_example_chunks)
     retrieval_context = _build_retrieval_context(
         chunks,
         parent_chunks,
@@ -1716,7 +1395,7 @@ async def generate_answer(
     )
     qt_normalized = _normalize_question_type(question_type)
     ctx_normalized = _normalize_engineering_context(engineering_context)
-    generation_mode = decide_generation_mode(answer_mode, groundedness)
+    generation_mode = decide_generation_mode(groundedness)
     prompt = build_prompt(
         question, chunks, parent_chunks, glossary_terms, conversation_history,
         ref_chunks=ref_chunks,

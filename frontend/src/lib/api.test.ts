@@ -252,7 +252,10 @@ test("queryStream forwards reasoning events to the caller", async () => {
   const reasoning: string[] = [];
   const chunks: string[] = [];
   const donePayloads: Array<{
+    code?: number;
     confidence: string;
+    answerMode?: string;
+    questionType?: string | null;
     retrieval_context?: {
       chunks: Array<{ chunk_id: string; score?: number }>;
       parent_chunks: Array<{ chunk_id: string }>;
@@ -273,7 +276,7 @@ test("queryStream forwards reasoning events to the caller", async () => {
             );
             controller.enqueue(
               encoder.encode(
-                'event: done\ndata: {"confidence":"low","sources":[],"related_refs":[],"retrieval_context":{"chunks":[{"chunk_id":"chunk_023","score":0.91}],"parent_chunks":[]}}\n\n'
+                'event: done\ndata: {"code":200,"confidence":"low","answerMode":"fallback","questionType":"parameter","sources":[],"related_refs":[],"retrieval_context":{"chunks":[{"chunk_id":"chunk_023","score":0.91}],"parent_chunks":[]}}\n\n'
               )
             );
             controller.close();
@@ -296,7 +299,10 @@ test("queryStream forwards reasoning events to the caller", async () => {
         },
         onDone: (payload) => {
           donePayloads.push({
+            code: payload.code,
             confidence: payload.confidence,
+            answerMode: payload.answerMode,
+            questionType: payload.questionType,
             retrieval_context: payload.retrieval_context
           });
         }
@@ -310,7 +316,10 @@ test("queryStream forwards reasoning events to the caller", async () => {
   assert.deepEqual(chunks, ["结论"]);
   assert.deepEqual(donePayloads, [
     {
+      code: 200,
       confidence: "low",
+      answerMode: "fallback",
+      questionType: "parameter",
       retrieval_context: {
         chunks: [{ chunk_id: "chunk_023", score: 0.91 }],
         parent_chunks: []
