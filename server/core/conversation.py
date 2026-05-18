@@ -47,17 +47,67 @@ def _user_id_from_session_id(session_id: str) -> str | None:
 
 
 def _message_to_history_item(payload: dict[str, Any]) -> dict[str, str] | None:
-    """Convert Redis message payloads into generation history items."""
+    """Convert legacy Redis turn payloads into generation history items."""
     if "question" in payload and "answer" in payload:
         question = str(payload.get("question") or "").strip()
         answer = str(payload.get("answer") or "").strip()
         if question or answer:
             return {"question": question, "answer": answer}
-    if payload.get("role") == "user":
-        content = str(payload.get("content") or "").strip()
-        if content:
-            return {"question": content, "answer": ""}
     return None
+
+
+def _messages_to_history(raw_items: list[str]) -> list[dict[str, str]]:
+    """Pair Redis message-list items into Q&A history turns."""
+    history: list[dict[str, str]] = []
+    pending_question: str | None = None
+    for raw in raw_items:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        legacy_item = _message_to_history_item(payload)
+        if legacy_item:
+            if pending_question is not None:
+                history.append({"question": pending_question, "answer": ""})
+                pending_question = None
+            history.append(legacy_item)
+            continue
+
+        role = payload.get("role")
+        content = str(payload.get("content") or "").strip()
+        if role == "user":
+            if pending_question is not None:
+                history.append({"question": pending_question, "answer": ""})
+            pending_question = content
+            continue
+        if role == "assistant":
+            if pending_question is not None:
+                history.append({"question": pending_question, "answer": content})
+                pending_question = None
+            continue
+
+    if pending_question is not None:
+        history.append({"question": pending_question, "answer": ""})
+    return history
+
+
+def _has_existing_title(value: object) -> bool:
+    """Return whether Redis metadata already has a meaningful session title."""
+    if not isinstance(value, str):
+        return value is not None
+    stripped = value.strip()
+    return bool(stripped) and stripped.lower() != "null"
+
+
+def _message_payload(role: str, content: str, timestamp: str) -> str:
+    """Build one Redis List message payload."""
+    return json.dumps(
+        {"role": role, "content": content, "timestamp": timestamp},
+        ensure_ascii=False,
+    )
 
 
 class RedisConversationManager:
@@ -87,16 +137,7 @@ class RedisConversationManager:
     ) -> ConversationState:
         cid = conversation_id or str(uuid.uuid4())
         raw_items = await self._redis.lrange(f"context:{cid}", 0, -1)
-        history: list[dict[str, str]] = []
-        for raw in raw_items:
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                item = _message_to_history_item(payload)
-                if item:
-                    history.append(item)
+        history = _messages_to_history(raw_items)
         return ConversationState(conversation_id=cid, history=history)
 
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
@@ -115,18 +156,13 @@ class RedisConversationManager:
         key = f"context:{conversation_id}"
         await self._redis.rpush(
             key,
-            json.dumps(
-                {
-                    "question": question,
-                    "answer": answer,
-                    "createdAt": now,
-                },
-                ensure_ascii=False,
-            ),
+            _message_payload("user", question, now),
+            _message_payload("assistant", answer, now),
         )
         await self._redis.expire(key, self._ttl_seconds)
 
         generated_title = title or _derive_session_title(question)
+        should_return_title = True
         user_id = _user_id_from_session_id(conversation_id)
         if user_id:
             meta_key = f"user:{user_id}:sessions"
@@ -142,14 +178,16 @@ class RedisConversationManager:
             existing_title = metadata.get("title")
             metadata.setdefault("createdAt", now)
             metadata["updatedAt"] = now
-            if not existing_title:
+            if _has_existing_title(existing_title):
+                should_return_title = False
+            else:
                 metadata["title"] = generated_title
             await self._redis.hset(
                 meta_key,
                 conversation_id,
                 json.dumps(metadata, ensure_ascii=False),
             )
-        return generated_title
+        return generated_title if should_return_title else None
 
 
 def _derive_session_title(question: str, limit: int = 24) -> str:

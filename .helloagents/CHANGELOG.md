@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [0.1.26] - 2026-05-18
+
+### 快速修改
+- **[server.api.v1.router / server.core.conversation / server.api.v1.documents / tests.server.test_api / 接口文档]**: 对齐外部接口契约，5 个联调接口免后台调试鉴权，Redis 会话 List 改为交替 `role/content/timestamp` 消息并兼容旧 Q&A 格式读取，批量删除单项异常隔离为 `INTERNAL_ERROR`，流式 `done.title` 仅首轮返回 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/router.py; server/core/conversation.py; server/api/v1/documents.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md
+- **[pipeline.index / server.api.v1.documents / tests.pipeline.test_index / tests.server.test_api / 接口文档 / .helloagents.modules.server.api.v1.documents]**: 将批量删除底层索引从逐 source 循环改为按 `doc_id` 聚合 source 列表后一次提交，Milvus 使用 `source in [...]`，Elasticsearch 使用 `terms` delete_by_query，同时保留逐文档返回结果 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: pipeline/index.py; server/api/v1/documents.py; tests/pipeline/test_index.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md
+- **[server.api.v1.documents / tests.server.test_api / 接口文档 / .helloagents.modules.server.api.v1.documents]**: 将批量删除接口 `POST /documents/delete` 改为 `doc_id` 驱动的幂等索引删除，不再依赖本地 PDF 或解析目录是否存在，删除 0 条索引也按成功返回；单文档 `DELETE /documents/{doc_id}` 保留旧语义 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/documents.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md
+
 ## [0.1.25] - 2026-05-15
 
 ### 新增

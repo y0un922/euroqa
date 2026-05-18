@@ -10,9 +10,15 @@ from fastapi.testclient import TestClient
 
 from server import deps
 from server.config import ServerConfig
+from server.core.conversation import RedisConversationManager
 from server.core.retrieval import RetrievalResult
 from server.main import app
 from server.models.schemas import QueryResponse, RetrievalContext
+
+
+def _server_config(**overrides) -> ServerConfig:
+    overrides.setdefault("access_password", "")
+    return ServerConfig(**overrides)
 
 
 def _analysis_stub(
@@ -44,13 +50,167 @@ def _analysis_stub(
 
 @pytest.fixture
 def client():
-    app.dependency_overrides = {}
+    app.dependency_overrides = {
+        deps.get_config: lambda: _server_config(access_password=""),
+    }
     test_client = TestClient(app)
     yield test_client
     app.dependency_overrides = {}
 
 
+class _FakeRedis:
+    def __init__(self):
+        self.lists: dict[str, list[str]] = {}
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.expire_calls: list[tuple[str, int]] = []
+
+    async def lrange(self, key, start, end):
+        items = self.lists.get(key, [])
+        return items[start:] if end == -1 else items[start:end + 1]
+
+    async def rpush(self, key, *values):
+        self.lists.setdefault(key, []).extend(values)
+
+    async def expire(self, key, ttl_seconds):
+        self.expire_calls.append((key, ttl_seconds))
+
+    async def hget(self, key, field):
+        return self.hashes.get(key, {}).get(field)
+
+    async def hset(self, key, field, value):
+        self.hashes.setdefault(key, {})[field] = value
+
+
+class TestRedisConversationManager:
+    @pytest.mark.anyio
+    async def test_reads_mixed_legacy_and_role_messages_as_history(self):
+        manager = RedisConversationManager.__new__(RedisConversationManager)
+        fake_redis = _FakeRedis()
+        manager._redis = fake_redis
+        manager._ttl_seconds = 3600
+        fake_redis.lists["context:1001_abc123"] = [
+            json.dumps({"question": "旧问题", "answer": "旧回答"}, ensure_ascii=False),
+            json.dumps({"role": "user", "content": "新问题"}, ensure_ascii=False),
+            json.dumps({"role": "assistant", "content": "新回答"}, ensure_ascii=False),
+            json.dumps({"role": "user", "content": "孤立问题"}, ensure_ascii=False),
+        ]
+
+        state = await manager.get_or_create_async("1001_abc123")
+
+        assert state.history == [
+            {"question": "旧问题", "answer": "旧回答"},
+            {"question": "新问题", "answer": "新回答"},
+            {"question": "孤立问题", "answer": ""},
+        ]
+
+    @pytest.mark.anyio
+    async def test_add_turn_writes_role_messages_and_returns_title_only_once(self):
+        manager = RedisConversationManager.__new__(RedisConversationManager)
+        fake_redis = _FakeRedis()
+        manager._redis = fake_redis
+        manager._ttl_seconds = 3600
+        fake_redis.hashes["user:1001:sessions"] = {
+            "1001_abc123": json.dumps(
+                {"title": None, "createdAt": "2026-05-14T10:00:00Z"},
+                ensure_ascii=False,
+            )
+        }
+
+        first_title = await manager.add_turn_async(
+            "1001_abc123",
+            "EN 1992 中混凝土保护层最小厚度是多少？",
+            "根据 EN 1992-1-1 ...",
+        )
+        second_title = await manager.add_turn_async(
+            "1001_abc123",
+            "第二轮问题",
+            "第二轮回答",
+        )
+
+        messages = [
+            json.loads(raw)
+            for raw in fake_redis.lists["context:1001_abc123"]
+        ]
+        assert [message["role"] for message in messages] == [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+        ]
+        assert messages[0]["content"] == "EN 1992 中混凝土保护层最小厚度是多少？"
+        assert messages[1]["content"] == "根据 EN 1992-1-1 ..."
+        assert all("timestamp" in message for message in messages)
+        assert first_title == "EN 1992 中混凝土保护层最小厚度是多少？"
+        assert second_title is None
+        stored_meta = json.loads(fake_redis.hashes["user:1001:sessions"]["1001_abc123"])
+        assert stored_meta["title"] == first_title
+        assert fake_redis.expire_calls == [
+            ("context:1001_abc123", 3600),
+            ("context:1001_abc123", 3600),
+        ]
+
+
 class TestQueryEndpoint:
+    def test_public_query_stream_contract_bypasses_auth_when_password_enabled(
+        self,
+        client,
+    ):
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
+
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1",
+                    history=[],
+                )
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        async def _fake_generate_answer_stream(**kwargs):
+            yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
+
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = (
+            lambda: _FakeConversationManager()
+        )
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(question)
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch(
+                "server.api.v1.query.generate_answer_stream",
+                _fake_generate_answer_stream,
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"question": "设计使用年限是什么？", "stream": True},
+            )
+
+        assert resp.status_code == 200
+        assert "event: done" in resp.text
+
+    def test_non_contract_query_endpoint_still_requires_auth_when_password_enabled(
+        self,
+        client,
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+
+        resp = client.post("/api/v1/query", json={"question": "设计使用年限是什么？"})
+
+        assert resp.status_code == 401
+
     def test_query_validation_missing_question(self, client):
         resp = client.post("/api/v1/query", json={})
         assert resp.status_code == 400
@@ -122,7 +282,7 @@ class TestQueryEndpoint:
             lambda: _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             llm_api_key="default-key",
             llm_base_url="https://default.example/v1",
             llm_model="default-model",
@@ -671,7 +831,7 @@ class TestQueryEndpoint:
             lambda: _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             llm_api_key="default-key",
             llm_base_url="https://default.example/v1",
             llm_model="default-model",
@@ -1208,7 +1368,7 @@ class TestQueryEndpoint:
 
 class TestLlmSettingsEndpoint:
     def test_get_llm_settings_masks_api_key(self, client):
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             llm_api_key="secret-key",
             llm_base_url="https://api.deepseek.com/v1",
             llm_model="deepseek-chat",
@@ -1227,6 +1387,58 @@ class TestLlmSettingsEndpoint:
 
 
 class TestDocumentsEndpoint:
+    def test_public_document_parse_contract_bypasses_auth_when_password_enabled(
+        self,
+        client,
+        tmp_path: Path,
+    ):
+        pdf_dir = tmp_path / "pdfs"
+        source_pdf = tmp_path / "uploads" / "EN 1992-1-1.pdf"
+        source_pdf.parent.mkdir()
+        source_pdf.write_bytes(b"%PDF-1.4 demo")
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required",
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(tmp_path / "parsed"),
+        )
+
+        class _FakeTaskManager:
+            def get_status(self, doc_id):
+                return None
+
+            def enqueue(self, doc_id):
+                return None
+
+        with patch(
+            "server.api.v1.documents.get_task_manager",
+            return_value=_FakeTaskManager(),
+        ):
+            resp = client.post(
+                "/api/v1/documents/parse",
+                json={
+                    "docId": "EN_1992_1_1",
+                    "fileName": "EN 1992-1-1.pdf",
+                    "minioPath": str(source_pdf),
+                },
+            )
+
+        assert resp.status_code == 200
+
+    def test_internal_document_upload_still_requires_auth_when_password_enabled(
+        self,
+        client,
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+
+        resp = client.post(
+            "/api/v1/documents/upload",
+            files={"file": ("demo.pdf", b"%PDF-1.4 demo", "application/pdf")},
+        )
+
+        assert resp.status_code == 401
+
     def test_list_documents(self, client):
         resp = client.get("/api/v1/documents")
         assert resp.status_code == 200
@@ -1248,7 +1460,7 @@ class TestDocumentsEndpoint:
         # Only parsed markdown exists; no completed indexing marker should mean not ready.
         (parsed_dir / "DG_EN1990" / "DG_EN1990.md").write_text("# DG", encoding="utf-8")
 
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
             es_url="http://127.0.0.1:1",
@@ -1280,7 +1492,7 @@ class TestDocumentsEndpoint:
         (parsed_doc_dir / "DG_EN1990.md").write_text("# DG", encoding="utf-8")
         (parsed_doc_dir / ".indexed").write_text("{}", encoding="utf-8")
 
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
             es_url="http://127.0.0.1:1",
@@ -1311,7 +1523,7 @@ class TestDocumentsEndpoint:
 
         (parsed_doc_dir / "DG_EN1990.md").write_text("# DG", encoding="utf-8")
 
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
             es_url="http://127.0.0.1:1",
@@ -1343,7 +1555,7 @@ class TestDocumentsEndpoint:
         doc.save(pdf_path)
         doc.close()
 
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
@@ -1360,7 +1572,7 @@ class TestDocumentsEndpoint:
         doc.save(pdf_path)
         doc.close()
 
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
 
         resp = client.get("/api/v1/documents/DG_EN1992-1-1__-1-2/file")
 
@@ -1369,7 +1581,7 @@ class TestDocumentsEndpoint:
         assert resp.content.startswith(b"%PDF")
 
     def test_get_document_file_returns_404_when_missing(self, client, tmp_path: Path):
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
@@ -1381,7 +1593,7 @@ class TestDocumentsEndpoint:
         self, client, tmp_path: Path
     ):
         (tmp_path / "EN1990_2002.pdf").mkdir()
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
@@ -1398,9 +1610,10 @@ class TestDocumentsEndpoint:
         pdf_dir.mkdir()
         (parsed_dir / doc_id).mkdir(parents=True)
         (pdf_dir / f"{doc_id}.pdf").write_bytes(b"%PDF-1.4 demo")
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
+            access_password="",
         )
 
         deleted_sources: list[str] = []
@@ -1432,7 +1645,7 @@ class TestDocumentsEndpoint:
         source_pdf = tmp_path / "uploads" / "EN 1992-1-1.pdf"
         source_pdf.parent.mkdir()
         source_pdf.write_bytes(b"%PDF-1.4 demo")
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(tmp_path / "parsed"),
         )
@@ -1473,7 +1686,7 @@ class TestDocumentsEndpoint:
         self, client, tmp_path: Path
     ):
         pdf_dir = tmp_path / "pdfs"
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(tmp_path / "parsed"),
             minio_endpoint="127.0.0.1:9000",
@@ -1524,7 +1737,7 @@ class TestDocumentsEndpoint:
         self, client, tmp_path: Path
     ):
         pdf_dir = tmp_path / "pdfs"
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(tmp_path / "parsed"),
             minio_endpoint="127.0.0.1:9000",
@@ -1625,7 +1838,7 @@ class TestDocumentsEndpoint:
             json.dumps({"milvus": 1542, "elasticsearch": 1542}),
             encoding="utf-8",
         )
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             parsed_dir=str(tmp_path / "parsed"),
             pdf_dir=str(tmp_path / "pdfs"),
             es_url="http://127.0.0.1:1",
@@ -1661,19 +1874,25 @@ class TestDocumentsEndpoint:
         pdf_dir.mkdir()
         (parsed_dir / doc_id).mkdir(parents=True)
         (pdf_dir / f"{doc_id}.pdf").write_bytes(b"%PDF-1.4 demo")
-        app.dependency_overrides[deps.get_config] = lambda: ServerConfig(
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
+            access_password="",
         )
 
-        deleted_sources: list[str] = []
+        deleted_source_batches: list[list[str]] = []
 
-        async def fake_delete_document_chunks(source_name, _config):
-            deleted_sources.append(source_name)
+        async def fake_delete_document_sources(source_names, _config):
+            deleted_source_batches.append(list(source_names))
+            if any(source_name.startswith("MISSING") for source_name in source_names):
+                return {"milvus": 0, "elasticsearch": 0}
             return {"milvus": 3, "elasticsearch": 4}
 
         with (
-            patch("pipeline.index.delete_document_chunks", fake_delete_document_chunks),
+            patch(
+                "pipeline.index.delete_document_sources",
+                fake_delete_document_sources,
+            ),
             patch(
                 "server.api.v1.documents.invalidate_retriever_cache",
                 AsyncMock(),
@@ -1691,21 +1910,121 @@ class TestDocumentsEndpoint:
                 {
                     "docId": doc_id,
                     "deleted": True,
-                    "deletedChunks": {"milvus": 6, "elasticsearch": 8},
+                    "deletedChunks": {"milvus": 3, "elasticsearch": 4},
                     "error": None,
                 },
                 {
                     "docId": "MISSING_DOC",
-                    "deleted": False,
-                    "deletedChunks": None,
-                    "error": {"code": "NOT_FOUND", "message": "文档不存在"},
+                    "deleted": True,
+                    "deletedChunks": {"milvus": 0, "elasticsearch": 0},
+                    "error": None,
                 },
             ],
         }
-        assert deleted_sources == [doc_id, doc_id.replace("_", " ")]
+        assert deleted_source_batches == [
+            [doc_id, doc_id.replace("_", " ")],
+            ["MISSING_DOC", "MISSING DOC"],
+        ]
+
+    def test_batch_delete_documents_isolates_per_item_internal_errors(
+        self, client, tmp_path: Path
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path / "pdfs"),
+            parsed_dir=str(tmp_path / "parsed"),
+            access_password="",
+        )
+
+        async def fake_delete_document_sources(source_names, _config):
+            if source_names[0] == "BROKEN_DOC":
+                raise RuntimeError("backend exploded")
+            return {"milvus": 3, "elasticsearch": 4}
+
+        with (
+            patch(
+                "pipeline.index.delete_document_sources",
+                fake_delete_document_sources,
+            ),
+            patch(
+                "server.api.v1.documents.invalidate_retriever_cache",
+                AsyncMock(),
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/documents/delete",
+                json={"docIds": ["OK_DOC", "BROKEN_DOC", "OK_DOC_2"]},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 200,
+            "results": [
+                {
+                    "docId": "OK_DOC",
+                    "deleted": True,
+                    "deletedChunks": {"milvus": 3, "elasticsearch": 4},
+                    "error": None,
+                },
+                {
+                    "docId": "BROKEN_DOC",
+                    "deleted": False,
+                    "deletedChunks": None,
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "文档删除失败",
+                    },
+                },
+                {
+                    "docId": "OK_DOC_2",
+                    "deleted": True,
+                    "deletedChunks": {"milvus": 3, "elasticsearch": 4},
+                    "error": None,
+                },
+            ],
+        }
 
 
 class TestSourcesEndpoint:
+    def test_public_translate_contract_bypasses_auth_when_password_enabled(self, client):
+        translated_source = SimpleNamespace(translation="应规定设计使用年限。")
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+
+        with patch(
+            "server.api.v1.sources._fill_missing_source_translations",
+            AsyncMock(return_value=[translated_source]),
+        ):
+            resp = client.post(
+                "/api/v1/translate",
+                json={"text": "The design working life should be specified."},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["translation"] == "应规定设计使用年限。"
+
+    def test_internal_source_translate_still_requires_auth_when_password_enabled(
+        self,
+        client,
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+        payload = {
+            "document_id": "EN1990_2002",
+            "file": "EN 1990:2002",
+            "title": "Eurocode - Basis of structural design",
+            "section": "Section 2 Requirements > 2.3 Design working life",
+            "page": "28",
+            "clause": "2.3(1)",
+            "original_text": "The design working life should be specified.",
+            "locator_text": "2.3 Design working life (1) The design working life should be specified.",
+        }
+
+        resp = client.post("/api/v1/sources/translate", json=payload)
+
+        assert resp.status_code == 401
+
     def test_translate_source_returns_translation(self, client):
         translated_source = SimpleNamespace(translation="设计使用年限应予规定。")
         payload = {

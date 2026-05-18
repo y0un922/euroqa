@@ -5,6 +5,8 @@ Chunk text + metadata → Elasticsearch for BM25 + metadata queries.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import structlog
 from pymilvus.exceptions import MilvusException
 from pymilvus import (
@@ -155,13 +157,42 @@ async def delete_document_from_milvus(
     config: PipelineConfig,
 ) -> int:
     """删除指定 source 在 Milvus 中的所有 chunks。"""
+    return await delete_document_sources_from_milvus([source_name], config)
+
+
+def _unique_source_names(source_names: Iterable[str]) -> list[str]:
+    """Deduplicate source names while preserving order."""
+    return list(dict.fromkeys(source_name for source_name in source_names if source_name))
+
+
+def _escape_milvus_source_name(source_name: str) -> str:
+    """Escape a source name for a Milvus string literal."""
+    return source_name.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _build_milvus_source_expr(source_names: list[str]) -> str:
+    """Build a Milvus expression that deletes all requested sources at once."""
+    escaped_sources = ", ".join(
+        f'"{_escape_milvus_source_name(source_name)}"' for source_name in source_names
+    )
+    return f"source in [{escaped_sources}]"
+
+
+async def delete_document_sources_from_milvus(
+    source_names: Iterable[str],
+    config: PipelineConfig,
+) -> int:
+    """删除一组 source 在 Milvus 中的所有 chunks。"""
+    unique_sources = _unique_source_names(source_names)
+    if not unique_sources:
+        return 0
+
     collection = _init_milvus_collection(config)
     collection.load()
-    escaped = source_name.replace("\\", "\\\\").replace('"', '\\"')
-    result = collection.delete(expr=f'source == "{escaped}"')
+    result = collection.delete(expr=_build_milvus_source_expr(unique_sources))
     collection.flush()
     deleted = int(getattr(result, "delete_count", 0) or 0)
-    logger.info("milvus_document_deleted", source=source_name, deleted=deleted)
+    logger.info("milvus_document_deleted", sources=unique_sources, deleted=deleted)
     return deleted
 
 
@@ -170,18 +201,30 @@ async def delete_document_from_elasticsearch(
     config: PipelineConfig,
 ) -> int:
     """删除指定 source 在 Elasticsearch 中的所有 chunks。"""
+    return await delete_document_sources_from_elasticsearch([source_name], config)
+
+
+async def delete_document_sources_from_elasticsearch(
+    source_names: Iterable[str],
+    config: PipelineConfig,
+) -> int:
+    """删除一组 source 在 Elasticsearch 中的所有 chunks。"""
+    unique_sources = _unique_source_names(source_names)
+    if not unique_sources:
+        return 0
+
     es = build_async_elasticsearch(config.es_url)
     try:
         if not await es.indices.exists(index=config.es_index):
             return 0
         response = await es.delete_by_query(
             index=config.es_index,
-            body={"query": {"term": {"source": source_name}}},
+            body={"query": {"terms": {"source": unique_sources}}},
             refresh=True,
             conflicts="proceed",
         )
         deleted = int(response.get("deleted", 0) or 0)
-        logger.info("es_document_deleted", source=source_name, deleted=deleted)
+        logger.info("es_document_deleted", sources=unique_sources, deleted=deleted)
         return deleted
     finally:
         await es.close()
@@ -194,6 +237,16 @@ async def delete_document_chunks(
     """删除指定文档在 Milvus 和 Elasticsearch 中的所有 chunks。"""
     milvus_deleted = await delete_document_from_milvus(source_name, config)
     es_deleted = await delete_document_from_elasticsearch(source_name, config)
+    return {"milvus": milvus_deleted, "elasticsearch": es_deleted}
+
+
+async def delete_document_sources(
+    source_names: Iterable[str],
+    config: PipelineConfig,
+) -> dict[str, int]:
+    """删除一组 source 在 Milvus 和 Elasticsearch 中的所有 chunks。"""
+    milvus_deleted = await delete_document_sources_from_milvus(source_names, config)
+    es_deleted = await delete_document_sources_from_elasticsearch(source_names, config)
     return {"milvus": milvus_deleted, "elasticsearch": es_deleted}
 
 

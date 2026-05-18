@@ -9,6 +9,8 @@ from pipeline.index import (
     _ES_MAPPING,
     _init_milvus_collection,
     delete_document_from_milvus,
+    delete_document_sources_from_elasticsearch,
+    delete_document_sources_from_milvus,
     index_to_milvus,
 )
 from server.models.schemas import Chunk, ChunkMetadata, ElementType
@@ -112,8 +114,63 @@ async def test_delete_document_from_milvus_loads_collection_before_delete(monkey
 
     assert count == 2
     assert collection.loaded is True
-    assert collection.deleted_expr == 'source == "DG EN1990 \\"Guide\\""'
+    assert collection.deleted_expr == 'source in ["DG EN1990 \\"Guide\\""]'
     assert collection.flushed is True
+
+
+@pytest.mark.asyncio
+async def test_delete_document_sources_from_milvus_deletes_sources_once(monkeypatch):
+    collection = _FakeCollection()
+    monkeypatch.setattr("pipeline.index._init_milvus_collection", lambda config: collection)
+
+    count = await delete_document_sources_from_milvus(
+        ['DG EN1990 "Guide"', "DG EN1990 Guide", 'DG EN1990 "Guide"'],
+        PipelineConfig(),
+    )
+
+    assert count == 2
+    assert collection.loaded is True
+    assert collection.deleted_expr == (
+        'source in ["DG EN1990 \\"Guide\\"", "DG EN1990 Guide"]'
+    )
+    assert collection.flushed is True
+
+
+@pytest.mark.asyncio
+async def test_delete_document_sources_from_elasticsearch_uses_terms_query(monkeypatch):
+    class _FakeIndices:
+        async def exists(self, *, index):
+            return True
+
+    class _FakeElasticsearch:
+        def __init__(self):
+            self.indices = _FakeIndices()
+            self.delete_call = None
+            self.closed = False
+
+        async def delete_by_query(self, **kwargs):
+            self.delete_call = kwargs
+            return {"deleted": 7}
+
+        async def close(self):
+            self.closed = True
+
+    es = _FakeElasticsearch()
+    monkeypatch.setattr("pipeline.index.build_async_elasticsearch", lambda _url: es)
+
+    count = await delete_document_sources_from_elasticsearch(
+        ["EN_1992_1_1", "EN 1992 1 1", "EN_1992_1_1"],
+        PipelineConfig(es_index="chunks"),
+    )
+
+    assert count == 7
+    assert es.delete_call == {
+        "index": "chunks",
+        "body": {"query": {"terms": {"source": ["EN_1992_1_1", "EN 1992 1 1"]}}},
+        "refresh": True,
+        "conflicts": "proceed",
+    }
+    assert es.closed is True
 
 
 def test_init_milvus_collection_raises_actionable_error_when_server_unavailable(

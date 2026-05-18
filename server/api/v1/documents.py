@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import fitz
+import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
@@ -36,6 +37,7 @@ from server.services.minio_storage import download_pdf_from_minio, upload_pdf_to
 from shared.elasticsearch_client import build_async_elasticsearch
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
 _INDEX_READY_SENTINEL = ".indexed"
 
@@ -325,6 +327,52 @@ async def _delete_one_document(doc_id: str, config) -> DocumentDeleteItem:
     )
 
 
+async def _delete_one_document_index(doc_id: str, config) -> DocumentDeleteItem:
+    """Delete indexed data for one doc_id, regardless of local PDF state."""
+    tm = get_task_manager()
+    state = tm.get_status(doc_id)
+    if _is_active_pipeline_state(state):
+        return DocumentDeleteItem(
+            doc_id=doc_id,
+            deleted=False,
+            error=DocumentDeleteError(
+                code="CONFLICT",
+                message="文档正在解析中，无法删除",
+            ),
+        )
+
+    try:
+        from pipeline.config import PipelineConfig
+        from pipeline.index import delete_document_sources
+
+        pipeline_config = PipelineConfig()
+        deleted = await delete_document_sources(
+            _source_names_for_doc_id(doc_id),
+            pipeline_config,
+        )
+
+        await invalidate_retriever_cache()
+    except Exception:
+        logger.exception("document_index_delete_failed", doc_id=doc_id)
+        return DocumentDeleteItem(
+            doc_id=doc_id,
+            deleted=False,
+            error=DocumentDeleteError(
+                code="INTERNAL_ERROR",
+                message="文档删除失败",
+            ),
+        )
+
+    return DocumentDeleteItem(
+        doc_id=doc_id,
+        deleted=True,
+        deleted_chunks=DeletedChunks(
+            milvus=int(deleted.get("milvus", 0) or 0),
+            elasticsearch=int(deleted.get("elasticsearch", 0) or 0),
+        ),
+    )
+
+
 # -- 文档列表 --
 
 @router.get("/documents", response_model=list[DocumentInfo])
@@ -485,7 +533,10 @@ async def batch_delete_documents(
     config=Depends(get_config),
 ) -> DocumentDeleteBatchResponse:
     """批量删除文档索引数据。"""
-    results = [await _delete_one_document(doc_id, config) for doc_id in request.doc_ids]
+    results = [
+        await _delete_one_document_index(doc_id, config)
+        for doc_id in request.doc_ids
+    ]
     return DocumentDeleteBatchResponse(results=results)
 
 
