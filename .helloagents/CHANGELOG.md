@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.27] - 2026-05-19
+
+### 快速修改
+- **[server.main / tests.server.test_api / 接口文档 / .helloagents.modules.server.api.v1.documents]**: 将应用内业务异常与请求校验异常统一包装为 HTTP 200 响应，业务结果继续由响应体 `code` 表示；批量删除无索引数据现在返回 HTTP 200 + `code=404` — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/main.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md
+
 ## [0.1.26] - 2026-05-18
 
 ### 快速修改

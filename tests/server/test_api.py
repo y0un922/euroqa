@@ -209,17 +209,18 @@ class TestQueryEndpoint:
 
         resp = client.post("/api/v1/query", json={"question": "设计使用年限是什么？"})
 
-        assert resp.status_code == 401
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 401
 
     def test_query_validation_missing_question(self, client):
         resp = client.post("/api/v1/query", json={})
-        assert resp.status_code == 400
+        assert resp.status_code == 200
         assert resp.json()["code"] == 400
         assert resp.json()["message"] == "参数错误"
 
     def test_question_max_length(self, client):
         resp = client.post("/api/v1/query", json={"question": "x" * 501})
-        assert resp.status_code == 400
+        assert resp.status_code == 200
         assert resp.json()["code"] == 400
         assert resp.json()["message"] == "参数错误"
 
@@ -1437,7 +1438,8 @@ class TestDocumentsEndpoint:
             files={"file": ("demo.pdf", b"%PDF-1.4 demo", "application/pdf")},
         )
 
-        assert resp.status_code == 401
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 401
 
     def test_list_documents(self, client):
         resp = client.get("/api/v1/documents")
@@ -1580,16 +1582,16 @@ class TestDocumentsEndpoint:
         assert resp.headers["content-type"] == "application/pdf"
         assert resp.content.startswith(b"%PDF")
 
-    def test_get_document_file_returns_404_when_missing(self, client, tmp_path: Path):
+    def test_get_document_file_returns_404_code_when_missing(self, client, tmp_path: Path):
         app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
         assert resp.json()["code"] == 404
         assert resp.json()["message"] == "Document EN1990_2002 not found"
 
-    def test_get_document_file_returns_404_when_path_is_directory(
+    def test_get_document_file_returns_404_code_when_path_is_directory(
         self, client, tmp_path: Path
     ):
         (tmp_path / "EN1990_2002.pdf").mkdir()
@@ -1597,7 +1599,7 @@ class TestDocumentsEndpoint:
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
         assert resp.json()["code"] == 404
         assert resp.json()["message"] == "Document EN1990_2002 not found"
 
@@ -1822,7 +1824,7 @@ class TestDocumentsEndpoint:
             files={"file": ("readme.txt", b"hello", "text/plain")},
         )
 
-        assert resp.status_code == 400
+        assert resp.status_code == 200
         assert resp.json() == {
             "code": 400,
             "message": "只接受 PDF 文件",
@@ -1916,7 +1918,7 @@ class TestDocumentsEndpoint:
             ],
         ]
 
-    def test_batch_delete_documents_returns_500_when_bulk_delete_fails(
+    def test_batch_delete_documents_returns_500_code_when_bulk_delete_fails(
         self, client, tmp_path: Path
     ):
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
@@ -1943,14 +1945,14 @@ class TestDocumentsEndpoint:
                 json={"docIds": ["OK_DOC", "BROKEN_DOC", "OK_DOC_2"]},
             )
 
-        assert resp.status_code == 500
+        assert resp.status_code == 200
         assert resp.json() == {
             "code": 500,
             "message": "文档删除失败",
             "detail": None,
         }
 
-    def test_batch_delete_documents_returns_404_when_no_chunks_deleted(
+    def test_batch_delete_documents_returns_404_code_when_no_chunks_deleted(
         self, client, tmp_path: Path
     ):
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
@@ -1977,7 +1979,7 @@ class TestDocumentsEndpoint:
                 json={"docIds": ["MISSING_DOC"]},
             )
 
-        assert resp.status_code == 404
+        assert resp.status_code == 200
         assert resp.json() == {
             "code": 404,
             "message": "文档不存在",
@@ -2013,7 +2015,7 @@ class TestDocumentsEndpoint:
                 json={"docIds": ["OK_DOC", "ACTIVE_DOC"]},
             )
 
-        assert resp.status_code == 409
+        assert resp.status_code == 200
         assert resp.json() == {
             "code": 409,
             "message": "文档正在解析中，无法删除: ACTIVE_DOC",
@@ -2061,7 +2063,8 @@ class TestSourcesEndpoint:
 
         resp = client.post("/api/v1/sources/translate", json=payload)
 
-        assert resp.status_code == 401
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 401
 
     def test_translate_source_returns_translation(self, client):
         translated_source = SimpleNamespace(translation="设计使用年限应予规定。")
@@ -2112,7 +2115,7 @@ class TestSourcesEndpoint:
 
         resp = client.post("/api/v1/sources/translate", json=payload)
 
-        assert resp.status_code == 400
+        assert resp.status_code == 200
         assert resp.json()["code"] == 400
         assert resp.json()["message"] == "参数错误"
 
@@ -2136,7 +2139,7 @@ class TestSourcesEndpoint:
         ):
             resp = client.post("/api/v1/sources/translate", json=payload)
 
-        assert resp.status_code == 502
+        assert resp.status_code == 200
         assert resp.json() == {
             "code": 502,
             "message": "Source translation unavailable",
@@ -2163,7 +2166,7 @@ class TestSourcesEndpoint:
         ):
             resp = client.post("/api/v1/sources/translate", json=payload)
 
-        assert resp.status_code == 502
+        assert resp.status_code == 200
         assert resp.json() == {
             "code": 502,
             "message": "Source translation unavailable",

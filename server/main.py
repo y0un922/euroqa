@@ -33,12 +33,12 @@ app = FastAPI(
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request, exc: HTTPException):
-    """Return the documented API error envelope for explicit HTTP errors."""
+    """Return the documented API error envelope for explicit business errors."""
     detail = exc.detail
     message = detail if isinstance(detail, str) else "请求处理失败"
     response_detail = None if isinstance(detail, str) else str(detail)
     return JSONResponse(
-        status_code=exc.status_code,
+        status_code=200,
         content={
             "code": exc.status_code,
             "message": message,
@@ -50,9 +50,9 @@ async def http_exception_handler(_request, exc: HTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request, exc: RequestValidationError):
-    """Map request validation failures to the external 400 error contract."""
+    """Map request validation failures to the external error envelope."""
     return JSONResponse(
-        status_code=400,
+        status_code=200,
         content={
             "code": 400,
             "message": "参数错误",
