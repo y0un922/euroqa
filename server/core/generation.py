@@ -31,6 +31,80 @@ def _count_tokens(text: str) -> int:
     return len(_enc.encode(text))
 
 
+# ---------------------------------------------------------------------------
+# Citation 后处理：格式归一化 + 越界剔除 + 句内去重
+# ---------------------------------------------------------------------------
+
+# 匹配各种 [Ref-N] 变体：空格、中文括号、圆括号、大小写
+_CITATION_VARIANTS_RE = re.compile(
+    r"[\[【(]"          # 开括号: [ 【 (
+    r"[Rr]ef"           # Ref / ref
+    r"[\s\-]+"          # 分隔符: 空格或连字符
+    r"(\d+)"            # 捕获编号
+    r"[\]】)]"          # 闭括号: ] 】 )
+)
+
+# 标准格式的 [Ref-N]
+_CANONICAL_REF_RE = re.compile(r"\[Ref-(\d+)\]")
+
+
+def postprocess_citations(answer: str, num_sources: int) -> str:
+    """归一化 [Ref-N] 格式变体、剔除越界编号、句内去重。
+
+    Args:
+        answer: LLM 生成的回答正文
+        num_sources: 有效 sources 数量（[Ref-1] 到 [Ref-num_sources]）
+
+    Returns:
+        归一化后的回答文本
+    """
+    if not answer:
+        return answer
+
+    # Step 1: 归一化所有变体为 [Ref-N]
+    def _normalize_match(m: re.Match) -> str:
+        return f"[Ref-{m.group(1)}]"
+
+    answer = _CITATION_VARIANTS_RE.sub(_normalize_match, answer)
+
+    # Step 2: 剔除越界编号 (N < 1 or N > num_sources)
+    def _strip_oob(m: re.Match) -> str:
+        n = int(m.group(1))
+        if n < 1 or n > num_sources:
+            logger.warning(
+                "citation_out_of_bounds ref=%d num_sources=%d", n, num_sources
+            )
+            return ""
+        return m.group(0)
+
+    answer = _CANONICAL_REF_RE.sub(_strip_oob, answer)
+
+    # Step 3: 句内去重 — 以句号/问号/感叹号/换行为句子分隔
+    def _dedup_sentence(sentence: str) -> str:
+        seen: set[str] = set()
+        parts: list[str] = []
+        last_end = 0
+        for m in _CANONICAL_REF_RE.finditer(sentence):
+            parts.append(sentence[last_end:m.start()])
+            ref_tag = m.group(0)
+            if ref_tag not in seen:
+                seen.add(ref_tag)
+                parts.append(ref_tag)
+            last_end = m.end()
+        parts.append(sentence[last_end:])
+        return "".join(parts)
+
+    # 按句子边界拆分后逐句去重，保留分隔符
+    segments = re.split(r"([。？！\n])", answer)
+    result_parts: list[str] = []
+    for i, seg in enumerate(segments):
+        if i % 2 == 0:
+            result_parts.append(_dedup_sentence(seg))
+        else:
+            result_parts.append(seg)  # 分隔符原样保留
+    return "".join(result_parts)
+
+
 def _extract_json_text(raw: str) -> str:
     """从可能带 Markdown 代码块的文本中提取 JSON 内容。"""
     cleaned = raw
@@ -361,7 +435,7 @@ _SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eurocode）的专家�
 规则：
 1. 所有回答必须基于提供的规范原文，不要编造规范中不存在的内容。但利用规范中的公式、表格数据和已知参数进行代入计算、演示计算步骤属于合理应用，不属于编造。
 2. 回答用中文，但保留原文中的关键术语（如条款编号、表格编号、公式编号）。
-3. 必须标注出处。每个检索片段以 [Ref-N] 标签开头，该标签只用于匹配证据元数据；回答正文中不要输出 [Ref-N] 或 【Ref-N】，需要标注出处时写成"依据：《文档名》，条款/章节：XXX，页码：XXX"。不要编造不存在的条款号或页码。
+3. 必须标注出处。每个检索片段以 [Ref-N] 标签开头，回答正文中凡涉及条文、表格、公式、数值、结论的句子，必须在句末写 [Ref-N] 标注出处，N 必须对应检索证据的编号，不得编造不存在的编号。不确定来源时不标注，宁可漏标也不错标。不要用自然语言引用（如"依据：《文档名》…"）替代 [Ref-N]。不要编造不存在的条款号或页码。
 4. sources 字段只返回原文定位信息，不要在 sources.translation 中填写中文翻译，统一返回空字符串。
 5. 如果需要推理，说明推理过程。
 6. 先给出基于当前片段可以直接确认的答案，不要先写空泛否定。
@@ -528,9 +602,9 @@ _STREAM_BASE_RULES = [
     "直接输出 Markdown 正文，不要输出 JSON，不要输出 ```json 代码块，"
     "也不要输出 answer/sources/confidence 等键名。",
     "回答必须使用中文，并保留关键英文术语、条款编号、表格编号、公式编号。",
-    "检索片段开头的 [Ref-N] 只是内部证据编号，用来匹配下方证据元数据；"
-    "正文中不要输出 [Ref-N] 或 【Ref-N】。需要标注出处时，改用对应元数据写成"
-    "「依据：《文档名》，条款/章节：XXX，页码：XXX」；缺失字段如实省略，不得补造。",
+    "检索片段开头的 [Ref-N] 是证据编号。回答正文中凡涉及条文、表格、公式、数值、结论的句子，"
+    "必须在句末写 [Ref-N] 标注出处，N 必须对应检索证据的编号，不得编造不存在的编号。"
+    "不确定来源时不标注，宁可漏标也不错标。不要用自然语言引用（如「依据：《文档名》…」）替代 [Ref-N]。",
     "如果当前片段只能支持部分答案，先写当前片段可确认的部分，"
     "再写仍需补充或需参考其他规范的部分。",
     "不要把「根据当前检索片段无法确认」作为开头；"
@@ -666,8 +740,8 @@ def _build_evidence_organizer_system_prompt(
         "回答组织原则：",
         "1. 优先采用以下结构：直接结论、依据与说明、计算步骤（如适用）、指南参考案例（如找到）、依据位置。",
         "2. 不要机械套模板，但输出必须体现整合后的业务逻辑，而不是简单摘录多个片段。",
-        "3. 依据位置格式要求：检索片段开头的 [Ref-N] 只是内部证据编号，用来匹配证据元数据；正文中不要输出 [Ref-N] 或 【Ref-N】。",
-        "4. 需要标注出处时，尽量统一写成「依据：《文档名》，条款/章节：XXX，页码：XXX」；缺少条款号或页码时如实省略，不得补造。",
+        "3. 依据位置格式要求：回答正文中凡涉及条文、表格、公式、数值、结论的句子，必须在句末写 [Ref-N] 标注出处，N 对应检索片段的编号。不确定来源时不标注，宁可漏标也不错标。",
+        "4. 不要用自然语言引用（如「依据：《文档名》…」）替代 [Ref-N]；缺少条款号或页码时如实省略，不得补造。",
         "",
         "模式补充：",
     ]
@@ -1455,8 +1529,13 @@ async def generate_answer(
                 prioritized_chunks=prioritized_chunks,
             )
         )
+        # Citation 后处理：归一化格式变体、剔除越界编号、句内去重
+        normalized_answer = postprocess_citations(
+            response.answer, len(canonical_sources)
+        )
         return response.model_copy(
             update={
+                "answer": normalized_answer,
                 "sources": canonical_sources,
                 "retrieval_context": retrieval_context,
                 "question_type": qt_normalized,

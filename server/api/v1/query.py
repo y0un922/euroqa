@@ -11,7 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 from server.config import ServerConfig
 from server.deps import get_config, get_conversation_manager, get_glossary, get_retriever
 from server.core.query_understanding import analyze_query
-from server.core.generation import generate_answer, generate_answer_stream
+from server.core.generation import generate_answer, generate_answer_stream, postprocess_citations
 from server.models.schemas import QueryRequest, QueryResponse
 
 router = APIRouter()
@@ -507,15 +507,18 @@ async def query_stream(
                     answer_text = data.get("answer") if isinstance(data, dict) else None
                     if not isinstance(answer_text, str):
                         answer_text = "".join(answer_parts)
+                    # Citation 后处理：归一化格式变体、剔除越界编号、句内去重
+                    num_sources = len(data.get("sources", [])) if isinstance(data, dict) else 0
+                    normalized_answer = postprocess_citations(answer_text, num_sources)
                     title = None
                     if _uses_external_session(req):
                         title = await _add_conversation_turn(
                             conv_mgr,
                             conv.conversation_id,
                             req.question,
-                            answer_text,
+                            normalized_answer,
                         )
-                    data = {**data, "groundedness": result.groundedness}
+                    data = {**data, "groundedness": result.groundedness, "normalized_answer": normalized_answer}
                     data = _external_done_payload(
                         data,
                         question_type=analysis.question_type.value

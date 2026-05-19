@@ -109,6 +109,7 @@ export type StreamDonePayload = {
   retrieval_context?: RetrievalContext | null;
   question_type?: QuestionType | null;
   engineering_context?: Record<string, unknown> | null;
+  normalized_answer?: string;
 };
 
 export type StreamReasoningPayload = {

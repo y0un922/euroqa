@@ -569,6 +569,7 @@ export function useEuroQaDemo() {
                 message.id === turnId
                   ? {
                       ...message,
+                      ...(payload.normalized_answer ? { answer: payload.normalized_answer } : {}),
                       confidence: payload.confidence,
                       relatedRefs: payload.related_refs ?? [],
                       retrievalContext: payload.retrieval_context ?? null,

@@ -115,11 +115,10 @@ class TestAnswerPrompts:
         assert "不得编造条款号、页码、公式、参数或案例" in prompt
 
     @pytest.mark.parametrize("qt", ["parameter", "rule", "calculation", "mechanism"])
-    def test_open_templates_use_readable_evidence_locations_in_body(self, qt):
+    def test_open_templates_use_inline_ref_citations(self, qt):
         prompt = build_open_system_prompt(question_type=qt)
-        assert "正文中不要输出 [Ref-N] 或 【Ref-N】" in prompt
-        assert "依据：《文档名》，条款/章节：XXX，页码：XXX" in prompt
-        assert "不要用文件名/条款号/页码格式替代 [Ref-N]" not in prompt
+        assert "必须在句末写 [Ref-N] 标注出处" in prompt
+        assert "不要用自然语言引用" in prompt
 
     def test_engineering_context_injected_in_all_templates(self):
         from server.models.schemas import EngineeringContext
