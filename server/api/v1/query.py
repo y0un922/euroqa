@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import time
 
 import structlog
@@ -12,7 +13,7 @@ from server.config import ServerConfig
 from server.deps import get_config, get_conversation_manager, get_glossary, get_retriever
 from server.core.query_understanding import analyze_query
 from server.core.generation import generate_answer, generate_answer_stream, postprocess_citations
-from server.models.schemas import QueryRequest, QueryResponse
+from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -62,13 +63,90 @@ async def _add_conversation_turn(
     conversation_id: str,
     question: str,
     answer: str,
+    *,
+    sources: list[Source] | list[dict] | None = None,
+    related_refs: list[str] | None = None,
+    retrieval_context: RetrievalContext | dict | None = None,
+    question_type: str | None = None,
+    engineering_context: dict[str, object] | None = None,
+    answer_mode: str | None = None,
+    groundedness: str | None = None,
 ) -> str | None:
     """Persist one Q&A turn through sync or async managers."""
+    serialized_sources = _serialize_sources_for_history(sources)
+    serialized_retrieval_context = _serialize_retrieval_context_for_history(retrieval_context)
+    metadata_kwargs = {
+        "sources": serialized_sources,
+        "related_refs": related_refs,
+        "retrieval_context": serialized_retrieval_context,
+        "question_type": question_type,
+        "engineering_context": engineering_context,
+        "answer_mode": answer_mode,
+        "groundedness": groundedness,
+    }
     adder = getattr(conv_mgr, "add_turn_async", None)
     if adder is not None:
-        return await adder(conversation_id, question, answer)
-    conv_mgr.add_turn(conversation_id, question, answer)
+        if not _supports_turn_metadata(adder):
+            return await adder(conversation_id, question, answer)
+        return await adder(
+            conversation_id,
+            question,
+            answer,
+            **metadata_kwargs,
+        )
+    sync_adder = getattr(conv_mgr, "add_turn")
+    if _supports_turn_metadata(sync_adder):
+        sync_adder(conversation_id, question, answer, **metadata_kwargs)
+    else:
+        sync_adder(conversation_id, question, answer)
     return None
+
+
+def _supports_turn_metadata(adder: object) -> bool:
+    """Return whether an add_turn callable accepts optional metadata keywords."""
+    try:
+        signature = inspect.signature(adder)
+    except (TypeError, ValueError):
+        return False
+    parameters = signature.parameters.values()
+    return any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters) or any(
+        name in signature.parameters
+        for name in (
+            "sources",
+            "related_refs",
+            "retrieval_context",
+            "question_type",
+            "engineering_context",
+            "answer_mode",
+            "groundedness",
+        )
+    )
+
+
+def _serialize_sources_for_history(
+    sources: list[Source] | list[dict] | None,
+) -> list[dict[str, object]]:
+    """Return JSON-ready source payloads for Redis history display."""
+    if not sources:
+        return []
+    serialized: list[dict[str, object]] = []
+    for source in sources:
+        if isinstance(source, Source):
+            serialized.append(_camelize_source_payload(source.model_dump(mode="json")))
+        elif isinstance(source, dict):
+            serialized.append(_camelize_source_payload(source))
+    return serialized
+
+
+def _serialize_retrieval_context_for_history(
+    retrieval_context: RetrievalContext | dict | None,
+) -> dict[str, object] | None:
+    """Return JSON-ready retrieval context for Redis history display."""
+    if retrieval_context is None:
+        return None
+    if isinstance(retrieval_context, RetrievalContext):
+        return retrieval_context.model_dump(mode="json")
+    return dict(retrieval_context)
 
 
 def _camelize_source_payload(source: dict) -> dict:
@@ -331,6 +409,13 @@ async def query(
             conv.conversation_id,
             req.question,
             response.answer,
+            sources=response.sources,
+            related_refs=response.related_refs,
+            retrieval_context=response.retrieval_context,
+            question_type=response.question_type,
+            engineering_context=response.engineering_context,
+            answer_mode=_answer_mode_from_groundedness(response.groundedness),
+            groundedness=response.groundedness,
         )
 
     return response
@@ -517,6 +602,15 @@ async def query_stream(
                             conv.conversation_id,
                             req.question,
                             normalized_answer,
+                            sources=data.get("sources", []),
+                            related_refs=data.get("related_refs", []),
+                            retrieval_context=data.get("retrieval_context"),
+                            question_type=analysis.question_type.value
+                            if analysis.question_type else data.get("question_type"),
+                            engineering_context=analysis.engineering_context.model_dump()
+                            if analysis.engineering_context else None,
+                            answer_mode=_answer_mode_from_groundedness(result.groundedness),
+                            groundedness=result.groundedness,
                         )
                     data = {**data, "groundedness": result.groundedness, "normalized_answer": normalized_answer}
                     data = _external_done_payload(

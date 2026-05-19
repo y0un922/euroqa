@@ -239,6 +239,74 @@ model = config.contextualize_llm_model or config.llm_model
 
 #### 3. Tests Required
 
+### Scenario: Redis External Session History Payloads
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to `/query`, `/query/stream`, `RedisConversationManager`, or external `sessionId` history behavior.
+- Reason: external users read historical sessions directly from Redis. If the assistant message stores only answer text, reopened sessions lose the citation/source data that made `[Ref-N]` useful.
+
+#### 2. Signatures
+
+- API persistence helper: `_add_conversation_turn(conv_mgr, conversation_id, question, answer, *, sources=None, related_refs=None, retrieval_context=None, question_type=None, engineering_context=None, answer_mode=None, groundedness=None) -> str | None`.
+- Redis persistence entry point: `RedisConversationManager.add_turn_async(conversation_id, question, answer, *, title=None, sources=None, related_refs=None, retrieval_context=None, question_type=None, engineering_context=None, answer_mode=None, groundedness=None) -> str | None`.
+- Redis key: `context:{sessionId}` stores one JSON string per message.
+
+#### 3. Contracts
+
+- User messages remain minimal: `role`, `content`, `timestamp`.
+- Assistant messages must preserve the same minimal fields plus optional historical display metadata when available:
+  - `sources`: JSON-ready source objects using the external source aliases (`docId`, `elementType`, `originalText`, `locatorText`, `highlightText`) while preserving `file` and any upstream `source` field.
+  - `relatedRefs`: related reference labels.
+  - `retrievalContext`: export/debug snapshot with main, parent, guide, guide-example, and reference chunks when present.
+  - `questionType`, `engineeringContext`, `answerMode`, `groundedness`: answer-state metadata for historical display and diagnostics.
+- Python call sites use snake_case keyword arguments; Redis JSON payload fields use the external camelCase contract.
+- Redis history reads for generation should continue converting messages to `{"question", "answer"}` only; citation metadata is a display/export snapshot, not prompt history.
+- The persistence helper must remain compatible with legacy conversation managers that accept only `(conversation_id, question, answer)`.
+
+#### 4. Validation & Error Matrix
+
+- Assistant answer has sources -> Redis assistant message includes `sources`.
+- Assistant answer has retrieval context -> Redis assistant message includes `retrievalContext`.
+- Metadata is absent or empty -> Redis assistant message may omit that optional field.
+- Legacy Redis messages without metadata -> history loading still returns Q&A history.
+- Legacy in-memory/test manager lacks metadata kwargs -> helper falls back to the three-argument call.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: a streamed external-session answer with `[Ref-1]` stores answer text, `sources`, `relatedRefs`, `retrievalContext`, `questionType`, `answerMode`, and `groundedness` in the assistant Redis message.
+- Base: a chat/fallback answer with no sources stores only the role/content/timestamp fields.
+- Bad: storing source fields only in the HTTP/SSE response while Redis keeps only answer text.
+
+#### 6. Tests Required
+
+- Unit tests must inspect the raw Redis list payload and assert assistant messages preserve source document/file fields.
+- Helper tests must assert metadata is forwarded to async managers that support kwargs.
+- Helper tests must assert managers with the legacy three-argument signature still work.
+- Query or stream tests should cover at least one external `sessionId` path when route-level behavior changes.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+await conv_mgr.add_turn_async(conversation_id, question, answer)
+```
+
+##### Correct
+
+```python
+await conv_mgr.add_turn_async(
+    conversation_id,
+    question,
+    answer,
+    sources=response.sources,
+    retrieval_context=response.retrieval_context,
+    question_type=response.question_type,
+    groundedness=response.groundedness,
+)
+```
+
 - Tests for guide retrieval must include an arbitrary guide-like uploaded document name, not a fixed project seed document.
 - Tests must prove guide-like chunks are excluded from `RetrievalResult.chunks`.
 - Tests must prove `guide_chunks` remains present in API retrieval context for backward compatibility.

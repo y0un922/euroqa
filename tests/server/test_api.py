@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server import deps
+from server.api.v1.query import _add_conversation_turn
 from server.config import ServerConfig
 from server.core.conversation import RedisConversationManager
 from server.core.retrieval import RetrievalResult
@@ -148,6 +149,135 @@ class TestRedisConversationManager:
             ("context:1001_abc123", 3600),
             ("context:1001_abc123", 3600),
         ]
+
+    @pytest.mark.anyio
+    async def test_add_turn_persists_assistant_reference_metadata(self):
+        manager = RedisConversationManager.__new__(RedisConversationManager)
+        fake_redis = _FakeRedis()
+        manager._redis = fake_redis
+        manager._ttl_seconds = 3600
+
+        await manager.add_turn_async(
+            "1001_refs",
+            "设计使用年限是什么？",
+            "应规定设计使用年限。[Ref-1]",
+            sources=[
+                {
+                    "file": "EN 1990:2002",
+                    "docId": "EN_1990_2002",
+                    "title": "Basis of structural design",
+                    "section": "2.3",
+                    "page": "28",
+                    "clause": "2.3",
+                    "originalText": "The design working life should be specified.",
+                    "locatorText": "2.3 Design working life",
+                    "highlightText": "design working life",
+                    "translation": "",
+                    "elementType": "text",
+                    "bbox": [],
+                }
+            ],
+            related_refs=["Table 2.1"],
+            retrieval_context={"chunks": [{"chunk_id": "c1", "source": "EN 1990:2002"}]},
+            question_type="rule",
+            engineering_context={"country": "EU"},
+            answer_mode="standard",
+            groundedness="grounded",
+        )
+
+        messages = [
+            json.loads(raw)
+            for raw in fake_redis.lists["context:1001_refs"]
+        ]
+        assistant_message = messages[1]
+        assert assistant_message["role"] == "assistant"
+        assert assistant_message["sources"][0]["file"] == "EN 1990:2002"
+        assert assistant_message["sources"][0]["docId"] == "EN_1990_2002"
+        assert assistant_message["sources"][0]["originalText"] == (
+            "The design working life should be specified."
+        )
+        assert assistant_message["sources"][0]["elementType"] == "text"
+        assert assistant_message["retrievalContext"]["chunks"][0]["source"] == "EN 1990:2002"
+        assert assistant_message["relatedRefs"] == ["Table 2.1"]
+        assert assistant_message["questionType"] == "rule"
+        assert assistant_message["engineeringContext"] == {"country": "EU"}
+        assert assistant_message["answerMode"] == "standard"
+        assert assistant_message["groundedness"] == "grounded"
+
+
+class TestConversationTurnPersistence:
+    @pytest.mark.anyio
+    async def test_add_conversation_turn_passes_reference_metadata_to_async_manager(self):
+        class _FakeConversationManager:
+            def __init__(self):
+                self.kwargs = None
+
+            async def add_turn_async(self, conversation_id, question, answer, **kwargs):
+                self.kwargs = kwargs
+                return None
+
+        manager = _FakeConversationManager()
+        retrieval_context = RetrievalContext(
+            chunks=[
+                {
+                    "chunk_id": "chunk_023",
+                    "source": "EN 1990:2002",
+                    "score": 0.91,
+                }
+            ]
+        )
+
+        await _add_conversation_turn(
+            manager,
+            "1001_refs",
+            "设计使用年限是什么？",
+            "应规定设计使用年限。[Ref-1]",
+            sources=[
+                {
+                    "file": "EN 1990:2002",
+                    "document_id": "EN_1990_2002",
+                    "source": "EN 1990:2002",
+                }
+            ],
+            related_refs=["Table 2.1"],
+            retrieval_context=retrieval_context,
+            question_type="rule",
+            engineering_context={"country": "EU"},
+            answer_mode="standard",
+            groundedness="grounded",
+        )
+
+        assert manager.kwargs is not None
+        assert manager.kwargs["sources"][0]["source"] == "EN 1990:2002"
+        assert manager.kwargs["sources"][0]["docId"] == "EN_1990_2002"
+        assert manager.kwargs["related_refs"] == ["Table 2.1"]
+        assert manager.kwargs["retrieval_context"]["chunks"][0]["source"] == "EN 1990:2002"
+        assert manager.kwargs["question_type"] == "rule"
+        assert manager.kwargs["engineering_context"] == {"country": "EU"}
+        assert manager.kwargs["answer_mode"] == "standard"
+        assert manager.kwargs["groundedness"] == "grounded"
+
+    @pytest.mark.anyio
+    async def test_add_conversation_turn_keeps_legacy_async_manager_compatible(self):
+        class _LegacyConversationManager:
+            def __init__(self):
+                self.turn = None
+
+            async def add_turn_async(self, conversation_id, question, answer):
+                self.turn = (conversation_id, question, answer)
+                return None
+
+        manager = _LegacyConversationManager()
+
+        await _add_conversation_turn(
+            manager,
+            "1001_legacy",
+            "问题",
+            "回答",
+            sources=[{"source": "EN 1990:2002"}],
+        )
+
+        assert manager.turn == ("1001_legacy", "问题", "回答")
 
 
 class TestQueryEndpoint:

@@ -102,10 +102,19 @@ def _has_existing_title(value: object) -> bool:
     return bool(stripped) and stripped.lower() != "null"
 
 
-def _message_payload(role: str, content: str, timestamp: str) -> str:
+def _message_payload(
+    role: str,
+    content: str,
+    timestamp: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> str:
     """Build one Redis List message payload."""
+    payload: dict[str, Any] = {"role": role, "content": content, "timestamp": timestamp}
+    if metadata:
+        payload.update(metadata)
     return json.dumps(
-        {"role": role, "content": content, "timestamp": timestamp},
+        payload,
         ensure_ascii=False,
     )
 
@@ -150,14 +159,36 @@ class RedisConversationManager:
         answer: str,
         *,
         title: str | None = None,
+        sources: list[dict[str, Any]] | None = None,
+        related_refs: list[str] | None = None,
+        retrieval_context: dict[str, Any] | None = None,
+        question_type: str | None = None,
+        engineering_context: dict[str, Any] | None = None,
+        answer_mode: str | None = None,
+        groundedness: str | None = None,
     ) -> str | None:
         """Append one Q&A turn and update session metadata."""
         now = _utc_iso()
         key = f"context:{conversation_id}"
+        assistant_metadata: dict[str, Any] = {}
+        if sources:
+            assistant_metadata["sources"] = sources
+        if related_refs:
+            assistant_metadata["relatedRefs"] = related_refs
+        if retrieval_context:
+            assistant_metadata["retrievalContext"] = retrieval_context
+        if question_type:
+            assistant_metadata["questionType"] = question_type
+        if engineering_context:
+            assistant_metadata["engineeringContext"] = engineering_context
+        if answer_mode:
+            assistant_metadata["answerMode"] = answer_mode
+        if groundedness:
+            assistant_metadata["groundedness"] = groundedness
         await self._redis.rpush(
             key,
             _message_payload("user", question, now),
-            _message_payload("assistant", answer, now),
+            _message_payload("assistant", answer, now, metadata=assistant_metadata),
         )
         await self._redis.expire(key, self._ttl_seconds)
 
