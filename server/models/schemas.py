@@ -317,7 +317,8 @@ class DocumentDeleteItem(CamelModel):
 
 class DocumentDeleteBatchResponse(CamelModel):
     code: int = 200
-    results: list[DocumentDeleteItem]
+    deleted: bool
+    deleted_chunks: DeletedChunks
 
 
 class TranslationContext(CamelModel):

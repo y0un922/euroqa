@@ -76,6 +76,21 @@ def _is_active_pipeline_state(state: object | None) -> bool:
     return getattr(state, "stage", None) not in {PipelineStage.READY, PipelineStage.ERROR}
 
 
+def _ensure_documents_deletable(doc_ids: list[str]) -> None:
+    """Raise when any requested document is still being processed."""
+    tm = get_task_manager()
+    blocked = [
+        doc_id
+        for doc_id in doc_ids
+        if _is_active_pipeline_state(tm.get_status(doc_id))
+    ]
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail=f"文档正在解析中，无法删除: {', '.join(blocked)}",
+        )
+
+
 def _utc_iso() -> str:
     """Return an ISO 8601 UTC timestamp for external API payloads."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -533,11 +548,35 @@ async def batch_delete_documents(
     config=Depends(get_config),
 ) -> DocumentDeleteBatchResponse:
     """批量删除文档索引数据。"""
-    results = [
-        await _delete_one_document_index(doc_id, config)
-        for doc_id in request.doc_ids
-    ]
-    return DocumentDeleteBatchResponse(results=results)
+    _ensure_documents_deletable(request.doc_ids)
+
+    try:
+        from pipeline.config import PipelineConfig
+        from pipeline.index import delete_document_sources
+
+        pipeline_config = PipelineConfig()
+        source_names = [
+            source_name
+            for doc_id in request.doc_ids
+            for source_name in _source_names_for_doc_id(doc_id)
+        ]
+        deleted = await delete_document_sources(source_names, pipeline_config)
+        await invalidate_retriever_cache()
+    except Exception:
+        logger.exception("document_batch_delete_failed", doc_ids=request.doc_ids)
+        raise HTTPException(status_code=500, detail="文档删除失败")
+
+    deleted_chunks = DeletedChunks(
+        milvus=int(deleted.get("milvus", 0) or 0),
+        elasticsearch=int(deleted.get("elasticsearch", 0) or 0),
+    )
+    if deleted_chunks.milvus == 0 and deleted_chunks.elasticsearch == 0:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    return DocumentDeleteBatchResponse(
+        deleted=True,
+        deleted_chunks=deleted_chunks,
+    )
 
 
 # -- SSE 状态流 --

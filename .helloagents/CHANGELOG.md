@@ -3,6 +3,12 @@
 ## [0.1.26] - 2026-05-18
 
 ### 快速修改
+- **[server.api.v1.documents / tests.server.test_api / 接口文档 / .helloagents.modules.server.api.v1.documents]**: 批量删除汇总响应中若 Milvus 与 Elasticsearch 删除数量均为 0，则返回 404 `文档不存在`，与正常删除成功区分 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/documents.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md
+- **[server.api.v1.documents / server.models.schemas / tests.server.test_api / 接口文档 / .helloagents.modules.server.api.v1.documents]**: 将批量删除接口响应从逐项 `results[]` 改为整体汇总格式 `deleted` + `deletedChunks`，请求内 source 聚合为一次底层批删；任一文档解析中时返回 409，底层删除失败时返回 500 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/api/v1/documents.py; server/models/schemas.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md
 - **[server.api.v1.router / server.core.conversation / server.api.v1.documents / tests.server.test_api / 接口文档]**: 对齐外部接口契约，5 个联调接口免后台调试鉴权，Redis 会话 List 改为交替 `role/content/timestamp` 消息并兼容旧 Q&A 格式读取，批量删除单项异常隔离为 `INTERNAL_ERROR`，流式 `done.title` 仅首轮返回 — by Codex
   - 类型: 快速修改（无方案包）
   - 文件: server/api/v1/router.py; server/core/conversation.py; server/api/v1/documents.py; tests/server/test_api.py; 接口文档.md; .helloagents/modules/server.api.v1.documents.md

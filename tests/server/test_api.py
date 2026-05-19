@@ -1865,7 +1865,7 @@ class TestDocumentsEndpoint:
             ],
         }
 
-    def test_batch_delete_documents_contract_is_per_item_and_mocked(
+    def test_batch_delete_documents_contract_is_summary_and_mocked(
         self, client, tmp_path: Path
     ):
         doc_id = "EN_1992_1_1"
@@ -1884,8 +1884,6 @@ class TestDocumentsEndpoint:
 
         async def fake_delete_document_sources(source_names, _config):
             deleted_source_batches.append(list(source_names))
-            if any(source_name.startswith("MISSING") for source_name in source_names):
-                return {"milvus": 0, "elasticsearch": 0}
             return {"milvus": 3, "elasticsearch": 4}
 
         with (
@@ -1906,27 +1904,19 @@ class TestDocumentsEndpoint:
         assert resp.status_code == 200
         assert resp.json() == {
             "code": 200,
-            "results": [
-                {
-                    "docId": doc_id,
-                    "deleted": True,
-                    "deletedChunks": {"milvus": 3, "elasticsearch": 4},
-                    "error": None,
-                },
-                {
-                    "docId": "MISSING_DOC",
-                    "deleted": True,
-                    "deletedChunks": {"milvus": 0, "elasticsearch": 0},
-                    "error": None,
-                },
-            ],
+            "deleted": True,
+            "deletedChunks": {"milvus": 3, "elasticsearch": 4},
         }
         assert deleted_source_batches == [
-            [doc_id, doc_id.replace("_", " ")],
-            ["MISSING_DOC", "MISSING DOC"],
+            [
+                doc_id,
+                doc_id.replace("_", " "),
+                "MISSING_DOC",
+                "MISSING DOC",
+            ],
         ]
 
-    def test_batch_delete_documents_isolates_per_item_internal_errors(
+    def test_batch_delete_documents_returns_500_when_bulk_delete_fails(
         self, client, tmp_path: Path
     ):
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
@@ -1936,9 +1926,7 @@ class TestDocumentsEndpoint:
         )
 
         async def fake_delete_document_sources(source_names, _config):
-            if source_names[0] == "BROKEN_DOC":
-                raise RuntimeError("backend exploded")
-            return {"milvus": 3, "elasticsearch": 4}
+            raise RuntimeError("backend exploded")
 
         with (
             patch(
@@ -1955,33 +1943,83 @@ class TestDocumentsEndpoint:
                 json={"docIds": ["OK_DOC", "BROKEN_DOC", "OK_DOC_2"]},
             )
 
-        assert resp.status_code == 200
+        assert resp.status_code == 500
         assert resp.json() == {
-            "code": 200,
-            "results": [
-                {
-                    "docId": "OK_DOC",
-                    "deleted": True,
-                    "deletedChunks": {"milvus": 3, "elasticsearch": 4},
-                    "error": None,
-                },
-                {
-                    "docId": "BROKEN_DOC",
-                    "deleted": False,
-                    "deletedChunks": None,
-                    "error": {
-                        "code": "INTERNAL_ERROR",
-                        "message": "文档删除失败",
-                    },
-                },
-                {
-                    "docId": "OK_DOC_2",
-                    "deleted": True,
-                    "deletedChunks": {"milvus": 3, "elasticsearch": 4},
-                    "error": None,
-                },
-            ],
+            "code": 500,
+            "message": "文档删除失败",
+            "detail": None,
         }
+
+    def test_batch_delete_documents_returns_404_when_no_chunks_deleted(
+        self, client, tmp_path: Path
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path / "pdfs"),
+            parsed_dir=str(tmp_path / "parsed"),
+            access_password="",
+        )
+
+        async def fake_delete_document_sources(source_names, _config):
+            return {"milvus": 0, "elasticsearch": 0}
+
+        with (
+            patch(
+                "pipeline.index.delete_document_sources",
+                fake_delete_document_sources,
+            ),
+            patch(
+                "server.api.v1.documents.invalidate_retriever_cache",
+                AsyncMock(),
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/documents/delete",
+                json={"docIds": ["MISSING_DOC"]},
+            )
+
+        assert resp.status_code == 404
+        assert resp.json() == {
+            "code": 404,
+            "message": "文档不存在",
+            "detail": None,
+        }
+
+    def test_batch_delete_documents_rejects_active_document_before_delete(
+        self, client, tmp_path: Path
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path / "pdfs"),
+            parsed_dir=str(tmp_path / "parsed"),
+            access_password="",
+        )
+
+        delete_call = AsyncMock(return_value={"milvus": 3, "elasticsearch": 4})
+
+        class _FakeTaskManager:
+            def get_status(self, doc_id):
+                if doc_id == "ACTIVE_DOC":
+                    return SimpleNamespace(stage="indexing")
+                return None
+
+        with (
+            patch(
+                "server.api.v1.documents.get_task_manager",
+                return_value=_FakeTaskManager(),
+            ),
+            patch("pipeline.index.delete_document_sources", delete_call),
+        ):
+            resp = client.post(
+                "/api/v1/documents/delete",
+                json={"docIds": ["OK_DOC", "ACTIVE_DOC"]},
+            )
+
+        assert resp.status_code == 409
+        assert resp.json() == {
+            "code": 409,
+            "message": "文档正在解析中，无法删除: ACTIVE_DOC",
+            "detail": None,
+        }
+        delete_call.assert_not_awaited()
 
 
 class TestSourcesEndpoint:

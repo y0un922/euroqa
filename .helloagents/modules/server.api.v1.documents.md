@@ -12,7 +12,8 @@
 - 外部契约接口 `POST /documents/parse`、`POST /documents/status`、`POST /documents/delete` 不要求后台调试 token；旧上传、列表、文件预览和单文档兼容接口仍受管理端鉴权保护
 - `POST /documents/upload-to-minio` 接受浏览器上传的 PDF，后端写入 `eurocode/uploads/{docId}.pdf`，再复用解析队列返回 `code`、`docId`、`fileName`、`minioPath`、`status`、`message`
 - `POST /documents/status` 接受 `docIds` 数组，批量返回每个文档的 `status`、`progress`、`stage`、`message` 和可选错误信息
-- `POST /documents/delete` 接受 `docIds` 数组，逐条按 `doc_id` 删除向量索引；每条会聚合当前 source 名与历史兼容 source 名后一次提交底层索引删除；本地 PDF 或解析目录缺失时也继续执行幂等删除，不因单条失败中断整体响应
+- `POST /documents/delete` 接受 `docIds` 数组，按请求整体一次性删除向量索引；会聚合所有 `doc_id` 的当前 source 名与历史兼容 source 名后一次提交底层索引删除，并返回 `deleted` 与汇总 `deletedChunks`，不再返回 `results[]`
+- `POST /documents/delete` 在未删除任何 Milvus/Elasticsearch 索引数据时返回 404；任一文档仍处于解析中时返回 409 且不执行底层删除；底层索引删除异常时返回 500
 - `DELETE /documents/{doc_id}` 仍保留旧逻辑，删除前会检查本地 PDF/解析目录是否存在
 - 批量删除与单文档删除都必须在测试中 mock 索引删除操作，避免真实外部数据删除
 
