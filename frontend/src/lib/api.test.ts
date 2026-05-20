@@ -148,6 +148,13 @@ test("buildReferenceRecords prefers source document_id over fuzzy matching", () 
     ],
     [
       {
+        id: "EXACT_DOC_ID",
+        name: "Exact document",
+        title: "Exact document",
+        total_pages: 1,
+        chunk_count: 0
+      },
+      {
         id: "FUZZY_MATCH_ID",
         name: "EN1990 2002",
         title: "Eurocode - Basis of structural design",
@@ -164,6 +171,38 @@ test("buildReferenceRecords prefers source document_id over fuzzy matching", () 
     references[0]?.source.highlight_text,
     "The design working life should be specified."
   );
+});
+
+test("buildReferenceRecords falls back to file match when source document_id is stale", () => {
+  const references = buildReferenceRecords(
+    [
+      {
+        file: "EN1992-1-1_2004(1).pdf",
+        document_id: "EN1992-1-1_2004_1_pdf",
+        title: "EN1992-1-1 2004(1).pdf",
+        section: "2.4",
+        page: "23",
+        clause: "2.4.1",
+        original_text: "Partial factors are given.",
+        highlight_text: "Partial factors are given.",
+        locator_text: "Partial factors are given.",
+        translation: ""
+      }
+    ],
+    [
+      {
+        id: "EN1992-1-1_2004(1).pdf",
+        name: "EN1992-1-1 2004(1).pdf",
+        title: "EN 1992-1-1:2004",
+        total_pages: 225,
+        chunk_count: 0
+      }
+    ],
+    "high",
+    []
+  );
+
+  assert.equal(references[0]?.documentId, "EN1992-1-1_2004(1).pdf");
 });
 
 test("getPreferredReferenceIndex prefers the first source with a clause", () => {

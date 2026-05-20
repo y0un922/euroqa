@@ -170,6 +170,27 @@ def _build_document_id(source: str) -> str:
     return normalized.strip("_")
 
 
+def _resolve_document_id(chunk: Chunk | Source) -> str:
+    """Resolve the backend document id used by document file endpoints."""
+    if isinstance(chunk, Source):
+        document_id = chunk.document_id.strip()
+        file_name = chunk.file.strip()
+        if document_id:
+            return document_id
+        if file_name.lower().endswith(".pdf"):
+            return file_name
+        return _build_document_id(file_name)
+
+    meta = chunk.metadata
+    document_id = (meta.document_id or "").strip()
+    if document_id:
+        return document_id
+    source = meta.source.strip()
+    if source.lower().endswith(".pdf"):
+        return source
+    return _build_document_id(meta.source)
+
+
 def _build_locator_text(content: str, max_length: int = 240) -> str:
     """Build a shorter normalized text snippet suitable for PDF search."""
     normalized = re.sub(r"\[\->\s*[^\]]*\]", " ", content)
@@ -326,7 +347,7 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
     """Backfill source fields using backend normalization rules."""
     normalized_sources: list[Source] = []
     for source in sources:
-        document_id = source.document_id.strip() or _build_document_id(source.file)
+        document_id = _resolve_document_id(source)
         highlight_text = source.highlight_text.strip() or _build_highlight_text(
             source.original_text,
             [int(source.page)] if str(source.page).strip().isdigit() else [],
@@ -354,7 +375,7 @@ def _build_retrieval_context_entry(
     meta = chunk.metadata
     entry: dict[str, Any] = {
         "chunk_id": chunk.chunk_id,
-        "document_id": _build_document_id(meta.source),
+        "document_id": _resolve_document_id(chunk),
         "file": meta.source,
         "title": meta.source_title,
         "section": " > ".join(meta.section_path),
@@ -1027,7 +1048,7 @@ def _build_sources_from_chunks(
 
     for chunk in ordered_chunks:
         meta = chunk.metadata
-        document_id = _build_document_id(meta.source)
+        document_id = _resolve_document_id(chunk)
         # Primary: use bbox from pipeline metadata
         bbox = list(meta.bbox) if meta.bbox else []
         resolved_page = str(meta.bbox_page_idx + 1) if meta.bbox_page_idx >= 0 else ""

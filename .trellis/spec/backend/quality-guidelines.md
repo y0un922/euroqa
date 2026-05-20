@@ -520,6 +520,62 @@ adjusted["page_idx"] = item["page_idx"] + part_page_offset
 merged_items.append(adjusted)
 ```
 
+### Scenario: Citation Document Identity
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to answer source construction, retrieval context export, document ingestion identity, or frontend PDF reference opening.
+- Reason: citation links open `/api/v1/documents/{document_id}/file`. If `document_id` is a display-label derivative instead of an existing document id, the endpoint returns JSON 404 and PDF viewers fail with invalid PDF structure.
+
+#### 2. Signatures
+
+- Chunk metadata field: `ChunkMetadata.document_id: str | None`.
+- Answer source field: `Source.document_id: str`.
+- Retrieval context item field: `retrieval_context.chunks[*]["document_id"]`.
+- File endpoint: `GET /api/v1/documents/{doc_id}/file`.
+
+#### 3. Contracts
+
+- `Source.document_id` and retrieval-context `document_id` must identify a document that can be fetched from the document file endpoint.
+- If `ChunkMetadata.document_id` is present, source construction must prefer it over deriving an id from `metadata.source`.
+- If `metadata.source` is already a `.pdf` filename used by the document list, preserve it exactly, including parentheses and punctuation.
+- Only use `_build_document_id()` for legacy non-PDF source labels such as `EN 1990:2002`.
+- Frontend reference mapping may use `source.document_id` directly only when it exists in the current document list; otherwise it must fall back to matching `source.file` against the document list.
+
+#### 4. Validation & Error Matrix
+
+- External parse request provides `docId` -> pipeline stores chunks under that `docId`; citations must keep that id.
+- Uploaded/indexed document id contains repeated underscores, parentheses, or punctuation -> citations must preserve the exact id when it is the file endpoint id.
+- Stale source `document_id` not found in `/documents` but `file` matches a listed document -> frontend must open the matched document id.
+- Missing id and non-PDF display label -> legacy normalization may derive a stable id.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: `document_id="huake-doc-123"` and `file="Original File Name.pdf"` opens `/documents/huake-doc-123/file`.
+- Base: `file="EN1992-1-1_2004(1).pdf"` opens `/documents/EN1992-1-1_2004(1).pdf/file`.
+- Bad: `file="EN1992-1-1_2004(1).pdf"` is rewritten to `EN1992-1-1_2004_1_pdf` and the PDF viewer receives a JSON 404 body.
+
+#### 6. Tests Required
+
+- Backend source-construction tests must cover exact PDF filename preservation.
+- Backend source-construction tests must cover explicit external `document_id` precedence.
+- Answer generation tests must assert retrieval context exports the resolved `document_id`.
+- Frontend tests must cover stale `source.document_id` falling back to file-name document matching.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+document_id = _build_document_id(chunk.metadata.source)
+```
+
+##### Correct
+
+```python
+document_id = _resolve_document_id(chunk)
+```
+
 <!-- Patterns that must always be used -->
 
 ---

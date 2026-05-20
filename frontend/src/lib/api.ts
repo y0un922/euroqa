@@ -236,13 +236,18 @@ export function buildReferenceRecords(
   messageId?: string
 ) {
   const prefix = messageId ? `${messageId}-ref` : "ref";
-  return sources.map((source, index) => ({
-    id: `${prefix}-${index + 1}`,
-    source,
-    documentId: source.document_id || matchSourceToDocumentId(source.file, documents),
-    confidence,
-    relatedRefs
-  }));
+  return sources.map((source, index) => {
+    const matchedDocumentId = matchSourceToDocumentId(source.file, documents);
+    const sourceDocumentId = source.document_id || source.docId || "";
+    const hasDocumentId = documents.some((document) => document.id === sourceDocumentId);
+    return {
+      id: `${prefix}-${index + 1}`,
+      source,
+      documentId: hasDocumentId ? sourceDocumentId : matchedDocumentId || sourceDocumentId || null,
+      confidence,
+      relatedRefs
+    };
+  });
 }
 
 export function getPreferredReferenceIndex(sources: Source[]): number {

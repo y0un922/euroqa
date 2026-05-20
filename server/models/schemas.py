@@ -89,6 +89,7 @@ class GuideHint(BaseModel):
 
 class ChunkMetadata(BaseModel):
     source: str
+    document_id: Optional[str] = None
     source_title: str
     section_path: list[str]
     page_numbers: list[int]

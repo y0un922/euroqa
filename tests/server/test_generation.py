@@ -221,6 +221,41 @@ class TestSourceTranslationFill:
 
         assert sources[0].document_id == "DG_EN1992-1-1__-1-2"
 
+    def test_build_sources_from_chunks_preserves_pdf_filename_document_id(
+        self, sample_text_chunk
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={"source": "EN1992-1-1_2004(1).pdf"}
+                )
+            }
+        )
+
+        sources = _build_sources_from_chunks([chunk])
+
+        assert sources[0].document_id == "EN1992-1-1_2004(1).pdf"
+        assert sources[0].file == "EN1992-1-1_2004(1).pdf"
+
+    def test_build_sources_from_chunks_prefers_external_doc_id(
+        self, sample_text_chunk
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "document_id": "huake-doc-123",
+                        "source": "Original File Name.pdf",
+                    }
+                )
+            }
+        )
+
+        sources = _build_sources_from_chunks([chunk])
+
+        assert sources[0].document_id == "huake-doc-123"
+        assert sources[0].file == "Original File Name.pdf"
+
     def test_build_sources_from_chunks_keeps_full_highlight_text_without_truncation(
         self, sample_text_chunk
     ):
@@ -603,6 +638,46 @@ class TestGenerateAnswer:
         ]
         assert result.retrieval_context.resolved_refs == ["Table 2.1"]
         assert result.retrieval_context.unresolved_refs == ["Annex A"]
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_retrieval_context_uses_external_doc_id(
+        self, sample_text_chunk
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "document_id": "huake-doc-123",
+                        "source": "Original File Name.pdf",
+                    }
+                )
+            }
+        )
+        raw = json.dumps(
+            {
+                "answer": "根据条文应予规定。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))]
+                )
+
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            result = await generate_answer("设计使用年限怎么确定？", [chunk], [])
+
+        assert result.retrieval_context is not None
+        assert result.retrieval_context.chunks[0]["document_id"] == "huake-doc-123"
 
     @pytest.mark.asyncio
     async def test_generate_answer_dedupes_chunks_before_prompt_and_context(
