@@ -13,6 +13,8 @@ from openai import AsyncOpenAI
 import httpx
 
 from server.config import ServerConfig
+from shared.tokenizers import count_for_llm
+from shared.spot_check import record_spot_check
 from server.models.schemas import (
     Chunk,
     Confidence,
@@ -27,8 +29,17 @@ from server.models.schemas import (
 logger = structlog.get_logger()
 
 _enc = tiktoken.get_encoding("cl100k_base")
-def _count_tokens(text: str) -> int:
+
+
+def _legacy_count_tokens(text: str) -> int:
     return len(_enc.encode(text))
+
+
+def _count_tokens(text: str, config: ServerConfig | None = None) -> tuple[int, bool]:
+    cfg = config or ServerConfig()
+    if not cfg.use_unified_tokenizer:
+        return _legacy_count_tokens(text), True
+    return count_for_llm(text, cfg.llm_model)
 
 
 # ---------------------------------------------------------------------------
@@ -1356,10 +1367,25 @@ async def generate_answer_stream(
         base_url=cfg.llm_base_url,
         timeout=httpx.Timeout(timeout=600.0),
     )
+    prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
+    record_spot_check(
+        "final_prompt_tokens",
+        {
+            "value": prompt_tokens,
+            "is_estimate": prompt_tokens_estimate,
+            "model": cfg.llm_model,
+        },
+    )
     try:
         logger.info(
-            "llm_stream_start model=%s max_tokens=%d prompt_len=%d question_type=%s",
-            cfg.llm_model, 8192, len(prompt), qt_normalized,
+            "llm_stream_start model=%s max_tokens=%d prompt_len=%d prompt_tokens=%d "
+            "prompt_tokens_estimate=%s question_type=%s",
+            cfg.llm_model,
+            8192,
+            len(prompt),
+            prompt_tokens,
+            prompt_tokens_estimate,
+            qt_normalized,
         )
         stream = await client.chat.completions.create(
             model=cfg.llm_model,
@@ -1503,10 +1529,24 @@ async def generate_answer(
     )
 
     client = AsyncOpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url)
+    prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
+    record_spot_check(
+        "final_prompt_tokens",
+        {
+            "value": prompt_tokens,
+            "is_estimate": prompt_tokens_estimate,
+            "model": cfg.llm_model,
+        },
+    )
     try:
         logger.info(
-            "llm_call_start model=%s max_tokens=%d prompt_len=%d",
-            cfg.llm_model, 8192, len(prompt),
+            "llm_call_start model=%s max_tokens=%d prompt_len=%d prompt_tokens=%d "
+            "prompt_tokens_estimate=%s",
+            cfg.llm_model,
+            8192,
+            len(prompt),
+            prompt_tokens,
+            prompt_tokens_estimate,
         )
         resp = await client.chat.completions.create(
             model=cfg.llm_model,

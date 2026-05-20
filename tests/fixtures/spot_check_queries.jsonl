@@ -1,0 +1,15 @@
+{"query":"EN 1992 6.2.a 的要求是什么？","expected_question_type":"rule","category":"exact_clause","notes":"精确条款号小写字母"}
+{"query":"请解释 EN 1990 6.4.3.2 的作用组合要求。","expected_question_type":"rule","category":"exact_clause","notes":"精确条款召回"}
+{"query":"Table 3.1 中混凝土强度参数怎么取？","expected_question_type":"parameter","category":"table","notes":"表格对象召回"}
+{"query":"EN 1992 Table 7.4N 对裂缝控制有什么限值？","expected_question_type":"parameter","category":"table","notes":"表号与参数"}
+{"query":"Annex B 适用于哪些情况？","expected_question_type":"rule","category":"annex","notes":"附录召回"}
+{"query":"EN 1990 Annex A1 的组合系数怎么用？","expected_question_type":"calculation","category":"annex","notes":"附录+计算"}
+{"query":"按 Eurocode 设计单向板的基本步骤是什么？","expected_question_type":"calculation","category":"design_steps","notes":"同源多 chunk 流程"}
+{"query":"钢筋混凝土梁抗剪设计步骤有哪些？","expected_question_type":"calculation","category":"design_steps","notes":"流程型问题"}
+{"query":"基础承载力验算一般按哪些步骤做？","expected_question_type":"calculation","category":"design_steps","notes":"跨条款流程"}
+{"query":"混凝土材料分项系数 γC 应该取多少？","expected_question_type":"parameter","category":"parameter","notes":"参数取值"}
+{"query":"永久荷载和可变荷载的分项系数如何选？","expected_question_type":"parameter","category":"parameter","notes":"跨 EN1990 参数"}
+{"query":"什么是 accidental design situation？","expected_question_type":"mechanism","category":"general","notes":"无编号概念"}
+{"query":"为什么二阶效应会影响柱设计？","expected_question_type":"mechanism","category":"general","notes":"无编号机理"}
+{"query":"如何同时考虑 EN 1990 荷载组合和 EN 1992 构件承载力？","expected_question_type":"calculation","category":"cross_doc","notes":"跨文档综合"}
+{"query":"桥梁设计中 SLS 和 ULS 分别需要查哪些规范依据？","expected_question_type":"rule","category":"cross_doc","notes":"跨文档规则"}

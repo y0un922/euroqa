@@ -5,6 +5,7 @@ import pytest
 from server.config import ServerConfig
 from server.core.retrieval import HybridRetriever
 from server.models.schemas import Chunk, ChunkMetadata, ElementType, GuideHint
+from shared.spot_check import SpotCheckRecorder, reset_current_recorder, set_current_recorder
 
 
 @pytest.fixture
@@ -1007,6 +1008,53 @@ class TestRerank:
 
         assert [chunk.chunk_id for chunk, _ in ranked] == ["b", "a"]
         assert [score for _, score in ranked] == [0.93, 0.51]
+
+    @pytest.mark.asyncio
+    async def test_rerank_records_spot_check_token_fields(self, monkeypatch):
+        retriever = HybridRetriever(
+            ServerConfig(
+                rerank_provider="remote",
+                rerank_api_url="https://rerank.example/v1/rerank",
+                rerank_model="rerank-model",
+            )
+        )
+
+        class _FakeRerankClient:
+            async def rerank(self, query: str, documents: list[str], top_n: int):
+                return [(0, 0.9)]
+
+        monkeypatch.setattr(
+            "server.core.retrieval.count_for_rerank",
+            lambda text, model: (len(text), False),
+        )
+        retriever._rerank_client = _FakeRerankClient()
+        recorder = SpotCheckRecorder(query="wind load", query_id="q1")
+        token = set_current_recorder(recorder)
+        try:
+            await retriever._rerank("wind load", [_make_chunk("a", "doc-a")], 1)
+        finally:
+            reset_current_recorder(token)
+
+        assert recorder.data["rerank_input_tokens"] == [
+            {
+                "chunk_id": "a",
+                "tokens": 5,
+                "is_estimate": False,
+                "source": "EN 1990:2002",
+                "element_type": "text",
+            }
+        ]
+        assert recorder.data["rerank_truncated"] == [
+            {
+                "chunk_id": "a",
+                "tokens": 5,
+                "max_tokens": 8192,
+                "truncated": False,
+                "truncation_ratio": 5 / 8192,
+                "source": "EN 1990:2002",
+                "element_type": "text",
+            }
+        ]
 
 
 class TestRerankText:

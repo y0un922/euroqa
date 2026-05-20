@@ -10,6 +10,8 @@ import structlog
 from shared.elasticsearch_client import build_async_elasticsearch
 from shared.model_clients import build_embedding_client, build_rerank_client
 from shared.reference_graph import build_object_id, classify_reference_label, normalize_reference_label
+from shared.spot_check import record_spot_check
+from shared.tokenizers import count_for_rerank
 from server.config import ServerConfig
 from server.models.schemas import Chunk, ChunkMetadata, GuideHint, QuestionType
 
@@ -93,6 +95,20 @@ class RetrievalResult:
     groundedness: str = "not_grounded"
     resolved_refs: list[str] = field(default_factory=list)
     unresolved_refs: list[str] = field(default_factory=list)
+
+
+def _result_entries(results: list[dict]) -> list[dict[str, Any]]:
+    """Serialize retrieval result dictionaries for spot-check logs."""
+    entries: list[dict[str, Any]] = []
+    for result in results:
+        entries.append(
+            {
+                "chunk_id": result.get("chunk_id"),
+                "source": result.get("source"),
+                "score": result.get("score"),
+            }
+        )
+    return entries
 
 
 class HybridRetriever:
@@ -1064,9 +1080,46 @@ class HybridRetriever:
         if not chunks:
             return []
 
+        documents = [self._rerank_text(c) for c in chunks]
+        token_records: list[dict[str, Any]] = []
+        truncation_records: list[dict[str, Any]] = []
+        for chunk, document in zip(chunks, documents, strict=False):
+            token_count, is_estimate = count_for_rerank(
+                document,
+                self.config.rerank_model,
+            )
+            truncated = token_count > 8192
+            element_type = getattr(
+                chunk.metadata.element_type,
+                "value",
+                chunk.metadata.element_type,
+            )
+            token_records.append(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "tokens": token_count,
+                    "is_estimate": is_estimate,
+                    "source": chunk.metadata.source,
+                    "element_type": element_type,
+                }
+            )
+            truncation_records.append(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "tokens": token_count,
+                    "max_tokens": 8192,
+                    "truncated": truncated,
+                    "truncation_ratio": token_count / 8192 if token_count else 0.0,
+                    "source": chunk.metadata.source,
+                    "element_type": element_type,
+                }
+            )
+        record_spot_check("rerank_input_tokens", token_records)
+        record_spot_check("rerank_truncated", truncation_records)
+
         ranked = await self._rerank_client.rerank(
             query=query,
-            documents=[self._rerank_text(c) for c in chunks],
+            documents=documents,
             top_n=top_n,
         )
         return [(chunks[index], score) for index, score in ranked]
@@ -1396,9 +1449,11 @@ class HybridRetriever:
                 logger.warning("original_query_vector_search_failed")
 
         all_results = self._rrf_fuse_results(result_groups)
+        record_spot_check("rrf_top_10", _result_entries(all_results[:10]))
 
         # 跨文档聚合
         aggregated = self._cross_doc_aggregate(all_results, filters=filters)
+        record_spot_check("aggregated_top_10", _result_entries(aggregated[:10]))
 
         # 获取完整 chunk 数据
         chunk_ids = [r["chunk_id"] for r in aggregated]
@@ -1410,6 +1465,13 @@ class HybridRetriever:
             reranked = await self._rerank(rerank_query, chunks, cfg.rerank_top_n)
             final_chunks = [c for c, _ in reranked]
             scores = [s for _, s in reranked]
+            record_spot_check(
+                "rerank_top_10",
+                [
+                    {"chunk_id": chunk.chunk_id, "score": score}
+                    for chunk, score in reranked[:10]
+                ],
+            )
         except Exception:
             logger.warning(
                 "rerank_failed_falling_back_to_unranked_chunks",
@@ -1426,6 +1488,21 @@ class HybridRetriever:
 
         # 获取父 chunk
         parent_chunks = await self._fetch_parent_chunks(final_chunks)
+        record_spot_check(
+            "parent_chunks_injected",
+            [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "tokens": count_for_rerank(
+                        chunk.embedding_text or chunk.content,
+                        self.config.rerank_model,
+                    )[0],
+                    "source": chunk.metadata.source,
+                    "clause_ids": list(chunk.metadata.clause_ids),
+                }
+                for chunk in parent_chunks
+            ],
+        )
 
         # deterministic object lookup：显式请求对象 + 主条款直接引用对象
         # 确保用户明确提到的 Table/Figure 始终能被检索到
@@ -1485,6 +1562,18 @@ class HybridRetriever:
             filters=cross_ref_filters,
         )
         ref_chunks = deterministic_ref_chunks + fallback_ref_chunks
+        record_spot_check(
+            "ref_chunks",
+            [
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "source": chunk.metadata.source,
+                    "clause_ids": list(chunk.metadata.clause_ids),
+                    "object_label": chunk.metadata.object_label,
+                }
+                for chunk in ref_chunks
+            ],
+        )
         if ref_chunks:
             logger.info(
                 "cross_ref_supplemental",

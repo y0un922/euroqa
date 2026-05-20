@@ -14,6 +14,13 @@ from server.deps import get_config, get_conversation_manager, get_glossary, get_
 from server.core.query_understanding import analyze_query
 from server.core.generation import generate_answer, generate_answer_stream, postprocess_citations
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
+from shared.spot_check import (
+    SpotCheckRecorder,
+    flush_current_recorder,
+    is_spot_check_enabled,
+    reset_current_recorder,
+    set_current_recorder,
+)
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -71,10 +78,13 @@ async def _add_conversation_turn(
     engineering_context: dict[str, object] | None = None,
     answer_mode: str | None = None,
     groundedness: str | None = None,
+    thinking: str | None = None,
+    response_payload: dict[str, object] | None = None,
 ) -> str | None:
     """Persist one Q&A turn through sync or async managers."""
     serialized_sources = _serialize_sources_for_history(sources)
     serialized_retrieval_context = _serialize_retrieval_context_for_history(retrieval_context)
+    serialized_response_payload = _serialize_response_payload_for_history(response_payload)
     metadata_kwargs = {
         "sources": serialized_sources,
         "related_refs": related_refs,
@@ -83,6 +93,8 @@ async def _add_conversation_turn(
         "engineering_context": engineering_context,
         "answer_mode": answer_mode,
         "groundedness": groundedness,
+        "thinking": thinking,
+        "response_payload": serialized_response_payload,
     }
     adder = getattr(conv_mgr, "add_turn_async", None)
     if adder is not None:
@@ -119,6 +131,8 @@ def _supports_turn_metadata(adder: object) -> bool:
             "engineering_context",
             "answer_mode",
             "groundedness",
+            "thinking",
+            "response_payload",
         )
     )
 
@@ -147,6 +161,15 @@ def _serialize_retrieval_context_for_history(
     if isinstance(retrieval_context, RetrievalContext):
         return retrieval_context.model_dump(mode="json")
     return dict(retrieval_context)
+
+
+def _serialize_response_payload_for_history(
+    response_payload: dict[str, object] | None,
+) -> dict[str, object] | None:
+    """Return a JSON-ready full response snapshot for Redis history display."""
+    if response_payload is None:
+        return None
+    return dict(response_payload)
 
 
 def _camelize_source_payload(source: dict) -> dict:
@@ -356,69 +379,84 @@ async def query(
     conv_mgr=Depends(get_conversation_manager),
 ) -> QueryResponse:
     runtime_config = _resolve_runtime_config(config, req)
-    analysis = await analyze_query(req.question, glossary, runtime_config)
+    recorder = SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
+    token = set_current_recorder(recorder)
+    try:
+        analysis = await analyze_query(req.question, glossary, runtime_config)
+        if recorder:
+            recorder.record(
+                "expanded_queries",
+                {"queries": analysis.expanded_queries},
+            )
+            recorder.record(
+                "question_type",
+                analysis.question_type.value if analysis.question_type else None,
+            )
 
-    filters = analysis.filters
-    if req.domain:
-        filters["source"] = req.domain
+        filters = analysis.filters
+        if req.domain:
+            filters["source"] = req.domain
 
-    result = await retriever.retrieve(
-        queries=analysis.expanded_queries,
-        original_query=analysis.original_question,
-        filters=filters,
-        intent_label=analysis.intent_label,
-        question_type=analysis.question_type.value if analysis.question_type else None,
-        guide_hint=analysis.guide_hint,
-        target_hint=analysis.target_hint,
-        requested_objects=analysis.requested_objects,
-        preferred_element_type=analysis.preferred_element_type,
-    )
-
-    conv = await _get_conversation_state(conv_mgr, _conversation_id_from_request(req))
-    history = list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
-
-    response = await generate_answer(
-        question=req.question,
-        chunks=result.chunks,
-        parent_chunks=result.parent_chunks,
-        scores=result.scores,
-        glossary_terms=analysis.matched_terms,
-        conversation_history=history[-config.max_conversation_rounds:],
-        config=runtime_config,
-        ref_chunks=result.ref_chunks,
-        guide_chunks=result.guide_chunks,
-        guide_example_chunks=result.guide_example_chunks,
-        question_type=analysis.question_type,
-        engineering_context=analysis.engineering_context,
-        groundedness=result.groundedness,
-        resolved_refs=result.resolved_refs,
-        unresolved_refs=result.unresolved_refs,
-        intent_label=analysis.intent_label,
-    )
-    response = response.model_copy(
-        update={
-            "conversation_id": conv.conversation_id,
-            "question_type": analysis.question_type.value if analysis.question_type else None,
-            "engineering_context": analysis.engineering_context.model_dump() if analysis.engineering_context else None,
-            "groundedness": result.groundedness,
-        }
-    )
-    if _uses_external_session(req):
-        await _add_conversation_turn(
-            conv_mgr,
-            conv.conversation_id,
-            req.question,
-            response.answer,
-            sources=response.sources,
-            related_refs=response.related_refs,
-            retrieval_context=response.retrieval_context,
-            question_type=response.question_type,
-            engineering_context=response.engineering_context,
-            answer_mode=_answer_mode_from_groundedness(response.groundedness),
-            groundedness=response.groundedness,
+        result = await retriever.retrieve(
+            queries=analysis.expanded_queries,
+            original_query=analysis.original_question,
+            filters=filters,
+            intent_label=analysis.intent_label,
+            question_type=analysis.question_type.value if analysis.question_type else None,
+            guide_hint=analysis.guide_hint,
+            target_hint=analysis.target_hint,
+            requested_objects=analysis.requested_objects,
+            preferred_element_type=analysis.preferred_element_type,
         )
 
-    return response
+        conv = await _get_conversation_state(conv_mgr, _conversation_id_from_request(req))
+        history = list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
+
+        response = await generate_answer(
+            question=req.question,
+            chunks=result.chunks,
+            parent_chunks=result.parent_chunks,
+            scores=result.scores,
+            glossary_terms=analysis.matched_terms,
+            conversation_history=history[-config.max_conversation_rounds:],
+            config=runtime_config,
+            ref_chunks=result.ref_chunks,
+            guide_chunks=result.guide_chunks,
+            guide_example_chunks=result.guide_example_chunks,
+            question_type=analysis.question_type,
+            engineering_context=analysis.engineering_context,
+            groundedness=result.groundedness,
+            resolved_refs=result.resolved_refs,
+            unresolved_refs=result.unresolved_refs,
+            intent_label=analysis.intent_label,
+        )
+        response = response.model_copy(
+            update={
+                "conversation_id": conv.conversation_id,
+                "question_type": analysis.question_type.value if analysis.question_type else None,
+                "engineering_context": analysis.engineering_context.model_dump() if analysis.engineering_context else None,
+                "groundedness": result.groundedness,
+            }
+        )
+        if _uses_external_session(req):
+            await _add_conversation_turn(
+                conv_mgr,
+                conv.conversation_id,
+                req.question,
+                response.answer,
+                sources=response.sources,
+                related_refs=response.related_refs,
+                retrieval_context=response.retrieval_context,
+                question_type=response.question_type,
+                engineering_context=response.engineering_context,
+                answer_mode=_answer_mode_from_groundedness(response.groundedness),
+                groundedness=response.groundedness,
+            )
+
+        return response
+    finally:
+        flush_current_recorder()
+        reset_current_recorder(token)
 
 
 @router.post("/query/stream")
@@ -434,6 +472,8 @@ async def query_stream(
 
     async def event_generator():
         started_at = time.perf_counter()
+        recorder = SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
+        token = set_current_recorder(recorder)
         try:
             yield {
                 "event": "progress",
@@ -449,6 +489,15 @@ async def query_stream(
                 ),
             }
             analysis = await analyze_query(req.question, glossary, runtime_config)
+            if recorder:
+                recorder.record(
+                    "expanded_queries",
+                    {"queries": analysis.expanded_queries},
+                )
+                recorder.record(
+                    "question_type",
+                    analysis.question_type.value if analysis.question_type else None,
+                )
             summary, facts = _understanding_summary(analysis)
             yield {
                 "event": "progress",
@@ -566,6 +615,7 @@ async def query_stream(
             }
 
             answer_parts: list[str] = []
+            reasoning_parts: list[str] = []
             async for event_type, data in generate_answer_stream(
                 question=req.question,
                 chunks=result.chunks,
@@ -584,6 +634,10 @@ async def query_stream(
                 unresolved_refs=result.unresolved_refs,
                 intent_label=analysis.intent_label,
             ):
+                if event_type == "reasoning":
+                    text = data.get("text") if isinstance(data, dict) else None
+                    if isinstance(text, str):
+                        reasoning_parts.append(text)
                 if event_type == "chunk":
                     text = data.get("text") if isinstance(data, dict) else None
                     if isinstance(text, str):
@@ -596,23 +650,14 @@ async def query_stream(
                     num_sources = len(data.get("sources", [])) if isinstance(data, dict) else 0
                     normalized_answer = postprocess_citations(answer_text, num_sources)
                     title = None
-                    if _uses_external_session(req):
-                        title = await _add_conversation_turn(
-                            conv_mgr,
-                            conv.conversation_id,
-                            req.question,
-                            normalized_answer,
-                            sources=data.get("sources", []),
-                            related_refs=data.get("related_refs", []),
-                            retrieval_context=data.get("retrieval_context"),
-                            question_type=analysis.question_type.value
-                            if analysis.question_type else data.get("question_type"),
-                            engineering_context=analysis.engineering_context.model_dump()
-                            if analysis.engineering_context else None,
-                            answer_mode=_answer_mode_from_groundedness(result.groundedness),
-                            groundedness=result.groundedness,
-                        )
-                    data = {**data, "groundedness": result.groundedness, "normalized_answer": normalized_answer}
+                    thinking = "".join(reasoning_parts)
+                    data = {
+                        **data,
+                        "groundedness": result.groundedness,
+                        "normalized_answer": normalized_answer,
+                    }
+                    if thinking:
+                        data["thinking"] = thinking
                     data = _external_done_payload(
                         data,
                         question_type=analysis.question_type.value
@@ -620,6 +665,25 @@ async def query_stream(
                         groundedness=result.groundedness,
                         title=title,
                     )
+                    if _uses_external_session(req):
+                        title = await _add_conversation_turn(
+                            conv_mgr,
+                            conv.conversation_id,
+                            req.question,
+                            normalized_answer,
+                            sources=data.get("sources", []),
+                            related_refs=data.get("relatedRefs", []),
+                            retrieval_context=data.get("retrievalContext")
+                            or data.get("retrieval_context"),
+                            question_type=data.get("questionType"),
+                            engineering_context=data.get("engineeringContext")
+                            or data.get("engineering_context"),
+                            answer_mode=data.get("answerMode"),
+                            groundedness=data.get("groundedness"),
+                            thinking=thinking or None,
+                            response_payload=data,
+                        )
+                        data["title"] = title
                 yield {"event": event_type, "data": json.dumps(data, ensure_ascii=False)}
         except Exception:
             logger.exception("stream_pipeline_failed")
@@ -630,5 +694,8 @@ async def query_stream(
                     ensure_ascii=False,
                 ),
             }
+        finally:
+            flush_current_recorder()
+            reset_current_recorder(token)
 
     return EventSourceResponse(event_generator())

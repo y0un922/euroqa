@@ -248,8 +248,8 @@ model = config.contextualize_llm_model or config.llm_model
 
 #### 2. Signatures
 
-- API persistence helper: `_add_conversation_turn(conv_mgr, conversation_id, question, answer, *, sources=None, related_refs=None, retrieval_context=None, question_type=None, engineering_context=None, answer_mode=None, groundedness=None) -> str | None`.
-- Redis persistence entry point: `RedisConversationManager.add_turn_async(conversation_id, question, answer, *, title=None, sources=None, related_refs=None, retrieval_context=None, question_type=None, engineering_context=None, answer_mode=None, groundedness=None) -> str | None`.
+- API persistence helper: `_add_conversation_turn(conv_mgr, conversation_id, question, answer, *, sources=None, related_refs=None, retrieval_context=None, question_type=None, engineering_context=None, answer_mode=None, groundedness=None, thinking=None, response_payload=None) -> str | None`.
+- Redis persistence entry point: `RedisConversationManager.add_turn_async(conversation_id, question, answer, *, title=None, sources=None, related_refs=None, retrieval_context=None, question_type=None, engineering_context=None, answer_mode=None, groundedness=None, thinking=None, response_payload=None) -> str | None`.
 - Redis key: `context:{sessionId}` stores one JSON string per message.
 
 #### 3. Contracts
@@ -260,6 +260,8 @@ model = config.contextualize_llm_model or config.llm_model
   - `relatedRefs`: related reference labels.
   - `retrievalContext`: export/debug snapshot with main, parent, guide, guide-example, and reference chunks when present.
   - `questionType`, `engineeringContext`, `answerMode`, `groundedness`: answer-state metadata for historical display and diagnostics.
+  - `thinking`: concatenated text from streamed `reasoning` events when present.
+  - `response`: full final `/query/stream` `done` payload snapshot, including fields the external client received.
 - Python call sites use snake_case keyword arguments; Redis JSON payload fields use the external camelCase contract.
 - Redis history reads for generation should continue converting messages to `{"question", "answer"}` only; citation metadata is a display/export snapshot, not prompt history.
 - The persistence helper must remain compatible with legacy conversation managers that accept only `(conversation_id, question, answer)`.
@@ -268,13 +270,15 @@ model = config.contextualize_llm_model or config.llm_model
 
 - Assistant answer has sources -> Redis assistant message includes `sources`.
 - Assistant answer has retrieval context -> Redis assistant message includes `retrievalContext`.
+- Stream emits reasoning events -> Redis assistant message includes `thinking`, and `response.thinking` matches it.
+- Stream persists an external session -> Redis assistant message includes `response` with the final done payload snapshot.
 - Metadata is absent or empty -> Redis assistant message may omit that optional field.
 - Legacy Redis messages without metadata -> history loading still returns Q&A history.
 - Legacy in-memory/test manager lacks metadata kwargs -> helper falls back to the three-argument call.
 
 #### 5. Good/Base/Bad Cases
 
-- Good: a streamed external-session answer with `[Ref-1]` stores answer text, `sources`, `relatedRefs`, `retrievalContext`, `questionType`, `answerMode`, and `groundedness` in the assistant Redis message.
+- Good: a streamed external-session answer with `[Ref-1]` stores answer text, `sources`, `relatedRefs`, `retrievalContext`, `questionType`, `answerMode`, `groundedness`, `thinking`, and `response` in the assistant Redis message.
 - Base: a chat/fallback answer with no sources stores only the role/content/timestamp fields.
 - Bad: storing source fields only in the HTTP/SSE response while Redis keeps only answer text.
 
@@ -283,7 +287,7 @@ model = config.contextualize_llm_model or config.llm_model
 - Unit tests must inspect the raw Redis list payload and assert assistant messages preserve source document/file fields.
 - Helper tests must assert metadata is forwarded to async managers that support kwargs.
 - Helper tests must assert managers with the legacy three-argument signature still work.
-- Query or stream tests should cover at least one external `sessionId` path when route-level behavior changes.
+- Stream tests must cover at least one external `sessionId` path and assert streamed reasoning is persisted as `thinking` plus `response.thinking`.
 
 #### 7. Wrong vs Correct
 
@@ -574,6 +578,90 @@ document_id = _build_document_id(chunk.metadata.source)
 
 ```python
 document_id = _resolve_document_id(chunk)
+```
+
+### Scenario: Token Accounting and Spot-Check Metrics
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to shared token counters, retrieval diagnostic logging, spot-check JSONL fields, or prompt-token accounting.
+- Reason: spot-check logs are used to diagnose retrieval/rerank/generation failures. If token counts are estimates when the provider can report exact usage, or if diagnostic fields have unstable shapes, later analysis produces false conclusions.
+
+#### 2. Signatures
+
+- Token counter: `count_for_llm(text: str, model: str) -> tuple[int, bool]`.
+- Qwen embedding counter path: `count_for_embedding(text: str, model: str) -> tuple[int, bool]`.
+- Rerank diagnostic fields:
+  - `rerank_input_tokens: list[dict[str, object]]`
+  - `rerank_truncated: list[dict[str, object]]`
+- Prompt diagnostic field:
+  - `final_prompt_tokens: {"value": int, "is_estimate": bool, "model": str}`
+
+#### 3. Contracts
+
+- Closed-source Qwen LLM models served through DashScope OpenAI-compatible chat completions must be counted via `usage.prompt_tokens`, not `dashscope.Tokenization`.
+- Qwen embedding models may keep using DashScope tokenization when the embedding endpoint needs token accounting; do not route embedding counting through chat completions.
+- If exact LLM usage is unavailable, token counters must return `(char_estimate, True)` and log a warning without failing answer generation.
+- Spot-check diagnostic collection fields must be JSON-native and schema-stable. Per-chunk metrics must use `list[dict]`, not a chunk-id keyed dict that can be confused with recorder field maps or serialized enum objects.
+- Any enum-like metadata written to spot-check logs must be converted to its JSON string value before recording.
+
+#### 4. Validation & Error Matrix
+
+- Qwen chat completion returns `usage.prompt_tokens` -> `count_for_llm()` returns that value with `is_estimate=False`.
+- Qwen chat completion fails or omits prompt usage -> `count_for_llm()` falls back to char estimate with `is_estimate=True`.
+- Qwen embedding tokenization succeeds -> `count_for_embedding()` may return exact embedding input tokens.
+- Rerank input token logging sees N candidate chunks -> both `rerank_input_tokens` and `rerank_truncated` contain N dict entries.
+- A chunk has `ElementType.TEXT` metadata -> spot-check JSON records `"text"`, not an enum object repr.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: `final_prompt_tokens={"value": 11802, "is_estimate": false, "model": "qwen3.6-flash"}` after a DashScope OpenAI-compatible Qwen answer call.
+- Base: unknown LLM aliases fall back to estimates and mark `is_estimate=true`.
+- Bad: `dashscope.Tokenization.call(model="qwen3.6-flash")` is used for LLM prompt counting and returns `Model not supported`, forcing avoidable estimates.
+- Bad: `rerank_truncated` is recorded as `{"chunk-a": false}` or contains enum objects, making downstream JSONL analysis fragile.
+
+#### 6. Tests Required
+
+- Unit tests must mock OpenAI-compatible Qwen usage and assert exact `prompt_tokens` are returned.
+- Unit tests must prove Qwen embedding counting still uses the embedding/tokenization path.
+- Unit tests must cover missing usage fallback.
+- Retrieval tests must assert `rerank_input_tokens` and `rerank_truncated` are `list[dict]` with JSON-native `element_type` strings.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+# Wrong: new Qwen LLM models can be listed by /v1/models but still rejected by
+# the legacy tokenization endpoint.
+tokenization.call(model="qwen3.6-flash", prompt=prompt)
+```
+
+##### Correct
+
+```python
+# Correct: count the actual chat-serving path by reading provider usage.
+response = client.chat.completions.create(
+    model="qwen3.6-flash",
+    messages=[{"role": "user", "content": prompt}],
+    max_tokens=1,
+)
+tokens = response.usage.prompt_tokens
+```
+
+##### Wrong
+
+```python
+record_spot_check("rerank_truncated", {"chunk-a": False})
+```
+
+##### Correct
+
+```python
+record_spot_check(
+    "rerank_truncated",
+    [{"chunk_id": "chunk-a", "tokens": 377, "max_tokens": 8192, "truncated": False}],
+)
 ```
 
 <!-- Patterns that must always be used -->
