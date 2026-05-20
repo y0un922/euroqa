@@ -156,6 +156,27 @@ report = await run_repeated(question=question, runs=runs)
 print(render_markdown_report(report))
 ```
 
+### Scenario: Answer Confidence Normalization
+
+#### 1. Scope / Trigger
+
+- Trigger: any change that exposes or recalculates `QueryResponse.confidence`.
+- Reason: retrieval confidence is an API contract field, not free-form model prose. Streaming and non-streaming endpoints must not diverge because one trusts LLM JSON while the other uses retrieval scores.
+
+#### 2. Contracts
+
+- Public answer confidence must be derived deterministically from retrieval evidence, not from the LLM `confidence` field.
+- Streaming and non-streaming generation paths must call the same confidence inference helper.
+- `groundedness="not_grounded"` must force low confidence.
+- `groundedness="partial"` must cap confidence at medium, even when the top rerank score is high.
+- Missing canonical sources must force low confidence.
+- LLM-provided confidence may be parsed for backward compatibility, but it must not override retrieval-derived confidence in final API responses.
+
+#### 3. Tests Required
+
+- Unit tests must cover the confidence helper for `grounded`, `partial`, `not_grounded`, and missing-source cases.
+- Regression tests must cover non-streaming generation where the LLM returns `confidence="low"` but retrieval evidence is grounded with a high score.
+
 ### Scenario: Contextual Retrieval LLM Configuration
 
 #### 1. Scope / Trigger

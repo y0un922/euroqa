@@ -1243,14 +1243,26 @@ def _build_related_refs_from_chunks(chunks: list[Chunk], limit: int = 8) -> list
     return refs
 
 
-def _infer_stream_confidence(scores: list[float] | None, has_sources: bool) -> Confidence:
-    """根据检索分数推断置信度。"""
+def _infer_answer_confidence(
+    scores: list[float] | None,
+    has_sources: bool,
+    groundedness: str | None = None,
+) -> Confidence:
+    """Infer external answer confidence from retrieval evidence."""
     if not has_sources:
         return Confidence.LOW
+
+    normalized_groundedness = (groundedness or "").strip().lower()
+    if normalized_groundedness == "not_grounded":
+        return Confidence.LOW
+
     if not scores:
         return Confidence.MEDIUM
+
     top = max(scores)
     if top >= 0.85:
+        if normalized_groundedness == "partial":
+            return Confidence.MEDIUM
         return Confidence.HIGH
     if top >= 0.55:
         return Confidence.MEDIUM
@@ -1442,7 +1454,11 @@ async def generate_answer_stream(
             prioritized_chunks=prioritized_chunks,
         )
         related_refs = _build_related_refs_from_chunks(chunks)
-        confidence = _infer_stream_confidence(scores, has_sources=bool(sources))
+        confidence = _infer_answer_confidence(
+            scores,
+            has_sources=bool(sources),
+            groundedness=groundedness,
+        )
         retrieval_context = _build_retrieval_context(
             chunks,
             parent_chunks,
@@ -1594,10 +1610,16 @@ async def generate_answer(
         normalized_answer = postprocess_citations(
             response.answer, len(canonical_sources)
         )
+        confidence = _infer_answer_confidence(
+            scores,
+            has_sources=bool(canonical_sources),
+            groundedness=groundedness,
+        )
         return response.model_copy(
             update={
                 "answer": normalized_answer,
                 "sources": canonical_sources,
+                "confidence": confidence,
                 "retrieval_context": retrieval_context,
                 "question_type": qt_normalized,
                 "engineering_context": (
