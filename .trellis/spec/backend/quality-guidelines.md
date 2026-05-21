@@ -309,6 +309,7 @@ model = config.contextualize_llm_model or config.llm_model
 - Python call sites use snake_case keyword arguments; Redis JSON payload fields use the external camelCase contract.
 - Redis history reads for generation should continue converting messages to `{"question", "answer"}` only; citation metadata is a display/export snapshot, not prompt history.
 - The persistence helper must remain compatible with legacy conversation managers that accept only `(conversation_id, question, answer)`.
+- Redis external session history must not set TTL/expiration on `context:{sessionId}`; history cleanup is explicit deletion, not time-based expiry.
 
 #### 4. Validation & Error Matrix
 
@@ -319,6 +320,7 @@ model = config.contextualize_llm_model or config.llm_model
 - Metadata is absent or empty -> Redis assistant message may omit that optional field.
 - Legacy Redis messages without metadata -> history loading still returns Q&A history.
 - Legacy in-memory/test manager lacks metadata kwargs -> helper falls back to the three-argument call.
+- Redis turn persistence -> no `EXPIRE` call is issued for `context:{sessionId}`.
 
 #### 5. Good/Base/Bad Cases
 

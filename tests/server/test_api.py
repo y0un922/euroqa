@@ -88,7 +88,6 @@ class TestRedisConversationManager:
         manager = RedisConversationManager.__new__(RedisConversationManager)
         fake_redis = _FakeRedis()
         manager._redis = fake_redis
-        manager._ttl_seconds = 3600
         fake_redis.lists["context:1001_abc123"] = [
             json.dumps({"question": "旧问题", "answer": "旧回答"}, ensure_ascii=False),
             json.dumps({"role": "user", "content": "新问题"}, ensure_ascii=False),
@@ -109,7 +108,6 @@ class TestRedisConversationManager:
         manager = RedisConversationManager.__new__(RedisConversationManager)
         fake_redis = _FakeRedis()
         manager._redis = fake_redis
-        manager._ttl_seconds = 3600
         fake_redis.hashes["user:1001:sessions"] = {
             "1001_abc123": json.dumps(
                 {"title": None, "createdAt": "2026-05-14T10:00:00Z"},
@@ -145,17 +143,13 @@ class TestRedisConversationManager:
         assert second_title is None
         stored_meta = json.loads(fake_redis.hashes["user:1001:sessions"]["1001_abc123"])
         assert stored_meta["title"] == first_title
-        assert fake_redis.expire_calls == [
-            ("context:1001_abc123", 3600),
-            ("context:1001_abc123", 3600),
-        ]
+        assert fake_redis.expire_calls == []
 
     @pytest.mark.anyio
     async def test_add_turn_persists_assistant_reference_metadata(self):
         manager = RedisConversationManager.__new__(RedisConversationManager)
         fake_redis = _FakeRedis()
         manager._redis = fake_redis
-        manager._ttl_seconds = 3600
 
         await manager.add_turn_async(
             "1001_refs",
@@ -183,6 +177,24 @@ class TestRedisConversationManager:
             engineering_context={"country": "EU"},
             answer_mode="standard",
             groundedness="grounded",
+            thinking="先检索 EN 1990，再组织回答。",
+            response_payload={
+                "code": 200,
+                "answer": "应规定设计使用年限。[Ref-1]",
+                "normalized_answer": "应规定设计使用年限。[Ref-1]",
+                "sources": [
+                    {
+                        "file": "EN 1990:2002",
+                        "docId": "EN_1990_2002",
+                    }
+                ],
+                "relatedRefs": ["Table 2.1"],
+                "thinking": "先检索 EN 1990，再组织回答。",
+                "questionType": "rule",
+                "answerMode": "standard",
+                "groundedness": "grounded",
+                "title": None,
+            },
         )
 
         messages = [
@@ -203,6 +215,13 @@ class TestRedisConversationManager:
         assert assistant_message["engineeringContext"] == {"country": "EU"}
         assert assistant_message["answerMode"] == "standard"
         assert assistant_message["groundedness"] == "grounded"
+        assert assistant_message["thinking"] == "先检索 EN 1990，再组织回答。"
+        assert assistant_message["response"]["code"] == 200
+        assert assistant_message["response"]["thinking"] == "先检索 EN 1990，再组织回答。"
+        assert assistant_message["response"]["sources"][0]["docId"] == "EN_1990_2002"
+        assert assistant_message["response"]["title"] == (
+            "设计使用年限是什么？"
+        )
 
 
 class TestConversationTurnPersistence:
@@ -245,6 +264,8 @@ class TestConversationTurnPersistence:
             engineering_context={"country": "EU"},
             answer_mode="standard",
             groundedness="grounded",
+            thinking="先检索 EN 1990。",
+            response_payload={"code": 200, "thinking": "先检索 EN 1990。"},
         )
 
         assert manager.kwargs is not None
@@ -256,6 +277,11 @@ class TestConversationTurnPersistence:
         assert manager.kwargs["engineering_context"] == {"country": "EU"}
         assert manager.kwargs["answer_mode"] == "standard"
         assert manager.kwargs["groundedness"] == "grounded"
+        assert manager.kwargs["thinking"] == "先检索 EN 1990。"
+        assert manager.kwargs["response_payload"] == {
+            "code": 200,
+            "thinking": "先检索 EN 1990。",
+        }
 
     @pytest.mark.anyio
     async def test_add_conversation_turn_keeps_legacy_async_manager_compatible(self):
@@ -1309,6 +1335,7 @@ class TestQueryEndpoint:
         self, client
     ):
         seen_conversation_ids: list[str | None] = []
+        persisted_turn: dict[str, object] = {}
 
         class _FakeRetriever:
             async def retrieve(self, **kwargs):
@@ -1319,13 +1346,24 @@ class TestQueryEndpoint:
                 seen_conversation_ids.append(conversation_id)
                 return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
 
-            def add_turn(self, conversation_id, question, answer):
+            def add_turn(self, conversation_id, question, answer, **kwargs):
+                persisted_turn.update(
+                    {
+                        "conversation_id": conversation_id,
+                        "question": question,
+                        "answer": answer,
+                        **kwargs,
+                    }
+                )
                 return None
 
         async def _fake_generate_answer_stream(**kwargs):
+            yield ("reasoning", {"text": "先找 EN 1990。"})
+            yield ("reasoning", {"text": "再整理引用。"})
             yield (
                 "done",
                 {
+                    "answer": "应规定设计使用年限。[Ref-1]",
                     "sources": [
                         {
                             "file": "EN 1990:2002",
@@ -1388,6 +1426,12 @@ class TestQueryEndpoint:
             "The design working life should be specified."
         )
         assert done_payload["sources"][0]["locatorText"] == "2.3 Design working life"
+        assert done_payload["thinking"] == "先找 EN 1990。再整理引用。"
+        assert persisted_turn["thinking"] == "先找 EN 1990。再整理引用。"
+        assert persisted_turn["response_payload"]["code"] == 200
+        assert persisted_turn["response_payload"]["thinking"] == "先找 EN 1990。再整理引用。"
+        assert persisted_turn["response_payload"]["sources"][0]["docId"] == "EN_1990_2002"
+        assert persisted_turn["response_payload"]["title"] is None
 
     def test_query_endpoint_threads_intent_label_to_generate_answer(self, client):
         class _FakeRetriever:

@@ -134,7 +134,6 @@ class RedisConversationManager:
             config.redis_url,
             decode_responses=True,
         )
-        self._ttl_seconds = config.conversation_ttl_hours * 3600
 
     def get_or_create(self, conversation_id: str | None = None) -> ConversationState:
         cid = conversation_id or str(uuid.uuid4())
@@ -166,32 +165,12 @@ class RedisConversationManager:
         engineering_context: dict[str, Any] | None = None,
         answer_mode: str | None = None,
         groundedness: str | None = None,
+        thinking: str | None = None,
+        response_payload: dict[str, Any] | None = None,
     ) -> str | None:
         """Append one Q&A turn and update session metadata."""
         now = _utc_iso()
         key = f"context:{conversation_id}"
-        assistant_metadata: dict[str, Any] = {}
-        if sources:
-            assistant_metadata["sources"] = sources
-        if related_refs:
-            assistant_metadata["relatedRefs"] = related_refs
-        if retrieval_context:
-            assistant_metadata["retrievalContext"] = retrieval_context
-        if question_type:
-            assistant_metadata["questionType"] = question_type
-        if engineering_context:
-            assistant_metadata["engineeringContext"] = engineering_context
-        if answer_mode:
-            assistant_metadata["answerMode"] = answer_mode
-        if groundedness:
-            assistant_metadata["groundedness"] = groundedness
-        await self._redis.rpush(
-            key,
-            _message_payload("user", question, now),
-            _message_payload("assistant", answer, now, metadata=assistant_metadata),
-        )
-        await self._redis.expire(key, self._ttl_seconds)
-
         generated_title = title or _derive_session_title(question)
         should_return_title = True
         user_id = _user_id_from_session_id(conversation_id)
@@ -213,6 +192,39 @@ class RedisConversationManager:
                 should_return_title = False
             else:
                 metadata["title"] = generated_title
+        else:
+            meta_key = None
+            metadata = {}
+
+        title_for_response = generated_title if should_return_title else None
+        assistant_metadata: dict[str, Any] = {}
+        if sources:
+            assistant_metadata["sources"] = sources
+        if related_refs:
+            assistant_metadata["relatedRefs"] = related_refs
+        if retrieval_context:
+            assistant_metadata["retrievalContext"] = retrieval_context
+        if question_type:
+            assistant_metadata["questionType"] = question_type
+        if engineering_context:
+            assistant_metadata["engineeringContext"] = engineering_context
+        if answer_mode:
+            assistant_metadata["answerMode"] = answer_mode
+        if groundedness:
+            assistant_metadata["groundedness"] = groundedness
+        if thinking:
+            assistant_metadata["thinking"] = thinking
+        if response_payload:
+            response_snapshot = dict(response_payload)
+            response_snapshot["title"] = title_for_response
+            assistant_metadata["response"] = response_snapshot
+        await self._redis.rpush(
+            key,
+            _message_payload("user", question, now),
+            _message_payload("assistant", answer, now, metadata=assistant_metadata),
+        )
+
+        if meta_key is not None:
             await self._redis.hset(
                 meta_key,
                 conversation_id,
