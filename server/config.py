@@ -20,6 +20,7 @@ class ServerConfig(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     llm_enable_thinking: bool = True
+    use_unified_tokenizer: bool = True
 
     access_password: str = ""
     auth_secret_key: str = _DEFAULT_SECRET
@@ -54,6 +55,7 @@ class ServerConfig(BaseSettings):
     rerank_api_key: str = ""
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_request_timeout_seconds: float = 120.0
+    rerank_max_length: int = 8192
 
     milvus_host: str = "localhost"
     milvus_port: int = 19530

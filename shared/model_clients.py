@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any, ClassVar
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+import structlog
+
+logger = structlog.get_logger()
 
 
 def _build_headers(api_key: str) -> dict[str, str]:
@@ -117,6 +121,8 @@ class RerankClient:
     api_url: str = ""
     api_key: str = ""
     request_timeout_seconds: float = 120.0
+    max_length: int = 8192
+    supports_max_length: bool = True
 
     _local_models: ClassVar[dict[str, Any]] = {}
 
@@ -169,17 +175,28 @@ class RerankClient:
     ) -> list[tuple[int, float]]:
         _require_remote_url("rerank", self.api_url)
         endpoint = _resolve_remote_endpoint(self.api_url, "/rerank")
-        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
-            response = await client.post(
-                endpoint,
-                headers=_build_headers(self.api_key),
-                json={
-                    "model": self.model,
-                    "query": query,
-                    "documents": documents,
-                    "top_n": top_n,
-                },
+        body = {
+            "model": self.model,
+            "query": query,
+            "documents": documents,
+            "top_n": top_n,
+        }
+        if self.supports_max_length and self.max_length > 0:
+            body["max_length"] = self.max_length
+
+        response = await self._post_rerank(endpoint, body)
+        if response.status_code == 400 and "max_length" in body:
+            logger.warning(
+                "remote_rerank_max_length_unsupported",
+                status_code=response.status_code,
+                model=self.model,
+                endpoint=endpoint,
+                max_length=self.max_length,
             )
+            self.supports_max_length = False
+            fallback_body = dict(body)
+            fallback_body.pop("max_length", None)
+            response = await self._post_rerank(endpoint, fallback_body)
         response.raise_for_status()
         payload = response.json()
         results = payload.get("results") or payload.get("data")
@@ -195,6 +212,31 @@ class RerankClient:
             ranked.append((int(index), float(score)))
         ranked.sort(key=lambda item: item[1], reverse=True)
         return ranked[:top_n]
+
+    async def _post_rerank(
+        self,
+        endpoint: str,
+        body: dict[str, Any],
+    ) -> httpx.Response:
+        started = time.perf_counter()
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+            response = await client.post(
+                endpoint,
+                headers=_build_headers(self.api_key),
+                json=body,
+            )
+        logger.info(
+            "remote_rerank_request",
+            status_code=response.status_code,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 2),
+            model=self.model,
+            document_count=len(body.get("documents", [])),
+            top_n=body.get("top_n"),
+            max_length=body.get("max_length"),
+            sent_max_length="max_length" in body,
+            supports_max_length=self.supports_max_length,
+        )
+        return response
 
 
 def build_embedding_client(config: Any) -> EmbeddingClient:
@@ -217,4 +259,5 @@ def build_rerank_client(config: Any) -> RerankClient:
         api_url=config.rerank_api_url,
         api_key=config.rerank_api_key,
         request_timeout_seconds=config.rerank_request_timeout_seconds,
+        max_length=getattr(config, "rerank_max_length", 8192),
     )

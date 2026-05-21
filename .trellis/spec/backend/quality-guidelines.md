@@ -177,6 +177,29 @@ print(render_markdown_report(report))
 - Unit tests must cover the confidence helper for `grounded`, `partial`, `not_grounded`, and missing-source cases.
 - Regression tests must cover non-streaming generation where the LLM returns `confidence="low"` but retrieval evidence is grounded with a high score.
 
+### Scenario: Remote Rerank Request Compatibility
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to remote rerank request payloads, timeout settings, or provider-specific optional fields.
+- Reason: rerank is on the critical retrieval path. Optional provider fields such as `max_length` must improve scoring quality without turning a provider schema mismatch into a retrieval outage.
+
+#### 2. Contracts
+
+- Remote rerank clients should send configured optional fields such as `max_length` when supported.
+- If a remote provider returns HTTP 400 for an optional field, retry once without that field.
+- After a successful fallback, the same client instance should remember the field as unsupported and skip it on later calls.
+- Request timeout must stay configurable and default to a production-safe value, currently 120 seconds.
+- Structured logs must include status code, latency, model, document count, top_n, and whether the optional field was sent.
+- Retrieval spot-check truncation metrics must use the configured rerank max length, not a hard-coded constant.
+
+#### 3. Tests Required
+
+- Unit tests must assert the remote request includes the configured `max_length`.
+- Unit tests must assert a 400 response retries without `max_length`.
+- Unit tests must assert later calls skip `max_length` after fallback.
+- Retrieval tests must assert spot-check `max_tokens` follows config.
+
 ### Scenario: Contextual Retrieval LLM Configuration
 
 #### 1. Scope / Trigger

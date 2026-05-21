@@ -1016,6 +1016,7 @@ class TestRerank:
                 rerank_provider="remote",
                 rerank_api_url="https://rerank.example/v1/rerank",
                 rerank_model="rerank-model",
+                rerank_max_length=4,
             )
         )
 
@@ -1048,9 +1049,9 @@ class TestRerank:
             {
                 "chunk_id": "a",
                 "tokens": 5,
-                "max_tokens": 8192,
-                "truncated": False,
-                "truncation_ratio": 5 / 8192,
+                "max_tokens": 4,
+                "truncated": True,
+                "truncation_ratio": 5 / 4,
                 "source": "EN 1990:2002",
                 "element_type": "text",
             }

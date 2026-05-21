@@ -41,12 +41,14 @@ class PipelineConfig(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"
     embedding_request_timeout_seconds: float = 120.0
     embedding_batch_size: int = 8
+    use_unified_tokenizer: bool = True
 
     rerank_provider: Literal["local", "remote"] = "local"
     rerank_api_url: str = ""
     rerank_api_key: str = ""
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_request_timeout_seconds: float = 120.0
+    rerank_max_length: int = 8192
 
     milvus_host: str = "localhost"
     milvus_port: int = 19530

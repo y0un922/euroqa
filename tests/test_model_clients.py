@@ -185,6 +185,7 @@ async def test_remote_rerank_client_uses_configured_url_key_and_model(monkeypatc
         "query": "wind load",
         "documents": ["doc-a", "doc-b", "doc-c"],
         "top_n": 2,
+        "max_length": 8192,
     }
 
 
@@ -217,3 +218,38 @@ async def test_remote_rerank_client_accepts_openai_compatible_base_url(monkeypat
 
     assert results == [(0, 0.91)]
     assert calls[0][1] == "https://api.siliconflow.cn/v1/rerank"
+
+
+@pytest.mark.asyncio
+async def test_remote_rerank_client_retries_without_max_length_on_400(monkeypatch):
+    calls = []
+    responses = {
+        ("POST", "https://rerank.example/v1/rerank"): [
+            _FakeResponse({"error": "max_length unsupported"}, status_code=400),
+            _FakeResponse({"results": [{"index": 0, "relevance_score": 0.91}]}),
+            _FakeResponse({"results": [{"index": 0, "relevance_score": 0.92}]}),
+        ]
+    }
+
+    monkeypatch.setattr(
+        "shared.model_clients.httpx.AsyncClient",
+        lambda **kwargs: _FakeAsyncClient(responses, calls),
+    )
+
+    client = RerankClient(
+        provider="remote",
+        model="rerank-model",
+        api_url="https://rerank.example/v1/rerank",
+        api_key="rerank-key",
+        max_length=8192,
+    )
+
+    first = await client.rerank("wind load", ["doc-a"], 1)
+    second = await client.rerank("wind load", ["doc-a"], 1)
+
+    assert first == [(0, 0.91)]
+    assert second == [(0, 0.92)]
+    assert "max_length" in calls[0][2]["json"]
+    assert "max_length" not in calls[1][2]["json"]
+    assert "max_length" not in calls[2][2]["json"]
+    assert client.supports_max_length is False

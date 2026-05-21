@@ -22,10 +22,16 @@ def test_server_config_loads_project_dotenv(monkeypatch, tmp_path: Path):
     assert cfg.rerank_api_url == "https://api.siliconflow.cn/v1"
 
 
-def test_server_config_defaults_to_wider_rerank_window():
+def test_server_config_defaults(monkeypatch, tmp_path: Path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RERANK_TOP_N", raising=False)
+    monkeypatch.delenv("USE_UNIFIED_TOKENIZER", raising=False)
+
     cfg = ServerConfig()
 
-    assert cfg.rerank_top_n == 8
+    assert cfg.rerank_top_n == 10
+    assert cfg.rerank_max_length == 8192
+    assert cfg.use_unified_tokenizer is True
 
 
 def test_pipeline_config_loads_project_dotenv(monkeypatch, tmp_path: Path):
@@ -41,3 +47,4 @@ def test_pipeline_config_loads_project_dotenv(monkeypatch, tmp_path: Path):
 
     assert cfg.embedding_provider == "remote"
     assert cfg.embedding_api_url == "https://api.siliconflow.cn/v1"
+    assert cfg.use_unified_tokenizer is True

@@ -1083,12 +1083,13 @@ class HybridRetriever:
         documents = [self._rerank_text(c) for c in chunks]
         token_records: list[dict[str, Any]] = []
         truncation_records: list[dict[str, Any]] = []
+        rerank_max_length = max(int(self.config.rerank_max_length), 1)
         for chunk, document in zip(chunks, documents, strict=False):
             token_count, is_estimate = count_for_rerank(
                 document,
                 self.config.rerank_model,
             )
-            truncated = token_count > 8192
+            truncated = token_count > rerank_max_length
             element_type = getattr(
                 chunk.metadata.element_type,
                 "value",
@@ -1107,9 +1108,11 @@ class HybridRetriever:
                 {
                     "chunk_id": chunk.chunk_id,
                     "tokens": token_count,
-                    "max_tokens": 8192,
+                    "max_tokens": rerank_max_length,
                     "truncated": truncated,
-                    "truncation_ratio": token_count / 8192 if token_count else 0.0,
+                    "truncation_ratio": (
+                        token_count / rerank_max_length if token_count else 0.0
+                    ),
                     "source": chunk.metadata.source,
                     "element_type": element_type,
                 }
