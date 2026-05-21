@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 from dataclasses import field
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING
 import structlog
 from pipeline.structure import DocumentNode
 from pipeline.structure import ElementType as StructElementType
+from shared.tokenizers import count_for_bge_embedding
 from shared.reference_graph import build_object_id
 from shared.reference_graph import classify_reference_label
 from shared.reference_graph import extract_clause_key
@@ -479,8 +481,25 @@ def _normalize_for_hash(text: str) -> str:
 
 
 def _estimate_tokens(text: str) -> int:
+    """Estimate token count for chunking.
+
+    Uses the shared BGE tokenizer by default and falls back inside that helper
+    when model tokenization is unavailable. Set USE_UNIFIED_TOKENIZER=false to
+    force the legacy character heuristic.
+    """
+    if _use_unified_tokenizer():
+        return count_for_bge_embedding(text)
+    return _legacy_estimate_tokens(text)
+
+
+def _legacy_estimate_tokens(text: str) -> int:
     """粗略估算 token 数（中英混合文本，约 2 字符 = 1 token）。"""
     return len(text) // 2
+
+
+def _use_unified_tokenizer() -> bool:
+    value = os.getenv("USE_UNIFIED_TOKENIZER", "true").strip().lower()
+    return value not in {"0", "false", "no", "off"}
 
 
 def _truncate_by_tokens(text: str, max_tokens: int) -> str:

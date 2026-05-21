@@ -23,6 +23,7 @@ data/parsed/*
 !data/parsed/.gitkeep
 data/pdfs/*
 !data/pdfs/.gitkeep
+logs/
 
 # Local agent/tooling state
 .agents/

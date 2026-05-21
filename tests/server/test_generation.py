@@ -12,6 +12,7 @@ from server.core.generation import (
     _build_sources_from_chunks,
     _build_source_translation_prompt,
     _call_source_translation_llm,
+    _count_tokens,
     _fill_missing_source_translations,
     build_prompt,
     decide_generation_mode,
@@ -19,7 +20,7 @@ from server.core.generation import (
     generate_answer_stream,
     parse_llm_response,
 )
-from server.models.schemas import Confidence
+from server.models.schemas import Chunk, ChunkMetadata, Confidence, ElementType
 
 
 class TestBuildPrompt:
@@ -81,6 +82,25 @@ class TestBuildPrompt:
         assert "指南文档检索结果：" in prompt
         assert "指南算例检索结果：" in prompt
         assert "Bridge Designers Guide 2024" in prompt
+
+
+def test_count_tokens_uses_unified_tokenizer(monkeypatch):
+    monkeypatch.setattr(
+        "server.core.generation.count_for_llm",
+        lambda text, model: (42, False),
+    )
+
+    assert _count_tokens("hello", ServerConfig(llm_model="qwen-plus")) == (42, False)
+
+
+def test_count_tokens_can_use_legacy_tokenizer():
+    count, is_estimate = _count_tokens(
+        "hello",
+        ServerConfig(use_unified_tokenizer=False),
+    )
+
+    assert count > 0
+    assert is_estimate is True
 
 
 class TestAnswerPrompts:
@@ -344,8 +364,6 @@ class TestSourceTranslationFill:
     def test_build_sources_from_chunks_enriches_table_bbox_and_element_type(
         self, tmp_path: Path
     ):
-        from server.models.schemas import Chunk, ChunkMetadata, ElementType
-
         chunk = Chunk(
             chunk_id="chunk_t_2_1",
             content=(

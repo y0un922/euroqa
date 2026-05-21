@@ -22,7 +22,14 @@ async def test_spot_check_recorder_writes_jsonl(tmp_path):
         base_dir=tmp_path,
         tag="baseline",
     )
-    recorder.record("question_type", "parameter")
+    recorder.record(
+        "query_signals",
+        {
+            "legacy_question_type": "parameter",
+            "exact_refs": [],
+            "procedural_cues": False,
+        },
+    )
     recorder.schedule_flush()
 
     await wait_for_pending_writes()
@@ -31,7 +38,12 @@ async def test_spot_check_recorder_writes_jsonl(tmp_path):
     payload = json.loads(path.read_text(encoding="utf-8").strip())
     assert payload["query"] == "What is Table 3.1?"
     assert payload["query_id"] == "query-1"
-    assert payload["question_type"] == "parameter"
+    assert payload["query_signals"] == {
+        "legacy_question_type": "parameter",
+        "exact_refs": [],
+        "procedural_cues": False,
+    }
+    assert "question_type" not in payload
 
 
 def test_current_recorder_context_var_resets():

@@ -1,11 +1,24 @@
 """Test mixed chunking strategy."""
 import pytest
 from pipeline.chunk import create_chunks
+from pipeline.chunk import _estimate_tokens
 from pipeline.chunk import validate_unique_chunk_ids
 from pipeline.structure import DocumentNode
 from pipeline.structure import ElementType as StructElementType
 from pipeline.structure import parse_markdown_to_tree
 from server.models.schemas import ElementType as ChunkElementType
+
+
+@pytest.fixture(autouse=True)
+def _use_legacy_token_estimate(monkeypatch):
+    monkeypatch.setenv("USE_UNIFIED_TOKENIZER", "false")
+
+
+def test_estimate_tokens_can_use_unified_tokenizer(monkeypatch):
+    monkeypatch.setenv("USE_UNIFIED_TOKENIZER", "true")
+    monkeypatch.setattr("pipeline.chunk.count_for_bge_embedding", lambda text: 7)
+
+    assert _estimate_tokens("any text") == 7
 
 
 class TestCreateChunks:

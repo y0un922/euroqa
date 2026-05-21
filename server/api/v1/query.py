@@ -57,6 +57,16 @@ def _uses_external_session(req: QueryRequest) -> bool:
     return bool(req.session_id)
 
 
+def _spot_check_query_signals(question_type: object) -> dict[str, object]:
+    """Build the reserved query_signals spot-check shape."""
+    legacy_question_type = getattr(question_type, "value", question_type)
+    return {
+        "legacy_question_type": legacy_question_type,
+        "exact_refs": [],
+        "procedural_cues": False,
+    }
+
+
 async def _get_conversation_state(conv_mgr: object, conversation_id: str | None) -> object:
     """Load conversation state from sync or async managers."""
     getter = getattr(conv_mgr, "get_or_create_async", None)
@@ -389,8 +399,8 @@ async def query(
                 {"queries": analysis.expanded_queries},
             )
             recorder.record(
-                "question_type",
-                analysis.question_type.value if analysis.question_type else None,
+                "query_signals",
+                _spot_check_query_signals(analysis.question_type),
             )
 
         filters = analysis.filters
@@ -495,8 +505,8 @@ async def query_stream(
                     {"queries": analysis.expanded_queries},
                 )
                 recorder.record(
-                    "question_type",
-                    analysis.question_type.value if analysis.question_type else None,
+                    "query_signals",
+                    _spot_check_query_signals(analysis.question_type),
                 )
             summary, facts = _understanding_summary(analysis)
             yield {
