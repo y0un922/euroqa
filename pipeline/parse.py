@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass
 import io
 import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -18,6 +19,93 @@ from pipeline.config import PipelineConfig
 logger = structlog.get_logger()
 
 _MINERU_OFFICIAL_MAX_PAGES = 200
+_TITLE_BLACKLIST = (
+    "english version",
+    "contents",
+    "contents list",
+    "table of contents",
+    "management centre",
+    "supersedes",
+    "this european standard",
+)
+
+
+def _normalize_display_title(value: str) -> str:
+    """Normalize a candidate display title."""
+    return re.sub(r"\s+", " ", value).strip(" \t\r\n\"'`")
+
+
+def _looks_like_display_title(value: str) -> bool:
+    """Return whether a string looks like a readable document title."""
+    candidate = _normalize_display_title(value)
+    if not candidate:
+        return False
+    if len(candidate) < 8:
+        return False
+    lower = candidate.casefold()
+    if any(marker in lower for marker in _TITLE_BLACKLIST):
+        return False
+    if candidate.lower().startswith("ics "):
+        return False
+    if candidate.lower().startswith("fig "):
+        return False
+    return bool(re.search(r"[A-Za-z\u4e00-\u9fff]", candidate))
+
+
+def _score_display_title_candidate(value: str) -> int:
+    """Score a line of markdown as a possible human-readable title."""
+    candidate = _normalize_display_title(value)
+    if not _looks_like_display_title(candidate):
+        return -1
+
+    score = len(candidate.split())
+    if "Eurocode" in candidate:
+        score += 5
+    if "Design" in candidate or "Rules" in candidate or "Standard" in candidate:
+        score += 3
+    if re.search(r"EN\s*\d{4}", candidate):
+        score += 4
+    if candidate.startswith("#"):
+        score += 2
+    if ":" in candidate or "-" in candidate:
+        score += 1
+    if candidate.isupper():
+        score -= 2
+    return score
+
+
+def _extract_display_title_from_markdown(markdown: str) -> str:
+    """Infer a readable title from the first meaningful markdown lines."""
+    best_title = ""
+    best_score = -1
+    for raw_line in markdown.splitlines()[:80]:
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("!"):
+            continue
+        if stripped in {"# English version", "## Contents List"}:
+            continue
+        candidate = stripped.lstrip("#").strip()
+        score = _score_display_title_candidate(candidate)
+        if score > best_score:
+            best_score = score
+            best_title = candidate
+    return best_title
+
+
+def _resolve_display_title(metadata: dict, markdown: str, fallback: str) -> str:
+    """Resolve a stable title for downstream display and prompts."""
+    for key in ("display_title", "title", "source_title", "document_title"):
+        value = metadata.get(key)
+        if isinstance(value, str) and _looks_like_display_title(value):
+            return _normalize_display_title(value)
+
+    inferred = _extract_display_title_from_markdown(markdown)
+    if inferred:
+        return inferred
+
+    return _normalize_display_title(fallback) or fallback
 
 
 @dataclass(frozen=True)
@@ -101,6 +189,8 @@ async def _parse_pdf_via_local(
     pdf_path: Path,
     output_dir: Path,
     config: PipelineConfig,
+    *,
+    context_summary_enabled: bool = True,
 ) -> Path:
     async with _get_http_client(config) as client:
         with open(pdf_path, "rb") as f:
@@ -141,12 +231,18 @@ async def _parse_pdf_via_local(
         result_resp.raise_for_status()
         result = result_resp.json()
         content_list = result.get("content_list")
+        metadata = result.get("metadata", {})
+        display_title = _resolve_display_title(metadata, result.get("markdown", ""), pdf_path.stem)
 
         md_path = _write_parse_outputs(
             output_dir,
             pdf_path.stem,
             result.get("markdown", ""),
-            result.get("metadata", {}),
+            {
+                **metadata,
+                "display_title": display_title,
+                "context_summary_enabled": context_summary_enabled,
+            },
             content_list=content_list,
         )
         logger.info("mineru_parse_done", pdf=pdf_path.name, output=str(md_path))
@@ -465,6 +561,8 @@ async def _parse_pdf_via_official(
     pdf_path: Path,
     output_dir: Path,
     config: PipelineConfig,
+    *,
+    context_summary_enabled: bool = True,
 ) -> Path:
     base_url = _normalize_base_url(config.mineru_official_base_url)
     headers = _get_official_headers(config)
@@ -518,11 +616,18 @@ async def _parse_pdf_via_official(
 
         if len(parts) == 1:
             matched, markdown, zip_metadata, content_list = part_results[0]
+            display_title = _resolve_display_title(
+                matched.get("result", {}),
+                markdown,
+                pdf_path.stem,
+            )
             metadata = {
                 "provider": "official",
                 "batch_id": batch_id,
                 "result": matched,
                 "original_page_count": page_count,
+                "display_title": display_title,
+                "context_summary_enabled": context_summary_enabled,
                 **zip_metadata,
             }
         else:
@@ -531,9 +636,12 @@ async def _parse_pdf_via_official(
                 part_results,
                 original_page_count=page_count,
             )
+            display_title = _resolve_display_title(split_metadata, markdown, pdf_path.stem)
             metadata = {
                 "provider": "official",
                 "batch_id": batch_id,
+                "display_title": display_title,
+                "context_summary_enabled": context_summary_enabled,
                 **split_metadata,
             }
 
@@ -552,6 +660,8 @@ async def parse_pdf(
     pdf_path: Path,
     output_dir: Path,
     config: PipelineConfig,
+    *,
+    context_summary_enabled: bool = True,
 ) -> Path:
     """Call MinerU API to parse a single PDF into Markdown.
 
@@ -565,9 +675,19 @@ async def parse_pdf(
     """
     provider = config.mineru_provider.lower()
     if provider == "local":
-        return await _parse_pdf_via_local(pdf_path, output_dir, config)
+        return await _parse_pdf_via_local(
+            pdf_path,
+            output_dir,
+            config,
+            context_summary_enabled=context_summary_enabled,
+        )
     if provider == "official":
-        return await _parse_pdf_via_official(pdf_path, output_dir, config)
+        return await _parse_pdf_via_official(
+            pdf_path,
+            output_dir,
+            config,
+            context_summary_enabled=context_summary_enabled,
+        )
     raise RuntimeError(f"Unsupported MINERU_PROVIDER: {config.mineru_provider}")
 
 
@@ -580,7 +700,12 @@ async def parse_all_pdfs(config: PipelineConfig) -> list[Path]:
     for pdf_path in sorted(pdf_dir.glob("*.pdf")):
         output_dir = parsed_dir / pdf_path.stem
         try:
-            md_path = await parse_pdf(pdf_path, output_dir, config)
+            md_path = await parse_pdf(
+                pdf_path,
+                output_dir,
+                config,
+                context_summary_enabled=config.context_summary_enabled,
+            )
             results.append(md_path)
         except Exception:
             logger.exception("parse_failed", pdf=pdf_path.name)

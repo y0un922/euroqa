@@ -136,6 +136,7 @@ test("buildReferenceRecords prefers source document_id over fuzzy matching", () 
       {
         file: "EN 1990:2002",
         document_id: "EXACT_DOC_ID",
+        display_title: "Eurocode - Basis of structural design",
         title: "Basis",
         section: "2.3",
         page: "28",
@@ -167,6 +168,7 @@ test("buildReferenceRecords prefers source document_id over fuzzy matching", () 
   );
 
   assert.equal(references[0]?.documentId, "EXACT_DOC_ID");
+  assert.equal(references[0]?.displayTitle, "Eurocode - Basis of structural design");
   assert.equal(
     references[0]?.source.highlight_text,
     "The design working life should be specified."
@@ -179,6 +181,7 @@ test("buildReferenceRecords falls back to file match when source document_id is 
       {
         file: "EN1992-1-1_2004(1).pdf",
         document_id: "EN1992-1-1_2004_1_pdf",
+        display_title: "Eurocode 2: Design of concrete structures",
         title: "EN1992-1-1 2004(1).pdf",
         section: "2.4",
         page: "23",
@@ -203,6 +206,39 @@ test("buildReferenceRecords falls back to file match when source document_id is 
   );
 
   assert.equal(references[0]?.documentId, "EN1992-1-1_2004(1).pdf");
+});
+
+test("buildReferenceRecords exposes display title when available", () => {
+  const references = buildReferenceRecords(
+    [
+      {
+        file: "EN 1992:2004",
+        document_id: "EN1992_2004",
+        display_title: "Eurocode 2: Design of concrete structures",
+        title: "Eurocode 2: Design of concrete structures",
+        section: "2.3",
+        page: "28",
+        clause: "2.3(1)",
+        original_text: "",
+        highlight_text: "",
+        locator_text: "",
+        translation: ""
+      }
+    ],
+    [
+      {
+        id: "EN1992_2004",
+        name: "EN1992 2004",
+        title: "Eurocode 2: Design of concrete structures",
+        total_pages: 225,
+        chunk_count: 0
+      }
+    ],
+    "high",
+    []
+  );
+
+  assert.equal(references[0]?.displayTitle, "Eurocode 2: Design of concrete structures");
 });
 
 test("getPreferredReferenceIndex prefers the first source with a clause", () => {
@@ -562,7 +598,7 @@ test("queryStream forwards sessionId in the stream request body", async () => {
   });
 });
 
-test("uploadDocumentToMinio posts PDF to backend proxy endpoint", async () => {
+test("uploadDocumentToMinio posts PDF and summary flag to backend proxy endpoint", async () => {
   const seenUrls: string[] = [];
   const seenMethods: string[] = [];
   const seenBodies: unknown[] = [];
@@ -589,7 +625,7 @@ test("uploadDocumentToMinio posts PDF to backend proxy endpoint", async () => {
     const file = new File(["%PDF-1.4"], "EN 1992-1-1.pdf", {
       type: "application/pdf"
     });
-    const result = await uploadDocumentToMinio(file);
+    const result = await uploadDocumentToMinio(file, false);
 
     assert.equal(result.docId, "EN_1992_1_1");
     assert.equal(result.minioPath, "eurocode/uploads/EN_1992_1_1.pdf");
@@ -603,6 +639,8 @@ test("uploadDocumentToMinio posts PDF to backend proxy endpoint", async () => {
   );
   assert.equal(seenMethods[0], "POST");
   assert.ok(seenBodies[0] instanceof FormData);
+  const formData = seenBodies[0] as FormData;
+  assert.equal(formData.get("contextSummaryEnabled"), "false");
 });
 
 test("getLlmSettings fetches masked server defaults", async () => {

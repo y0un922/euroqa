@@ -10,7 +10,7 @@ from pathlib import Path
 
 import fitz
 import structlog
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 from server.deps import get_config, invalidate_retriever_cache
@@ -277,6 +277,22 @@ def _prepare_external_pdf_reference(request: DocumentParseRequest, config) -> No
         raise HTTPException(status_code=503, detail="MinIO 文件读取失败") from exc
 
 
+def _persist_parse_options(request: DocumentParseRequest, config) -> None:
+    """Persist parse options so the worker can read them later."""
+    parsed_dir = Path(config.parsed_dir) / request.doc_id
+    parsed_dir.mkdir(parents=True, exist_ok=True)
+    (parsed_dir / "parse_options.json").write_text(
+        json.dumps(
+            {
+                "context_summary_enabled": request.context_summary_enabled,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 async def _enqueue_document_parse(
     request: DocumentParseRequest,
     config,
@@ -288,6 +304,7 @@ async def _enqueue_document_parse(
         raise HTTPException(status_code=409, detail="该文档正在解析中，不可重复触发")
 
     _prepare_external_pdf_reference(request, config)
+    _persist_parse_options(request, config)
     tm.enqueue(request.doc_id)
     return DocumentParseResponse(
         doc_id=request.doc_id,
@@ -454,6 +471,11 @@ async def upload_document(
 @router.post("/documents/upload-to-minio", response_model=DocumentUploadToMinioResponse)
 async def upload_document_to_minio(
     file: UploadFile = File(...),
+    context_summary_enabled: bool | None = Form(None, alias="contextSummaryEnabled"),
+    context_summary_enabled_legacy: bool | None = Form(
+        None,
+        alias="context_summary_enabled",
+    ),
     config=Depends(get_config),
 ) -> DocumentUploadToMinioResponse:
     """Upload a PDF through the backend proxy and trigger parsing."""
@@ -480,11 +502,19 @@ async def upload_document_to_minio(
     except Exception as exc:
         raise HTTPException(status_code=503, detail="MinIO 文件上传失败") from exc
 
+    summary_enabled = (
+        context_summary_enabled
+        if context_summary_enabled is not None
+        else context_summary_enabled_legacy
+        if context_summary_enabled_legacy is not None
+        else True
+    )
     parse_response = await _enqueue_document_parse(
         DocumentParseRequest(
             docId=doc_id,
             fileName=file.filename,
             minioPath=minio_path,
+            contextSummaryEnabled=summary_enabled,
         ),
         config,
     )
@@ -510,6 +540,7 @@ async def process_document(doc_id: str, config=Depends(get_config)):
             docId=doc_id,
             fileName=f"{doc_id}.pdf",
             minioPath=str(pdf_path),
+            contextSummaryEnabled=True,
         ),
         config,
     )

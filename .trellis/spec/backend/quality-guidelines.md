@@ -720,6 +720,72 @@ record_spot_check(
 
 - Parser metadata changes require focused tests for downstream citation metadata, not only provider API request/response behavior.
 
+### Scenario: Parse Context Summary Toggle
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to document parsing, parse queue payloads, or stage 3.5 contextual enrichment.
+- Reason: the parse request is accepted by the API first, then consumed later by the worker. If the enable/disable flag is not persisted with the parsed document, async workers and restart/resume flows will ignore the caller's intent.
+
+#### 2. Signatures
+
+- API request model: `DocumentParseRequest.context_summary_enabled: bool = True`
+- External JSON field: `contextSummaryEnabled` for `POST /api/v1/documents/parse`
+- Multipart field: `contextSummaryEnabled` for `POST /api/v1/documents/upload-to-minio`
+- Legacy multipart field: `context_summary_enabled` remains accepted for compatibility
+- Pipeline config: `PipelineConfig.context_summary_enabled: bool = True`
+- Parse helper: `parse_pdf(..., context_summary_enabled: bool = True) -> Path`
+- Worker entry: `run_single_document(doc_id, pipeline_config, on_progress=None) -> dict[str, int]`
+- Parse sidecar: `parsed_dir/{doc_id}/parse_options.json`
+
+#### 3. Contracts
+
+- Default behavior must remain enabled. Missing request fields, missing sidecar files, or malformed sidecar payloads should fall back to `True`.
+- `POST /api/v1/documents/parse` must persist the effective value before queueing so the worker can read it after the HTTP request returns.
+- `POST /api/v1/documents/upload-to-minio` must pass the same flag shape as the JSON parse endpoint.
+- When the flag is `false`, stage 3.5 contextual enrichment must be skipped, but parsing, structure, chunking, and indexing still run.
+- Batch `parse_all_pdfs()` must also forward the global config flag into `parse_pdf()` so CLI rebuilds respect the same toggle.
+
+#### 4. Validation & Error Matrix
+
+- Missing `contextSummaryEnabled` -> default to `true`
+- Invalid or unreadable `parse_options.json` -> worker logs a warning and falls back to `PipelineConfig.context_summary_enabled`
+- `false` flag provided -> do not call `enrich_chunks()` and mark stage 3.5 as skipped in pipeline debug output
+- `true` flag provided -> call `enrich_chunks()` and preserve existing stage 3.5 behavior
+
+#### 5. Good/Base/Bad Cases
+
+- Good: `contextSummaryEnabled=false` skips stage 3.5 for one upload but still indexes chunks.
+- Base: `contextSummaryEnabled=true` continues to generate contextual summaries and embedding text.
+- Bad: storing the flag only in the request object and never persisting it for the worker.
+
+#### 6. Tests Required
+
+- API tests must assert `parse_options.json` contains the effective boolean for both `/documents/parse` and `/documents/upload-to-minio`.
+- Parse tests must assert `_meta.json` contains `context_summary_enabled`.
+- Worker tests must assert `run_single_document()` passes the flag into `parse_pdf()` and skips `enrich_chunks()` when disabled.
+- CLI pipeline tests must assert stage 3.5 is skipped when the metadata flag is false.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+async def parse_document(request: DocumentParseRequest, config=Depends(get_config)):
+    tm.enqueue(request.doc_id)
+```
+
+##### Correct
+
+```python
+def _persist_parse_options(request: DocumentParseRequest, config) -> None:
+    parsed_dir = Path(config.parsed_dir) / request.doc_id
+    (parsed_dir / "parse_options.json").write_text(
+        json.dumps({"context_summary_enabled": request.context_summary_enabled}),
+        encoding="utf-8",
+    )
+```
+
 ---
 
 ## Code Review Checklist

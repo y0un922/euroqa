@@ -91,6 +91,7 @@ class ChunkMetadata(BaseModel):
     source: str
     document_id: Optional[str] = None
     source_title: str
+    display_title: str = ""
     section_path: list[str]
     page_numbers: list[int]
     page_file_index: list[int]
@@ -144,6 +145,7 @@ class QueryRequest(BaseModel):
 class Source(BaseModel):
     file: str
     document_id: str
+    display_title: str = ""
     element_type: ElementType = ElementType.TEXT
     bbox: list[float] = Field(default_factory=list)
     title: str
@@ -251,6 +253,7 @@ class DocumentParseRequest(CamelModel):
     doc_id: str
     file_name: str
     minio_path: str
+    context_summary_enabled: bool = True
 
 
 class DocumentParseResponse(CamelModel):

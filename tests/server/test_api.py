@@ -1857,6 +1857,12 @@ class TestDocumentsEndpoint:
         }
         assert enqueued == ["EN_1992_1_1"]
         assert (pdf_dir / "EN_1992_1_1.pdf").is_file()
+        parse_options = json.loads(
+            (tmp_path / "parsed" / "EN_1992_1_1" / "parse_options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert parse_options["context_summary_enabled"] is True
 
     def test_parse_document_contract_downloads_from_minio_path(
         self, client, tmp_path: Path
@@ -1901,6 +1907,7 @@ class TestDocumentsEndpoint:
                     "docId": "EN_1992_1_1",
                     "fileName": "EN 1992-1-1.pdf",
                     "minioPath": "eurocode/uploads/EN_1992_1_1.pdf",
+                    "contextSummaryEnabled": False,
                 },
             )
 
@@ -1908,6 +1915,12 @@ class TestDocumentsEndpoint:
         assert resp.json()["status"] == "processing"
         assert enqueued == ["EN_1992_1_1"]
         assert (pdf_dir / "EN_1992_1_1.pdf").read_bytes().startswith(b"%PDF")
+        parse_options = json.loads(
+            (tmp_path / "parsed" / "EN_1992_1_1" / "parse_options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert parse_options["context_summary_enabled"] is False
 
     def test_upload_to_minio_uploads_pdf_and_triggers_parse(
         self, client, tmp_path: Path
@@ -1963,6 +1976,7 @@ class TestDocumentsEndpoint:
         ):
             resp = client.post(
                 "/api/v1/documents/upload-to-minio",
+                data={"contextSummaryEnabled": "false"},
                 files={
                     "file": (
                         "EN 1992-1-1.pdf",
@@ -1991,6 +2005,12 @@ class TestDocumentsEndpoint:
         ]
         assert enqueued == ["EN_1992-1-1"]
         assert (pdf_dir / "EN_1992-1-1.pdf").read_bytes().startswith(b"%PDF")
+        parse_options = json.loads(
+            (tmp_path / "parsed" / "EN_1992-1-1" / "parse_options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert parse_options["context_summary_enabled"] is False
 
     def test_upload_to_minio_rejects_non_pdf(self, client):
         resp = client.post(

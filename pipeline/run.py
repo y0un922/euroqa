@@ -29,6 +29,29 @@ logger = structlog.get_logger()
 _STAGE_ORDER = {"1": 1, "2": 2, "3": 3, "3.5": 3.5, "4": 4}
 
 
+def _resolve_source_title(meta: dict, fallback: str) -> str:
+    """Resolve a stable display title for a parsed document."""
+    for key in ("display_title", "title", "source_title", "document_title"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return fallback.strip() or fallback
+
+
+def _resolve_context_summary_enabled(meta: dict, config: PipelineConfig) -> bool:
+    """Resolve whether Stage 3.5 contextual summaries should run."""
+    value = meta.get("context_summary_enabled")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return config.context_summary_enabled
+
+
 def _load_content_list(md_path: Path, meta: dict) -> object | None:
     """Load the extracted MinerU content_list payload when present."""
 
@@ -203,7 +226,8 @@ async def _run_pipeline(
                 meta_path = md_path.parent / f"{doc_id}_meta.json"
                 meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
                 content_list = _load_content_list(md_path, meta)
-                source_title = meta.get("title", display_source_name)
+                source_title = _resolve_source_title(meta, display_source_name)
+                context_summary_enabled = _resolve_context_summary_enabled(meta, config)
 
                 # Stage 2: Structure
                 if start_stage <= 2:
@@ -274,7 +298,7 @@ async def _run_pipeline(
                     logger.info("stage_3_done", source=source_name, chunks=len(chunks))
 
                 # Stage 3.5: contextual retrieval enrichment
-                if start_stage <= 3.5:
+                if start_stage <= 3.5 and context_summary_enabled:
                     if start_stage > 3 and all_chunks:
                         raw_tree = parse_markdown_to_tree(
                             markdown,
@@ -321,6 +345,37 @@ async def _run_pipeline(
                         summary={"completed": all_chunk_count, "total_all_chunks": all_chunk_count},
                     )
                     logger.info("stage_3_5_done", source=source_name, all_chunks=all_chunk_count)
+
+                    if not resumed_stage3_chunks:
+                        all_chunks.extend(chunks)
+                elif start_stage <= 3.5:
+                    if start_stage > 3 and all_chunks:
+                        chunks = [c for c in all_chunks if c.metadata.source == source_name]
+
+                    all_chunk_count = len(chunks)
+                    logger.info(
+                        "stage_3_5_skipped",
+                        source=source_name,
+                        all_chunks=all_chunk_count,
+                    )
+                    recorder.start_stage(
+                        "stage_3_5",
+                        document_id=doc_id,
+                        summary={
+                            "total_all_chunks": all_chunk_count,
+                            "skipped": True,
+                            "reason": "context_summary_disabled",
+                        },
+                    )
+                    recorder.complete_stage(
+                        "stage_3_5",
+                        document_id=doc_id,
+                        summary={
+                            "total_all_chunks": all_chunk_count,
+                            "skipped": True,
+                            "reason": "context_summary_disabled",
+                        },
+                    )
 
                     if not resumed_stage3_chunks:
                         all_chunks.extend(chunks)

@@ -240,10 +240,12 @@ export function buildReferenceRecords(
     const matchedDocumentId = matchSourceToDocumentId(source.file, documents);
     const sourceDocumentId = source.document_id || source.docId || "";
     const hasDocumentId = documents.some((document) => document.id === sourceDocumentId);
+    const displayTitle = source.display_title?.trim() || source.title?.trim() || source.file;
     return {
       id: `${prefix}-${index + 1}`,
       source,
       documentId: hasDocumentId ? sourceDocumentId : matchedDocumentId || sourceDocumentId || null,
+      displayTitle,
       confidence,
       relatedRefs
     };
@@ -418,11 +420,13 @@ export async function uploadDocument(file: File): Promise<DocumentUploadResponse
 }
 
 export async function uploadDocumentToMinio(
-  file: File
+  file: File,
+  contextSummaryEnabled: boolean = true
 ): Promise<DocumentUploadToMinioResponse> {
   const sentToken = getToken();
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("contextSummaryEnabled", String(contextSummaryEnabled));
 
   const response = await fetch(buildApiUrl("/api/v1/documents/upload-to-minio"), {
     method: "POST",

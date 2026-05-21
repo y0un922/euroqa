@@ -30,6 +30,42 @@ logger = structlog.get_logger()
 _INDEX_READY_SENTINEL = ".indexed"
 
 
+def _resolve_source_title(meta: dict, fallback: str) -> str:
+    """Resolve a stable display title for one parsed document."""
+    for key in ("display_title", "title", "source_title", "document_title"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return fallback.strip() or fallback
+
+
+def _resolve_context_summary_enabled(meta: dict, fallback: bool = True) -> bool:
+    """Resolve whether contextual summary generation should run."""
+    value = meta.get("context_summary_enabled")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return fallback
+
+
+def _load_parse_options(output_dir: Path) -> dict:
+    """Load per-document parse options written before the task was queued."""
+    options_path = output_dir / "parse_options.json"
+    if not options_path.is_file():
+        return {}
+    try:
+        payload = json.loads(options_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("parse_options_load_failed", path=str(options_path))
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _source_names_for_cleanup(doc_id: str) -> list[str]:
     """Return current and legacy source keys used for indexed chunks."""
 
@@ -89,12 +125,23 @@ async def run_single_document(
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
 
+    parse_options = _load_parse_options(output_dir)
+    requested_context_summary_enabled = _resolve_context_summary_enabled(
+        parse_options,
+        pipeline_config.context_summary_enabled,
+    )
+
     # Rebuilds must earn readiness again after Stage 4 completes.
     ready_marker.unlink(missing_ok=True)
 
     # Stage 1: MinerU 解析
     await _emit(on_progress, "parsing", 0.05, f"正在解析 {pdf_path.name}")
-    md_path = await parse_pdf(pdf_path, output_dir, pipeline_config)
+    md_path = await parse_pdf(
+        pdf_path,
+        output_dir,
+        pipeline_config,
+        context_summary_enabled=requested_context_summary_enabled,
+    )
 
     # Stage 2: 结构化
     await _emit(on_progress, "structuring", 0.25, "正在构建文档树")
@@ -102,7 +149,11 @@ async def run_single_document(
     meta_path = output_dir / f"{doc_id}_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     content_list = _load_content_list(md_path, meta)
-    source_title = str(meta.get("title") or display_source_name)
+    source_title = _resolve_source_title(meta, display_source_name)
+    context_summary_enabled = _resolve_context_summary_enabled(
+        meta,
+        requested_context_summary_enabled,
+    )
 
     pruning_config = TreePruningConfig.from_pipeline_settings(
         enabled=pipeline_config.tree_pruning_enabled,
@@ -118,7 +169,8 @@ async def run_single_document(
     chunks = create_chunks(tree, source_title=source_title)
 
     # Stage 3.5: LLM 摘要
-    await _emit(on_progress, "summarizing", 0.60, "正在生成特殊元素摘要")
+    if context_summary_enabled:
+        await _emit(on_progress, "summarizing", 0.60, "正在生成特殊元素摘要")
 
     def _on_summary_progress(payload: dict) -> None:
         total = int(payload.get("total", 0) or 0)
@@ -134,9 +186,10 @@ async def run_single_document(
                     f"已摘要 {completed}/{total} 个特殊块",
                 ))
 
-    chunks = await enrich_chunks(
-        chunks, pipeline_config, tree=tree, progress_callback=_on_summary_progress,
-    )
+    if context_summary_enabled:
+        chunks = await enrich_chunks(
+            chunks, pipeline_config, tree=tree, progress_callback=_on_summary_progress,
+        )
 
     # Stage 4: 索引（先删旧再插新）
     await _emit(on_progress, "indexing", 0.88, "正在清理旧索引并写入新数据")

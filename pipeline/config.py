@@ -32,6 +32,7 @@ class PipelineConfig(BaseSettings):
     contextualize_llm_api_key: str = ""
     contextualize_llm_base_url: str = ""
     contextualize_llm_model: str = ""
+    context_summary_enabled: bool = True
     contextualize_concurrency: int = 8
     contextualize_retry_attempts: int = 2
 

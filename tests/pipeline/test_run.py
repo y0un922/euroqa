@@ -144,3 +144,50 @@ async def test_start_stage_3_5_resumes_stage3_chunks_and_runs_enrichment(
         chunk["embedding_text"].startswith("[CTX] resumed")
         for chunk in payload["chunks"]
     )
+
+
+@pytest.mark.asyncio
+async def test_stage_3_5_skips_enrichment_when_context_summary_disabled(
+    tmp_path: Path,
+    monkeypatch,
+):
+    parsed_dir = tmp_path / "parsed"
+    debug_dir = tmp_path / "debug"
+    doc_dir = parsed_dir / "EN1992"
+    doc_dir.mkdir(parents=True)
+    (doc_dir / "EN1992.md").write_text(
+        "# Section 3 Materials\n\nConcrete text.\n",
+        encoding="utf-8",
+    )
+    (doc_dir / "EN1992_meta.json").write_text(
+        '{"context_summary_enabled": false}',
+        encoding="utf-8",
+    )
+
+    config = PipelineConfig(
+        parsed_dir=str(parsed_dir),
+        debug_pipeline_dir=str(debug_dir),
+        tree_pruning_enabled=False,
+    )
+
+    async def fake_enrich_chunks(*args, **kwargs):
+        raise AssertionError("context summary should be skipped")
+
+    async def fake_index_to_milvus(chunks: list[Chunk], cfg: PipelineConfig) -> int:
+        return len(chunks)
+
+    async def fake_index_to_elasticsearch(chunks: list[Chunk], cfg: PipelineConfig) -> int:
+        return len(chunks)
+
+    monkeypatch.setattr(pipeline_run, "enrich_chunks", fake_enrich_chunks)
+    monkeypatch.setattr(pipeline_run, "index_to_milvus", fake_index_to_milvus)
+    monkeypatch.setattr(pipeline_run, "index_to_elasticsearch", fake_index_to_elasticsearch)
+
+    await pipeline_run._run_pipeline(config, start_stage=2)
+
+    run_dirs = sorted(debug_dir.iterdir())
+    stage_file = run_dirs[-1] / "manifest.json"
+    payload = json.loads(stage_file.read_text(encoding="utf-8"))
+    summary = payload["documents"]["EN1992"]["stages"]["stage_3_5"]["summary"]
+    assert summary["skipped"] is True
+    assert summary["reason"] == "context_summary_disabled"

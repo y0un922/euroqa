@@ -7,8 +7,9 @@
 
 ## 行为规范
 
-- `POST /documents/parse` 接受 `docId`、`fileName`、`minioPath`，返回 `code`、`docId`、`status`、`message`
+- `POST /documents/parse` 接受 `docId`、`fileName`、`minioPath` 和可选 `contextSummaryEnabled`，返回 `code`、`docId`、`status`、`message`
 - `minioPath` 使用 `bucket/key` 格式时，后端会通过 MinIO 客户端下载到 `pdf_dir/{docId}.pdf` 后入队；本地可见文件路径仍作为开发兼容路径
+- `contextSummaryEnabled` 默认 `true`；为 `false` 时跳过 Stage 3.5 上下文摘要/上下文化增强，但仍执行解析、结构化、分块和索引
 - 外部契约接口 `POST /documents/parse`、`POST /documents/status`、`POST /documents/delete` 不要求后台调试 token；旧上传、列表、文件预览和单文档兼容接口仍受管理端鉴权保护
 - `POST /documents/upload-to-minio` 接受浏览器上传的 PDF，后端写入 `eurocode/uploads/{docId}.pdf`，再复用解析队列返回 `code`、`docId`、`fileName`、`minioPath`、`status`、`message`
 - `POST /documents/status` 接受 `docIds` 数组，批量返回每个文档的 `status`、`progress`、`stage`、`message` 和可选错误信息

@@ -26,15 +26,25 @@ async def test_run_single_document_indexes_chunks_with_uploaded_doc_id(
         tree_pruning_enabled=False,
     )
 
-    async def fake_parse_pdf(pdf_path: Path, output_dir: Path, _config: PipelineConfig):
+    async def fake_parse_pdf(
+        pdf_path: Path,
+        output_dir: Path,
+        _config: PipelineConfig,
+        *,
+        context_summary_enabled: bool = True,
+    ):
         assert pdf_path.name == f"{doc_id}.pdf"
+        assert context_summary_enabled is True
         output_dir.mkdir(parents=True, exist_ok=True)
         md_path = output_dir / f"{doc_id}.md"
         md_path.write_text(
             "# Section 1\n\nConcrete design requirements.",
             encoding="utf-8",
         )
-        (output_dir / f"{doc_id}_meta.json").write_text("{}", encoding="utf-8")
+        (output_dir / f"{doc_id}_meta.json").write_text(
+            '{"context_summary_enabled": true}',
+            encoding="utf-8",
+        )
         return md_path
 
     async def fake_enrich(chunks, _config, *, tree=None, progress_callback=None):
@@ -85,3 +95,81 @@ async def test_run_single_document_indexes_chunks_with_uploaded_doc_id(
     assert indexed_sources
     assert set(indexed_sources) == {doc_id}
     assert delete_sources == [doc_id, doc_id.replace("_", " ")]
+
+
+@pytest.mark.asyncio
+async def test_run_single_document_skips_context_summary_when_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    doc_id = "EN1992"
+    pdf_dir = tmp_path / "pdfs"
+    parsed_dir = tmp_path / "parsed"
+    pdf_dir.mkdir()
+    output_dir = parsed_dir / doc_id
+    output_dir.mkdir(parents=True)
+    (pdf_dir / f"{doc_id}.pdf").write_bytes(b"%PDF-1.4 demo")
+    (output_dir / "parse_options.json").write_text(
+        '{"context_summary_enabled": false}',
+        encoding="utf-8",
+    )
+    config = PipelineConfig(
+        pdf_dir=str(pdf_dir),
+        parsed_dir=str(parsed_dir),
+        mineru_poll_interval_seconds=0,
+        tree_pruning_enabled=False,
+    )
+
+    async def fake_parse_pdf(
+        pdf_path: Path,
+        output_dir: Path,
+        _config: PipelineConfig,
+        *,
+        context_summary_enabled: bool = True,
+    ):
+        assert context_summary_enabled is False
+        md_path = output_dir / f"{doc_id}.md"
+        md_path.write_text("# Section 1\n\nConcrete text.", encoding="utf-8")
+        (output_dir / f"{doc_id}_meta.json").write_text(
+            '{"context_summary_enabled": false}',
+            encoding="utf-8",
+        )
+        return md_path
+
+    async def fake_enrich(*args, **kwargs):
+        raise AssertionError("context summary should be skipped")
+
+    async def fake_index_to_milvus(chunks, _config):
+        return len(chunks)
+
+    async def fake_index_to_elasticsearch(chunks, _config):
+        return len(chunks)
+
+    async def fake_delete_document_chunks(source_name: str, _config):
+        return {"milvus": 0, "elasticsearch": 0}
+
+    async def fake_invalidate_retriever_cache():
+        return None
+
+    monkeypatch.setattr(pipeline_runner, "parse_pdf", fake_parse_pdf)
+    monkeypatch.setattr(pipeline_runner, "enrich_chunks", fake_enrich)
+    monkeypatch.setattr(pipeline_runner, "index_to_milvus", fake_index_to_milvus)
+    monkeypatch.setattr(
+        pipeline_runner,
+        "index_to_elasticsearch",
+        fake_index_to_elasticsearch,
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "delete_document_chunks",
+        fake_delete_document_chunks,
+    )
+    monkeypatch.setattr(
+        pipeline_runner,
+        "invalidate_retriever_cache",
+        fake_invalidate_retriever_cache,
+    )
+
+    result = await pipeline_runner.run_single_document(doc_id, config)
+
+    assert result["chunks"] > 0
