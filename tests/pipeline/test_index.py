@@ -115,7 +115,7 @@ async def test_delete_document_from_milvus_loads_collection_before_delete(monkey
     assert count == 2
     assert collection.loaded is True
     assert collection.deleted_expr == 'source in ["DG EN1990 \\"Guide\\""]'
-    assert collection.flushed is True
+    assert collection.flushed is False
 
 
 @pytest.mark.asyncio
@@ -133,7 +133,7 @@ async def test_delete_document_sources_from_milvus_deletes_sources_once(monkeypa
     assert collection.deleted_expr == (
         'source in ["DG EN1990 \\"Guide\\"", "DG EN1990 Guide"]'
     )
-    assert collection.flushed is True
+    assert collection.flushed is False
 
 
 @pytest.mark.asyncio
@@ -167,7 +167,7 @@ async def test_delete_document_sources_from_elasticsearch_uses_terms_query(monke
     assert es.delete_call == {
         "index": "chunks",
         "body": {"query": {"terms": {"source": ["EN_1992_1_1", "EN 1992 1 1"]}}},
-        "refresh": True,
+        "refresh": False,
         "conflicts": "proceed",
     }
     assert es.closed is True

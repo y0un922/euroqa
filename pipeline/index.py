@@ -190,7 +190,6 @@ async def delete_document_sources_from_milvus(
     collection = _init_milvus_collection(config)
     collection.load()
     result = collection.delete(expr=_build_milvus_source_expr(unique_sources))
-    collection.flush()
     deleted = int(getattr(result, "delete_count", 0) or 0)
     logger.info("milvus_document_deleted", sources=unique_sources, deleted=deleted)
     return deleted
@@ -220,7 +219,7 @@ async def delete_document_sources_from_elasticsearch(
         response = await es.delete_by_query(
             index=config.es_index,
             body={"query": {"terms": {"source": unique_sources}}},
-            refresh=True,
+            refresh=False,
             conflicts="proceed",
         )
         deleted = int(response.get("deleted", 0) or 0)

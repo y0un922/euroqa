@@ -34,7 +34,7 @@ Questions to answer:
 
 #### 1. Scope / Trigger
 
-- Trigger: any change to `/api/v1/documents/parse`, `/api/v1/documents/status`, single-document pipeline metadata, or Huake-facing document response fields.
+- Trigger: any change to `/api/v1/documents/parse`, `/api/v1/documents/status`, `/api/v1/documents/delete`, single-document pipeline metadata, or Huake-facing document response fields.
 - Reason: Huake-visible status and file names are API contracts. Missing documents must not look like parse failures, and retrieval context must not expose opaque `docId` values when the client supplied a readable file name.
 
 #### 2. Signatures
@@ -52,6 +52,7 @@ Questions to answer:
 - Chunk `metadata.source` remains the stable backend `doc_id`; do not replace it with the display file name because deletion, rebuild, and source filters depend on it.
 - Missing/unuploaded documents in `/api/v1/documents/status` return external `status="not_found"` and `stage="not_found"`, with `error.type="NOT_FOUND"`.
 - Actual parser or pipeline failures continue to return `status="failed"`.
+- Batch delete should submit Milvus/Elasticsearch deletes without forcing synchronous storage refresh/flush; otherwise repeated client deletes can block long enough to hit read timeouts.
 
 #### 4. Validation & Error Matrix
 
@@ -59,6 +60,7 @@ Questions to answer:
 - Task manager reports `PipelineStage.ERROR` -> `status="failed"` with internal error detail.
 - `file_name` is present and non-empty -> use it as retrieval display title.
 - `file_name` is missing or blank -> use the legacy `docId` display fallback; do not inspect parsed title metadata.
+- Batch delete succeeds in Milvus/Elasticsearch -> return deleted counts after delete submission and retriever cache invalidation, without waiting for force refresh.
 
 #### 5. Good/Base/Bad Cases
 
@@ -66,6 +68,7 @@ Questions to answer:
 - Base: local/manual pipeline runs without parse options use the legacy `docId` display fallback.
 - Bad: replacing `metadata.source` with the filename, which breaks delete/reindex cleanup by `doc_id`.
 - Bad: reporting a never-uploaded `docId` as `failed`, forcing clients to infer missing state from error text.
+- Bad: calling Milvus `flush()` or Elasticsearch `delete_by_query(refresh=True)` in the request path for Huake-facing delete operations.
 
 #### 6. Tests Required
 
@@ -73,6 +76,7 @@ Questions to answer:
 - Pipeline runner tests must assert client `file_name` becomes chunk `source_title`.
 - Parse tests must assert Stage 1 does not write `display_title` from MinerU metadata or markdown headings.
 - Status endpoint tests must assert missing documents return `not_found` and not `failed`.
+- Index deletion tests must assert delete paths do not force Milvus flush or Elasticsearch refresh.
 - Existing source-building tests should continue to verify readable file names flow into answer sources.
 
 #### 7. Wrong vs Correct
