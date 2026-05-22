@@ -335,17 +335,40 @@ model = config.contextualize_llm_model or config.llm_model
 #### 1. Scope / Trigger
 
 - Trigger: any change to retrieval ranking, guide/example retrieval, prompt assembly, or response source construction.
-- Reason: answers must cite normative standard evidence for conclusions. Guide or commentary PDFs may help users understand a calculation path, but they must not become primary normative evidence.
+- Reason: every answer-supporting evidence chunk must remain citable. Guide or commentary PDFs may be tagged for observability, but retrieval must not drop them from the main evidence path because some deployments index guide/designers-guide documents as the primary corpus.
 
 #### 2. Contracts
 
-- `RetrievalResult.chunks` must contain normative evidence only.
-- `RetrievalResult.guide_chunks` and `RetrievalResult.guide_example_chunks` are the only retrieval result fields for guide/commentary/example evidence.
-- Prompt builders must render normative evidence and guide evidence in separate sections.
-- Response `sources` must be built from citable normative chunks and cross-reference chunks, not guide-only chunks.
+- `RetrievalResult.chunks` contains all reranked citable evidence, including guide/commentary/example chunks when they are retrieved.
+- `RetrievalResult.guide_chunks` and `RetrievalResult.guide_example_chunks` are observability/helper views. They must not be implemented by subtracting guide-like chunks from `RetrievalResult.chunks`.
+- Prompt builders use one citable citation namespace: `[Ref-N]`. Do not introduce `[Guide-N]` or `[GuideExample-N]` as answer citations unless the frontend source contract supports them.
+- Response `sources` must be built from the same citable chunk ordering as prompt `[Ref-N]`, including guide/commentary/example chunks that may be cited.
 - Guide retrieval must classify guide documents from generic uploaded-document metadata such as `source`, `source_title`, `section_path`, or `clause_ids`; it must not filter for a fixed uploaded PDF name.
 
 #### 3. Tests Required
+
+- DG/designers-guide-only retrieval must return non-empty `RetrievalResult.chunks` when vector/BM25 and rerank produced candidates.
+- Prompt tests must assert guide/example evidence is represented as `[Ref-N]`, not `[Guide-N]` / `[GuideExample-N]`.
+- Generation tests must assert `sources` covers every citable guide/example chunk included in the `[Ref-N]` prompt ordering.
+- Retrieval context tests may assert guide/example observability fields, but not at the expense of citable `chunks`.
+
+#### 4. Wrong vs Correct
+
+##### Wrong
+
+```python
+final_chunks, scores, guide_chunks = _split_normative_and_guide_chunks(
+    final_chunks,
+    scores,
+)
+```
+
+##### Correct
+
+```python
+guide_chunks = _collect_guide_chunks(final_chunks)
+# final_chunks remains unchanged and citable.
+```
 
 ### Scenario: Redis External Session History Payloads
 

@@ -173,7 +173,7 @@ class TestGuideRetrieval:
         assert retriever._is_guide_chunk(spec_chunk) is False
 
     @pytest.mark.asyncio
-    async def test_retrieve_keeps_guide_chunks_out_of_normative_evidence(self, retriever):
+    async def test_retrieve_keeps_guide_chunks_as_citable_evidence(self, retriever):
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=3, bm25_top_k=3)
         spec_chunk = _make_chunk(
             "spec-rule",
@@ -223,9 +223,48 @@ class TestGuideRetrieval:
             question_type="calculation",
         )
 
-        assert [chunk.chunk_id for chunk in result.chunks] == ["spec-rule"]
-        assert result.scores == [0.8]
+        assert [chunk.chunk_id for chunk in result.chunks] == ["guide-example", "spec-rule"]
+        assert result.scores == [0.9, 0.8]
         assert [chunk.chunk_id for chunk in result.guide_chunks] == ["guide-example"]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_does_not_empty_dg_only_evidence(self, retriever):
+        retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=3, bm25_top_k=3)
+        guide_chunk = _make_chunk(
+            "dg-rule",
+            "Designers Guide explanation of partial factors.",
+            source="DG_EN1990",
+            source_title="Designers Guide to EN 1990",
+            section_path=["Verification by the partial factor method", "6.5.4"],
+            clause_ids=["6.5.4"],
+        )
+
+        async def _fake_search(*_args, **_kwargs):
+            return [{"chunk_id": "dg-rule", "source": guide_chunk.metadata.source}]
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            return [guide_chunk for _chunk_id in chunk_ids]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(chunk, 0.91) for chunk in chunks[:top_n]]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        retriever._vector_search = _fake_search
+        retriever._bm25_search = _fake_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+
+        result = await retriever.retrieve(
+            queries=["DG EN1990 6.5.4 partial factors"],
+            original_query="DG EN1990 6.5.4 材料分项系数怎么取？",
+        )
+
+        assert [chunk.chunk_id for chunk in result.chunks] == ["dg-rule"]
+        assert result.scores == [0.91]
+        assert [chunk.chunk_id for chunk in result.guide_chunks] == ["dg-rule"]
 
     @pytest.mark.asyncio
     async def test_retrieve_guide_example_chunks_prioritizes_example_like_sections(self, retriever):

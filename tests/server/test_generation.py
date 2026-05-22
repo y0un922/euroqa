@@ -77,11 +77,15 @@ class TestBuildPrompt:
         )
 
         assert "用户问题：" in prompt
-        assert "已检索到的规范证据片段：" in prompt
+        assert "已检索到的可引用证据片段：" in prompt
         assert "证据元数据：" in prompt
-        assert "指南文档检索结果：" in prompt
-        assert "指南算例检索结果：" in prompt
+        assert "指南文档补充说明：" in prompt
+        assert "指南算例补充说明：" in prompt
         assert "Bridge Designers Guide 2024" in prompt
+        assert "[Guide-1]" not in prompt
+        assert "[GuideExample-1]" not in prompt
+        assert "[Ref-2]" in prompt
+        assert "[Ref-3]" in prompt
 
 
 def test_count_tokens_uses_unified_tokenizer(monkeypatch):
@@ -593,67 +597,25 @@ class TestGenerateAnswer:
             )
 
         assert result.retrieval_context is not None
-        assert result.retrieval_context.chunks == [
-            {
-                "chunk_id": "chunk_023",
-                "document_id": "EN1990_2002",
-                "file": "EN 1990:2002",
-                "title": "Eurocode - Basis of structural design",
-                "section": "Section 2 Requirements > 2.3 Design working life",
-                "page": "28",
-                "clause": "2.3(1)",
-                "content": sample_text_chunk.content,
-                "score": 0.91,
-            }
+        assert [source.file for source in result.sources] == [
+            "EN 1990:2002",
+            "EN 1990:2002",
+            "Bridge Designers Guide 2024",
+            "Bridge Designers Guide 2024",
         ]
-        assert result.retrieval_context.parent_chunks == [
-            {
-                "chunk_id": "chunk_t_2_1",
-                "document_id": "EN1990_2002",
-                "file": "EN 1990:2002",
-                "title": "Eurocode - Basis of structural design",
-                "section": "Section 2 Requirements > 2.3 Design working life",
-                "page": "28",
-                "clause": "Table 2.1",
-                "content": sample_table_chunk.content,
-            }
+        assert [source.clause for source in result.sources] == [
+            "2.3(1)",
+            "Table 2.1",
+            "Example 2.1",
+            "Worked example 2.1",
         ]
-        assert result.retrieval_context.ref_chunks == [
-            {
-                "chunk_id": "chunk_t_2_1",
-                "document_id": "EN1990_2002",
-                "file": "EN 1990:2002",
-                "title": "Eurocode - Basis of structural design",
-                "section": "Section 2 Requirements > 2.3 Design working life",
-                "page": "28",
-                "clause": "Table 2.1",
-                "content": sample_table_chunk.content,
-            }
-        ]
-        assert result.retrieval_context.guide_chunks == [
-            {
-                "chunk_id": "guide-1",
-                "document_id": "Bridge_Designers_Guide2024",
-                "file": "Bridge Designers Guide 2024",
-                "title": "Designers Guide to Eurocode load combinations",
-                "section": "Example 2.1",
-                "page": "28",
-                "clause": "Example 2.1",
-                "content": "Guide example for load combinations.",
-            }
-        ]
-        assert result.retrieval_context.guide_example_chunks == [
-            {
-                "chunk_id": "guide-example-1",
-                "document_id": "Bridge_Designers_Guide2024",
-                "file": "Bridge Designers Guide 2024",
-                "title": "Designers Guide to Eurocode load combinations",
-                "section": "Worked example 2.1",
-                "page": "28",
-                "clause": "Worked example 2.1",
-                "content": "Worked example for design value calculation.",
-            }
-        ]
+        assert result.retrieval_context.chunks[0]["chunk_id"] == "chunk_023"
+        assert result.retrieval_context.chunks[0]["score"] == 0.91
+        assert result.retrieval_context.parent_chunks[0]["chunk_id"] == "chunk_t_2_1"
+        assert result.retrieval_context.ref_chunks[0]["chunk_id"] == "chunk_t_2_1"
+        assert result.retrieval_context.guide_chunks[0]["chunk_id"] == "guide-1"
+        assert result.retrieval_context.guide_chunks[0]["file"] == "Bridge Designers Guide 2024"
+        assert result.retrieval_context.guide_example_chunks[0]["chunk_id"] == "guide-example-1"
         assert result.retrieval_context.resolved_refs == ["Table 2.1"]
         assert result.retrieval_context.unresolved_refs == ["Annex A"]
 
@@ -1374,60 +1336,16 @@ class TestGenerateAnswerStream:
 
         done_event, done_payload = events[-1]
         assert done_event == "done"
-        assert done_payload["retrieval_context"] == {
-            "chunks": [
-                {
-                    "chunk_id": "chunk_023",
-                    "document_id": "EN1990_2002",
-                    "file": "EN 1990:2002",
-                    "title": "Eurocode - Basis of structural design",
-                    "section": "Section 2 Requirements > 2.3 Design working life",
-                    "page": "28",
-                    "clause": "2.3(1)",
-                    "content": sample_text_chunk.content,
-                    "score": 0.91,
-                }
-            ],
-            "parent_chunks": [
-                {
-                    "chunk_id": "chunk_t_2_1",
-                    "document_id": "EN1990_2002",
-                    "file": "EN 1990:2002",
-                    "title": "Eurocode - Basis of structural design",
-                    "section": "Section 2 Requirements > 2.3 Design working life",
-                    "page": "28",
-                    "clause": "Table 2.1",
-                    "content": sample_table_chunk.content,
-                }
-            ],
-            "guide_chunks": [
-                {
-                    "chunk_id": "guide-1",
-                    "document_id": "Bridge_Designers_Guide2024",
-                    "file": "Bridge Designers Guide 2024",
-                    "title": "Designers Guide to Eurocode load combinations",
-                    "section": "Example 2.1",
-                    "page": "28",
-                    "clause": "Example 2.1",
-                    "content": "Guide example for load combinations.",
-                }
-            ],
-            "guide_example_chunks": [
-                {
-                    "chunk_id": "guide-example-1",
-                    "document_id": "Bridge_Designers_Guide2024",
-                    "file": "Bridge Designers Guide 2024",
-                    "title": "Designers Guide to Eurocode load combinations",
-                    "section": "Worked example 2.1",
-                    "page": "28",
-                    "clause": "Worked example 2.1",
-                    "content": "Worked example for design value calculation.",
-                }
-            ],
-            "ref_chunks": [],
-            "resolved_refs": [],
-            "unresolved_refs": [],
-        }
+        assert done_payload["retrieval_context"]["chunks"][0]["chunk_id"] == "chunk_023"
+        assert done_payload["retrieval_context"]["chunks"][0]["score"] == 0.91
+        assert done_payload["retrieval_context"]["parent_chunks"][0]["chunk_id"] == "chunk_t_2_1"
+        assert done_payload["retrieval_context"]["guide_chunks"][0]["chunk_id"] == "guide-1"
+        assert done_payload["retrieval_context"]["guide_example_chunks"][0]["chunk_id"] == "guide-example-1"
+        assert [source["file"] for source in done_payload["sources"]] == [
+            "EN 1990:2002",
+            "Bridge Designers Guide 2024",
+            "Bridge Designers Guide 2024",
+        ]
 
     @pytest.mark.asyncio
     async def test_generate_answer_matches_stream_done_sources_for_same_chunks(

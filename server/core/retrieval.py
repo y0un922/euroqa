@@ -731,22 +731,12 @@ class HybridRetriever:
         return [chunk for chunk in chunks if cls._is_guide_chunk(chunk)]
 
     @classmethod
-    def _split_normative_and_guide_chunks(
+    def _collect_guide_chunks(
         cls,
         chunks: list[Chunk],
-        scores: list[float],
-    ) -> tuple[list[Chunk], list[float], list[Chunk]]:
-        normative_chunks: list[Chunk] = []
-        normative_scores: list[float] = []
-        guide_chunks: list[Chunk] = []
-        for index, chunk in enumerate(chunks):
-            if cls._is_guide_chunk(chunk):
-                guide_chunks.append(chunk)
-                continue
-            normative_chunks.append(chunk)
-            normative_scores.append(scores[index] if index < len(scores) else 0.0)
-
-        return normative_chunks, normative_scores, guide_chunks
+    ) -> list[Chunk]:
+        """Return guide-like chunks without removing them from citable evidence."""
+        return [chunk for chunk in chunks if cls._is_guide_chunk(chunk)]
 
     @staticmethod
     def _append_unique_chunks(
@@ -1483,10 +1473,7 @@ class HybridRetriever:
             final_chunks = chunks[: cfg.rerank_top_n]
             scores = [0.0] * len(final_chunks)
 
-        final_chunks, scores, guide_chunks_from_main = self._split_normative_and_guide_chunks(
-            final_chunks,
-            scores,
-        )
+        guide_chunks_from_main = self._collect_guide_chunks(final_chunks)
         groundedness = self._infer_groundedness_from_scores(scores)
 
         # 获取父 chunk
@@ -1633,7 +1620,7 @@ class HybridRetriever:
         if unresolved_required_keys and groundedness == "grounded":
             groundedness = "partial"
 
-        guide_chunks: list[Chunk] = []
+        guide_chunks: list[Chunk] = list(guide_chunks_from_main)
         if self._should_fetch_guide_chunks(question_type, guide_hint):
             retrieved_guide_chunks = await self._retrieve_guide_chunks(
                 queries,

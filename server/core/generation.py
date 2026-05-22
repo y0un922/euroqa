@@ -359,6 +359,7 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
     normalized_sources: list[Source] = []
     for source in sources:
         document_id = _resolve_document_id(source)
+        display_title = (source.display_title or source.title or source.file).strip()
         highlight_text = source.highlight_text.strip() or _build_highlight_text(
             source.original_text,
             [int(source.page)] if str(source.page).strip().isdigit() else [],
@@ -370,9 +371,11 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
             source.model_copy(
                 update={
                     "document_id": document_id,
+                    "display_title": display_title,
                     "highlight_text": highlight_text,
                     "locator_text": locator_text,
                     "translation": "",
+                    "title": source.title.strip() or display_title,
                 }
             )
         )
@@ -384,11 +387,13 @@ def _build_retrieval_context_entry(
 ) -> dict[str, Any]:
     """Build a frontend-exportable retrieval snapshot item from a chunk."""
     meta = chunk.metadata
+    display_title = meta.display_title or meta.source_title or meta.source
     entry: dict[str, Any] = {
         "chunk_id": chunk.chunk_id,
         "document_id": _resolve_document_id(chunk),
         "file": meta.source,
-        "title": meta.source_title,
+        "title": display_title,
+        "display_title": display_title,
         "section": " > ".join(meta.section_path),
         "page": str(meta.page_numbers[0]) if meta.page_numbers else "",
         "clause": ", ".join(meta.clause_ids[:2]) if meta.clause_ids else "",
@@ -884,9 +889,12 @@ def _format_prompt_chunk_block(chunk: Chunk, label: str) -> str:
     page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
     section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
     clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
+    display_name = meta.display_title or meta.source_title or meta.source
+    source_name = meta.source
     return (
         f"{label}\n"
-        f"文档名: {meta.source}\n"
+        f"文档名: {display_name}\n"
+        f"来源ID: {source_name}\n"
         f"章节: {section_str}\n"
         f"条款: {clause_str}\n"
         f"页码: {page_str}\n"
@@ -900,8 +908,10 @@ def _format_prompt_metadata_line(chunk: Chunk, label: str) -> str:
     section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
     clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
     page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
+    display_name = meta.display_title or meta.source_title or meta.source
     return (
-        f"- {label} 文档名: {meta.source}; 条款/章节: {clause_str} / {section_str}; "
+        f"- {label} 文档名: {display_name}; 来源ID: {meta.source}; "
+        f"条款/章节: {clause_str} / {section_str}; "
         f"页码: {page_str}; 元素类型: {meta.element_type.value}"
     )
 
@@ -963,8 +973,10 @@ def build_prompt(
         chunks,
         parent_chunks,
         ref_chunks=ref_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
     )
-    parts.append("已检索到的规范证据片段：\n")
+    parts.append("已检索到的可引用证据片段：\n")
     for i, chunk in enumerate(ordered_citable, 1):
         parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]"))
 
@@ -990,31 +1002,33 @@ def build_prompt(
         parts.append(f"{_format_prompt_metadata_line(chunk, f'[Ref-{i}]')}\n")
     for index, parent_chunk in enumerate(deduped_parents, 1):
         parts.append(f"{_format_prompt_metadata_line(parent_chunk, f'[Parent-{index}]')}\n")
-    for index, guide_chunk in enumerate(guide_chunks or [], 1):
-        parts.append(f"{_format_prompt_metadata_line(guide_chunk, f'[Guide-{index}]')}\n")
-    for index, guide_example_chunk in enumerate(guide_example_chunks or [], 1):
-        parts.append(
-            f"{_format_prompt_metadata_line(guide_example_chunk, f'[GuideExample-{index}]')}\n"
-        )
-
+    citable_ids = {chunk.chunk_id for chunk in ordered_citable}
     if guide_chunks:
-        parts.append("指南文档检索结果：\n")
+        parts.append("指南文档补充说明：\n")
+        appended = False
         for index, guide_chunk in enumerate(guide_chunks, 1):
-            parts.append(_format_prompt_chunk_block(guide_chunk, f"[Guide-{index}]"))
+            if guide_chunk.chunk_id not in citable_ids:
+                parts.append(_format_prompt_chunk_block(guide_chunk, f"[GuideContext-{index}]"))
+                appended = True
+        if not appended:
+            parts.append("（相关指南已纳入上方 [Ref-N] 可引用证据）\n")
     else:
-        parts.append("指南文档检索结果：\n（当前无相关指南证据）\n")
+        parts.append("指南文档补充说明：\n（当前无相关指南证据）\n")
 
     if guide_example_chunks:
-        parts.append("指南算例检索结果：\n")
+        parts.append("指南算例补充说明：\n")
+        appended = False
         for index, guide_example_chunk in enumerate(guide_example_chunks, 1):
-            parts.append(
-                _format_prompt_chunk_block(
+            if guide_example_chunk.chunk_id not in citable_ids:
+                parts.append(_format_prompt_chunk_block(
                     guide_example_chunk,
-                    f"[GuideExample-{index}]",
-                )
-            )
+                    f"[GuideExampleContext-{index}]",
+                ))
+                appended = True
+        if not appended:
+            parts.append("（相关算例已纳入上方 [Ref-N] 可引用证据）\n")
     else:
-        parts.append("指南算例检索结果：\n（当前无相关指南算例证据）\n")
+        parts.append("指南算例补充说明：\n（当前无相关指南算例证据）\n")
 
     return "\n".join(parts)
 
@@ -1023,6 +1037,8 @@ def _build_prioritized_source_chunks(
     chunks: list[Chunk],
     parent_chunks: list[Chunk],
     ref_chunks: list[Chunk] | None = None,
+    guide_chunks: list[Chunk] | None = None,
+    guide_example_chunks: list[Chunk] | None = None,
     generation_mode: str | None = None,
     question: str = "",
     intent_label: str | None = None,
@@ -1031,7 +1047,12 @@ def _build_prioritized_source_chunks(
     del parent_chunks, generation_mode, question, intent_label
     seen_ids: set[str] = set()
     ordered: list[Chunk] = []
-    for chunk in list(chunks) + list(ref_chunks or []):
+    for chunk in (
+        list(chunks)
+        + list(ref_chunks or [])
+        + list(guide_chunks or [])
+        + list(guide_example_chunks or [])
+    ):
         if chunk.chunk_id not in seen_ids:
             seen_ids.add(chunk.chunk_id)
             ordered.append(chunk)
@@ -1060,6 +1081,7 @@ def _build_sources_from_chunks(
     for chunk in ordered_chunks:
         meta = chunk.metadata
         document_id = _resolve_document_id(chunk)
+        display_title = meta.display_title or meta.source_title or meta.source
         # Primary: use bbox from pipeline metadata
         bbox = list(meta.bbox) if meta.bbox else []
         resolved_page = str(meta.bbox_page_idx + 1) if meta.bbox_page_idx >= 0 else ""
@@ -1076,9 +1098,10 @@ def _build_sources_from_chunks(
             Source(
                 file=meta.source,
                 document_id=document_id,
+                display_title=display_title,
                 element_type=meta.element_type,
                 bbox=bbox,
-                title=meta.source_title,
+                title=display_title,
                 section=" > ".join(meta.section_path),
                 page=resolved_page or (
                     str(meta.page_file_index[0] + 1) if meta.page_file_index
@@ -1436,12 +1459,19 @@ async def generate_answer_stream(
         )
 
         # 从检索结果直接构建结构化元数据，不依赖 LLM 输出
-        # 主 chunk + 交叉引用 chunk 统一编号，与 prompt 中的 [Ref-N] 一一对应
-        all_citable = list(chunks) + list(ref_chunks or [])
+        # 主 chunk、交叉引用和 guide/example chunk 统一编号，与 prompt 中的 [Ref-N] 一一对应。
+        all_citable = (
+            list(chunks)
+            + list(ref_chunks or [])
+            + list(guide_chunks or [])
+            + list(guide_example_chunks or [])
+        )
         prioritized_chunks = _build_prioritized_source_chunks(
             chunks,
             parent_chunks,
             ref_chunks=ref_chunks,
+            guide_chunks=guide_chunks,
+            guide_example_chunks=guide_example_chunks,
             generation_mode=generation_mode,
             question=question,
             intent_label=intent_label,
@@ -1590,11 +1620,18 @@ async def generate_answer(
             len(raw),
         )
         response = parse_llm_response(raw)
-        all_citable = list(chunks) + list(ref_chunks or [])
+        all_citable = (
+            list(chunks)
+            + list(ref_chunks or [])
+            + list(guide_chunks or [])
+            + list(guide_example_chunks or [])
+        )
         prioritized_chunks = _build_prioritized_source_chunks(
             chunks,
             parent_chunks,
             ref_chunks=ref_chunks,
+            guide_chunks=guide_chunks,
+            guide_example_chunks=guide_example_chunks,
             generation_mode=generation_mode,
             question=question,
             intent_label=intent_label,
