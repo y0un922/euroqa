@@ -1,0 +1,1783 @@
+[
+  {
+    "id": "Q01",
+    "question": "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+    "category": "broad",
+    "review_bucket": "中等修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "2.4.2.4",
+          "2.4.2.2",
+          "2.4.3"
+        ],
+        "objects": [
+          "Table 2.1N"
+        ]
+      },
+      {
+        "doc": "EN1990",
+        "sections": [
+          "6.4"
+        ],
+        "objects": [
+          "Annex A1"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "2.4.2.4",
+      "2.4.2.2",
+      "2.4.3",
+      "6.4"
+    ],
+    "expected_keywords": [
+      "分项系数法 (partial factor method)",
+      "偶然设计状况 (accidental)",
+      "材料分项系数 γc、γs",
+      "作用分项系数 γG (永久)、γQ (可变)",
+      "γf 与 γM 的区分（作用 vs. 抗力）",
+      "材料"
+    ],
+    "expected_concepts": [
+      "分项系数法 (partial factor method)",
+      "持久与短暂设计状况 (persistent & transient)",
+      "偶然设计状况 (accidental)",
+      "材料分项系数 γc、γs",
+      "作用分项系数 γG (永久)、γQ (可变)",
+      "γf 与 γM 的区分（作用 vs. 抗力）"
+    ],
+    "expected_answer_points": [
+      "材料：持久/短暂 γc=1.5、γs=1.15；偶然 γc=1.2、γs=1.0；SLS 通常 1.0。作用：按 EN1990 组合式和国家附录取值，建筑常用推荐值包括不利永久 1.35、有利永久 1.0、主导可变 1.5，伴随可变需乘 ψ。"
+    ],
+    "expected_formulas": [
+      "Ed ≤ Rd（基本验算式）",
+      "持久 ULS：γc = 1.5，γs = 1.15",
+      "偶然 ULS：γc = 1.2，γs = 1.0",
+      "SLS：γc = γs = 1.0",
+      "γG = 1.35，γQ = 1.5"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §2.4.2.4/Table 2.1N；§2.4.2.2；§2.4.3；EN1990 §6.4、Annex A1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §2.4 Verification by the partial factor method\n• EN 1992-1-1 §2.4.2.4 Partial factors for materials, Table 2.1N\n• EN 1990 §6.4 Ultimate limit states (作用分项系数 γG、γQ)",
+      "revision_note": "不要把 γG=1.35、γQ=1.5 写成所有作用组合的通用值；补充预应力 γP、疲劳 γF,fat。",
+      "original_answer_points": "• 材料分项系数（EN 1992-1-1 Table 2.1N）：持久/短暂状况 γc=1.5、γs=1.15；偶然状况 γc=1.2、γs=1.0；SLS γc=γs=1.0\n• 永久作用分项系数 γG = 1.35（不利）/1.0（有利）\n• 可变作用分项系数 γQ = 1.5（不利）/0（有利）\n• 偶然/地震设计状况下 γG=γQ=1.0\n• 对应 SLS 验算 γ 一般取 1.0"
+    }
+  },
+  {
+    "id": "Q02",
+    "question": "请给出混凝土材料的强度与变形的相关定义、相互关系及如何计算。",
+    "category": "broad",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "3.1.2",
+          "3.1.3",
+          "3.1.6",
+          "3.1.7"
+        ],
+        "objects": [
+          "Table 3.1"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "3.1.2",
+      "3.1.3",
+      "3.1.6",
+      "3.1.7"
+    ],
+    "expected_keywords": [
+      "圆柱体强度 fck 与立方体强度 fck,cube",
+      "平均抗压强度 fcm = fck + 8 MPa",
+      "弹性模量 Ecm，泊松比 ν",
+      "极限压应变 εcu2、εcu3，参考压应变 εc2、εc3"
+    ],
+    "expected_concepts": [
+      "强度等级 (fck/fck,cube)，C12/15 ~ C90/105",
+      "圆柱体强度 fck 与立方体强度 fck,cube",
+      "平均抗压强度 fcm = fck + 8 MPa",
+      "平均抗拉强度 fctm，特征抗拉强度 fctk,0.05 / fctk,0.95",
+      "弹性模量 Ecm，泊松比 ν",
+      "极限压应变 εcu2、εcu3，参考压应变 εc2、εc3"
+    ],
+    "expected_answer_points": [
+      "fck 为 28d 圆柱体特征抗压强度，fck,cube 为对应立方体强度；fcm=fck+8；fctm 低强用 0.30fck^(2/3)，高强用 2.12ln(1+fcm/10)；Ecm=22(fcm/10)^0.3GPa；ν=0.2 未裂、0 已裂；αT=10×10^-6/K。"
+    ],
+    "expected_formulas": [
+      "fcm = fck + 8 MPa",
+      "fctm = 0.30",
+      "fck^(2/3) （≤C50/60）",
+      "Ecm = 22000",
+      "(fcm/10)^0.3 MPa",
+      "ν = 0.2（未开裂）/ 0（开裂），αT = 10×10⁻⁶/K",
+      "εcu2 = 3.5‰ for fck ≤ 50；εcu2 = 2.6‰ for fck = 90"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §3.1.2/Table 3.1；§3.1.3；§3.1.6；§3.1.7",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.1 Concrete\n• EN 1992-1-1 §3.1.2 Strength, Table 3.1\n• EN 1992-1-1 §3.1.3 Elastic deformation\n• DG_EN1992 §4.1 Concrete",
+      "revision_note": "高强混凝土需按 Table 3.1 给出 εcu2/εcu3、λ/η 变化。",
+      "original_answer_points": "• 强度等级范围：C12/15 至 C90/105（普通混凝土，最高 fck = 90 MPa）\n• fcm = fck + 8（MPa），用于计算 Ecm 与徐变\n• fctm = 0.30·fck^(2/3)（fck ≤ 50）；fctm = 2.12·ln(1 + fcm/10)（fck > 50）\n• 特征抗拉强度 fctk,0.05 = 0.7·fctm（5%分位），fctk,0.95 = 1.3·fctm（95%分位）\n• 弹性模量 Ecm = 22·(fcm/10)^0.3（GPa）\n• 泊松比 ν = 0.2（未开裂）；ν = 0（开裂）；线膨胀系数 α = 10×10⁻⁶/K\n• 极限压应变 εcu2：fck ≤ 50 时为 3.5‰；fck=90 时降至 2.6‰"
+    }
+  },
+  {
+    "id": "Q03",
+    "question": "有哪些因素会对混凝土的徐变与收缩产生影响？",
+    "category": "broad",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "3.1.4"
+        ],
+        "objects": [
+          "Annex B"
+        ]
+      },
+      {
+        "doc": "DG_EN1992",
+        "sections": [
+          "4.1.4"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "3.1.4",
+      "4.1.4"
+    ],
+    "expected_keywords": [
+      "徐变系数 φ(∞,t0)",
+      "干燥收缩 εcd 与自身收缩 εca",
+      "构件名义尺寸 h0",
+      "环境相对湿度 RH",
+      "加载龄期 t0",
+      "水泥类型 (S/N/R)",
+      "非线性徐变系数（应力大于 0.45 fck(t0)）"
+    ],
+    "expected_concepts": [
+      "徐变系数 φ(∞,t0)",
+      "干燥收缩 εcd 与自身收缩 εca",
+      "构件名义尺寸 h0",
+      "环境相对湿度 RH",
+      "加载龄期 t0",
+      "水泥类型 (S/N/R)",
+      "非线性徐变系数（应力大于 0.45 fck(t0)）"
+    ],
+    "expected_answer_points": [
+      "徐变受 RH、h0=2Ac/u、混凝土强度/组成、水泥类型、加载龄期 t0、持续时间和应力水平影响；收缩分干燥收缩和自身收缩，受 RH、h0、强度等级、水泥水化等影响。"
+    ],
+    "expected_formulas": [
+      "h0 = 2",
+      "Ac/u",
+      "kσ = σc/fcm(t0)，σc > 0.45",
+      "fck(t0) 时启用非线性",
+      "εcd(t) = βds(t,ts)",
+      "kh",
+      "εcd,0",
+      "εca(t) = βas(t)",
+      "εca(∞)，εca(∞) = 2.5",
+      "(fck − 10)×10⁻⁶",
+      "内部 RH=50% 时 εcd 显著大于 RH=80% 户外"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §3.1.4；Annex B；DG_EN1992 §4.1.4",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.1.4 Creep and shrinkage\n• EN 1992-1-1 Annex B Creep and shrinkage strain\n• DG_EN1992 §4.1.4 Creep and shrinkage",
+      "revision_note": "当 σc>0.45fck(t0) 时考虑非线性徐变；kσ=σc/fcm(t0)。",
+      "original_answer_points": "• 影响徐变的因素：环境相对湿度（RH）、构件尺寸（名义尺寸 h0）、混凝土组成、加载时混凝土龄期 t0、水泥种类、应力水平\n• 影响收缩的因素：干燥收缩与 RH、h0、混凝土等级相关；自身收缩与水泥水化（与水灰比成反比，高强混凝土显著）\n• 当压应力 σc > 0.45·fck(t0) 时需用非线性徐变（按 Table 4.2 乘以放大系数）\n• h0 = 2·Ac/u（Ac 截面积，u 暴露于干燥的截面周长）\n• 自身收缩 εca 与 fck 成正比；干燥收缩 εcd 与 RH 反相关\n• 高强混凝土自身收缩占比增大"
+    }
+  },
+  {
+    "id": "Q04",
+    "question": "钢筋的主要特性有哪些？并给出相应总结。",
+    "category": "concept",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "3.2",
+          "3.2.7"
+        ],
+        "objects": [
+          "Annex C"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "3.2",
+      "3.2.7"
+    ],
+    "expected_keywords": [
+      "屈服强度 fyk（特征值）",
+      "极限抗拉强度 ftk = k",
+      "fyk",
+      "延性等级 A、B、C",
+      "应力",
+      "弹性模量 Es = 200 GPa",
+      "极限应变 εuk",
+      "普通钢筋主要参数"
+    ],
+    "expected_concepts": [
+      "屈服强度 fyk（特征值）",
+      "极限抗拉强度 ftk = k",
+      "fyk",
+      "延性等级 A、B、C",
+      "应力—应变曲线（双线性，水平/倾斜上分支）",
+      "弹性模量 Es = 200 GPa",
+      "极限应变 εuk"
+    ],
+    "expected_answer_points": [
+      "普通钢筋主要参数：fyk、fyd=fyk/γs、Es=200GPa、ftk、k=(ft/fy)k、延性等级 A/B/C、εuk；设计本构可用双线性水平上分支或倾斜上分支。"
+    ],
+    "expected_formulas": [
+      "Es = 200 GPa",
+      "fyd = fyk/γs；γs = 1.15（ULS 持久），fyk = 500 时 fyd = 435 MPa",
+      "k = (ft/fy)k",
+      "延性 A：εuk≥2.5%；B：εuk≥5%；C：εuk≥7.5%"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §3.2；§3.2.7；Annex C",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.2 Reinforcing steel\n• EN 1992-1-1 §3.2.7 Design assumptions\n• EN 1992-1-1 Annex C Properties of reinforcement\n• DG_EN1992 §4.3 Reinforcing steel",
+      "revision_note": "适用普通钢筋/焊网/桁架筋，不等同于预应力钢筋。",
+      "original_answer_points": "• 适用范围：肋筋、盘条、焊网、桁架筋（fyk = 400~600 MPa）\n• 弹性模量 Es = 200 GPa（200 kN/mm²）\n• 设计屈服应力 fyd = fyk/γs（γs=1.15，常用 fyk=500 时 fyd=435 MPa）\n• 延性等级：A 类 εuk ≥ 2.5%、k ≥ 1.05；B 类 εuk ≥ 5.0%、k ≥ 1.08；C 类 εuk ≥ 7.5%、1.15 ≤ k < 1.35\n• 设计应力—应变关系：双线性，可选水平上分支（不限拉应变）或倾斜上分支（限 0.9·εuk，应力达 k·fyk/γs）\n• 用于截面设计时一般采用水平上分支以简化"
+    }
+  },
+  {
+    "id": "Q05",
+    "question": "请问都有哪些环境暴露等级？",
+    "category": "concept",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "4.2"
+        ],
+        "objects": [
+          "Table 4.1"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "4.2"
+    ],
+    "expected_keywords": [
+      "X0 无侵蚀风险",
+      "XC 碳化引起腐蚀",
+      "XD 非海水氯化物腐蚀",
+      "XS 海水氯化物腐蚀",
+      "XF 冻融",
+      "XA 化学侵蚀",
+      "暴露等级"
+    ],
+    "expected_concepts": [
+      "X0 无侵蚀风险",
+      "XC 碳化引起腐蚀",
+      "XD 非海水氯化物腐蚀",
+      "XS 海水氯化物腐蚀",
+      "XF 冻融",
+      "XA 化学侵蚀"
+    ],
+    "expected_answer_points": [
+      "暴露等级：X0；XC1-4；XD1-3；XS1-3；XF1-4；XA1-3。需说明各类对应无腐蚀、碳化、非海水氯盐、海水氯盐、冻融、化学侵蚀。"
+    ],
+    "expected_formulas": [
+      "六大类暴露等级：X0、XC、XD、XS、XF、XA",
+      "暴露等级决定 cmin,dur、wmax、最低混凝土强度",
+      "暴露等级根据 EN 206-1 详细定义"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §4.2/Table 4.1；EN206-1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §4.2 Environmental conditions, Table 4.1\n• EN 206-1（参考标准）",
+      "revision_note": "构件可能同时受多个暴露等级控制。",
+      "original_answer_points": "• X0：无侵蚀或攻击风险\n• XC1~XC4：碳化引起的钢筋腐蚀（XC1 干燥/永久潮湿；XC2 潮湿且少有干燥；XC3 中等湿度；XC4 干湿交替）\n• XD1~XD3：非海水氯化物（XD1 中湿度；XD2 潮湿少干；XD3 干湿交替）\n• XS1~XS3：海水氯化物（XS1 含盐空气；XS2 永久水下；XS3 潮汐/飞溅）\n• XF1~XF4：冻融循环（含或不含除冰剂）\n• XA1~XA3：化学侵蚀（弱、中、强）\n• 一个构件可同时归入多个等级"
+    }
+  },
+  {
+    "id": "Q06",
+    "question": "保护层都与什么因素相关，该怎么计算？",
+    "category": "reasoning",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "4.4.1.1",
+          "4.4.1.2",
+          "4.4.1.3"
+        ],
+        "objects": [
+          "Table 4.2",
+          "Table 4.3N",
+          "Table 4.4N",
+          "Table 4.5N"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "4.4.1.1",
+      "4.4.1.2",
+      "4.4.1.3"
+    ],
+    "expected_keywords": [
+      "公称保护层 cnom",
+      "最小保护层 cmin",
+      "粘结要求 cmin,b（≥ 钢筋直径）",
+      "耐久性要求 cmin,dur",
+      "结构等级 S1~S6",
+      "施工允许偏差 Δcdev（通常 10 mm）"
+    ],
+    "expected_concepts": [
+      "公称保护层 cnom",
+      "最小保护层 cmin",
+      "粘结要求 cmin,b（≥ 钢筋直径）",
+      "耐久性要求 cmin,dur",
+      "结构等级 S1~S6",
+      "施工允许偏差 Δcdev（通常 10 mm）"
+    ],
+    "expected_answer_points": [
+      "cnom=cmin+Δcdev；cmin=max{cmin,b; cmin,dur+Δcdur,γ−Δcdur,st−Δcdur,add; 10mm}。影响因素包括钢筋直径/束筋、骨料、暴露等级、结构等级、设计寿命、混凝土强度、施工偏差。"
+    ],
+    "expected_formulas": [
+      "cnom = cmin + Δcdev（公式 4.1）",
+      "cmin = max{cmin,b ; cmin,dur + Δcdur,γ − Δcdur,st − Δcdur,add ; 10 mm}（公式 4.2）",
+      "Δcdev 推荐值 = 10 mm",
+      "默认结构等级 S4（设计寿命 50 年）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §4.4.1.1-§4.4.1.3；Tables 4.2、4.3N、4.4N、4.5N",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §4.4.1 Concrete cover\n• EN 1992-1-1 §4.4.1.1 General (公式 4.1)\n• EN 1992-1-1 §4.4.1.2 Minimum cover (公式 4.2)\n• EN 1992-1-1 §4.4.1.3 Allowance in design for deviation (公式 4.3)\n• Tables 4.3N/4.4N/4.5N",
+      "revision_note": "Δcdev 推荐 10mm；降低需满足质量控制条件与国家附录。",
+      "original_answer_points": "• 保护层 cnom 由黏结、耐久性、施工偏差三部分确定\n• 影响因素：暴露等级（XC/XD/XS/XF/XA）、结构等级（S1~S6，默认 S4）、钢筋直径、混凝土强度、设计寿命\n• 结构等级根据设计寿命、强度、构件类型、施工质量调整（±1~2 等级）\n• cmin,b：黏结相关，≥钢筋直径 φ；束筋取等效直径\n• cmin,dur：耐久性相关，由 Table 4.4N（钢筋）与 Table 4.5N（预应力筋）按暴露等级与结构等级查得\n• 施工偏差 Δcdev：推荐值 10 mm，特殊条件可减为 5 mm（严格质保）或 0 mm（预制件)"
+    }
+  },
+  {
+    "id": "Q07",
+    "question": "结构分析的目的是什么？",
+    "category": "broad",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.1.1",
+          "5.4",
+          "5.5",
+          "5.6",
+          "5.7",
+          "5.8"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.1.1",
+      "5.4",
+      "5.5",
+      "5.6",
+      "5.7",
+      "5.8"
+    ],
+    "expected_keywords": [
+      "确定结构内力（M, V, N, T）与变形",
+      "整体稳定性验算",
+      "ULS 与 SLS 验算输入",
+      "几何及构件假定",
+      "5 种分析方法（线弹性、内力重分布、塑性、非线性、二阶）"
+    ],
+    "expected_concepts": [
+      "确定结构内力（M, V, N, T）与变形",
+      "整体稳定性验算",
+      "ULS 与 SLS 验算输入",
+      "几何及构件假定",
+      "5 种分析方法（线弹性、内力重分布、塑性、非线性、二阶）"
+    ],
+    "expected_answer_points": [
+      "结构分析目的是确定整体或局部结构的内力、弯矩、应力、应变和位移，为 ULS/SLS 验算提供作用效应。"
+    ],
+    "expected_formulas": [
+      "5 种分析方法可选",
+      "关键输出：M、V、N、T、位移、转角",
+      "适用于 ULS 与 SLS 两类极限状态"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.1.1；§5.4-§5.8",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.1 General\n• EN 1992-1-1 §5.1.1 General requirements",
+      "revision_note": "方法可包括线弹性、有限重分布、塑性、非线性、二阶效应分析与局部拉压杆模型。",
+      "original_answer_points": "• 结构分析的目的是：确定整个或部分结构的内力分布、应力、应变与位移，以满足极限状态验算要求\n• 为 ULS（强度、稳定）与 SLS（变形、裂缝、振动）提供输入\n• 可针对结构整体、构件局部、不连续区分别采用不同方法\n• 可采用的分析方法：线弹性分析、考虑有限内力重分布的弹性分析、塑性分析、非线性分析\n• 对柔性结构或受压构件需考虑二阶效应\n• 需要合理选择几何模型与构件刚度"
+    }
+  },
+  {
+    "id": "Q08",
+    "question": "在哪些部位当线性应变分布的假设不成立时，可能需要进行局部分析？",
+    "category": "concept",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.3.1",
+          "5.6.4",
+          "6.5"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.3.1",
+      "5.6.4",
+      "6.5"
+    ],
+    "expected_keywords": [
+      "应变非线性区（D 区，扰动区）",
+      "几何不连续、刚度突变",
+      "集中荷载作用位置",
+      "梁柱节点、牛腿、深梁",
+      "锚固区",
+      "拉压杆模型（strut"
+    ],
+    "expected_concepts": [
+      "应变非线性区（D 区，扰动区）",
+      "几何不连续、刚度突变",
+      "集中荷载作用位置",
+      "梁柱节点、牛腿、深梁",
+      "锚固区",
+      "拉压杆模型（strut-and-tie）"
+    ],
+    "expected_answer_points": [
+      "线性应变分布不成立时需局部分析，如支座附近、集中荷载附近、梁柱节点、几何/受力不连续区、锚固区、牛腿、深梁等。"
+    ],
+    "expected_formulas": [
+      "适用 §6.5 拉压杆模型作为标准 D 区分析工具",
+      "扰动区范围一般取截面尺寸量级（h）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.3.1(4)；§5.6.4；§6.5",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.3 Idealisation of the structure\n• EN 1992-1-1 §5.3.1(4) Local analysis\n• EN 1992-1-1 §6.5 Strut-and-tie models",
+      "revision_note": "D 区一般可用拉压杆模型；“范围约 h”不能硬化为所有情况的固定规则。",
+      "original_answer_points": "• 需要局部分析的位置：集中荷载作用区附近、梁柱节点、牛腿、深梁\n• 锚固区（如预应力筋锚固区）\n• 几何形状或截面突变处（开洞、缺口）\n• 支座反力作用区\n• 墙肢与楼板连接、剪力墙开洞区\n• 推荐采用拉压杆模型（§6.5）或精细化数值分析"
+    }
+  },
+  {
+    "id": "Q09",
+    "question": "根据性质和功能，结构构件包括哪些类型？",
+    "category": "concept",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.3.1",
+          "5.11"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.3.1",
+      "5.11"
+    ],
+    "expected_keywords": [
+      "梁 (beam)",
+      "板 (slab)",
+      "柱 (column)",
+      "墙 (wall)",
+      "深梁 (deep beam)",
+      "无梁楼盖板柱体系 (flat slab)"
+    ],
+    "expected_concepts": [
+      "梁 (beam)",
+      "板 (slab) — 单向板/双向板",
+      "柱 (column)",
+      "墙 (wall)",
+      "深梁 (deep beam)",
+      "无梁楼盖板柱体系 (flat slab)"
+    ],
+    "expected_answer_points": [
+      "按性质/功能可包括 beams、columns、slabs、walls、plates、arches、shells 等；常用定义包括 beam leff≥3h，slab b 与 leff 不小于 5h，column 满足截面比例和高度条件。"
+    ],
+    "expected_formulas": [
+      "梁：leff ≥ 3",
+      "h",
+      "单向板：跨度 ≥ 2",
+      "宽度",
+      "柱：高度 ≥ 3",
+      "最大截面尺寸，b/h ≤ 4",
+      "深梁：leff < 3",
+      "h"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.3.1；§5.11",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.3.1 Structural models for overall analysis\n• EN 1992-1-1 §5.3.1(1)~(7)",
+      "revision_note": "无梁楼盖/剪力墙可补充引用 §5.11。",
+      "original_answer_points": "• 梁：跨度 ≥ 3·总高度，否则视为深梁\n• 单向板：跨度 ≥ 2 倍宽度，主要单向受弯\n• 双向板：两个方向受弯，矩形板长短边比 < 2\n• 无梁楼盖（flat slab）：直接支承于柱上的板\n• 柱：截面较高边/较短边 b ≤ 4，长度 ≥ 3·截面最大尺寸；否则视为墙\n• 墙：截面长宽比 > 4 的受压构件\n• 深梁：跨高比 < 3"
+    }
+  },
+  {
+    "id": "Q10",
+    "question": "什么是单向板？",
+    "category": "concept",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.3.1",
+          "9.3",
+          "9.3.1.1"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.3.1",
+      "9.3",
+      "9.3.1.1"
+    ],
+    "expected_keywords": [
+      "单向受力 (one",
+      "板的跨度比",
+      "支承方式",
+      "次方向受力可忽略",
+      "单向板可按两种情况判定"
+    ],
+    "expected_concepts": [
+      "单向受力 (one-way spanning)",
+      "板的跨度比",
+      "支承方式",
+      "次方向受力可忽略"
+    ],
+    "expected_answer_points": [
+      "单向板可按两种情况判定：仅两条相对边支承；或四边支承矩形板长跨/短跨 >2，主要沿短向受弯。"
+    ],
+    "expected_formulas": [
+      "判别条件：长/短跨 ≥ 2",
+      "次筋面积 ≥ 0.2",
+      "As,主筋",
+      "适用 §9.3.1 配筋构造"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.3.1(5)；§9.3；§9.3.1.1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.3.1(5) — slab definition\n• EN 1992-1-1 §9.3 Solid slabs",
+      "revision_note": "分布筋 ≥20% 主筋是构造要求，不是定义本身。",
+      "original_answer_points": "• 单向板定义（§5.3.1(5)）：当满足以下两个条件之一时，板可按单向板分析：\n• (a) 两条相对边支承且另两边无支承\n• (b) 矩形板四边支承，长边/短边比 ≥ 2\n• 单向板沿短跨方向主要受弯\n• 正交方向需配置不少于主筋 20% 的分布钢筋（次筋）"
+    }
+  },
+  {
+    "id": "Q11",
+    "question": "欧标的截面计算的基本假设前提是什么？",
+    "category": "broad",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.1",
+          "3.1.7",
+          "3.2.7",
+          "3.3.6"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "6.1",
+      "3.1.7",
+      "3.2.7",
+      "3.3.6"
+    ],
+    "expected_keywords": [
+      "平截面假定",
+      "钢筋与同高度混凝土应变相等（粘结良好）",
+      "不考虑混凝土抗拉强度",
+      "混凝土与钢筋采用规定的应力",
+      "极限应变控制",
+      "预应力筋初应变需另行考虑",
+      "截面计算假定"
+    ],
+    "expected_concepts": [
+      "平截面假定",
+      "钢筋与同高度混凝土应变相等（粘结良好）",
+      "不考虑混凝土抗拉强度",
+      "混凝土与钢筋采用规定的应力—应变曲线",
+      "极限应变控制",
+      "预应力筋初应变需另行考虑"
+    ],
+    "expected_answer_points": [
+      "截面计算假定：平截面保持平面；粘结钢筋与同高度混凝土应变相同；忽略受拉混凝土；混凝土和钢筋采用标准本构；预应力考虑初始应变差。"
+    ],
+    "expected_formulas": [
+      "εcu2 = 3.5‰（≤C50/60）",
+      "εud = 0.9",
+      "εuk（取倾斜上分支时）",
+      "完全受压时极限应变 εc2 = 2.0‰（≤C50/60）",
+      "中和轴位置由力的平衡 ΣF = 0 确定"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §6.1(2)P；§3.1.7；§3.2.7；§3.3.6",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §6.1 Bending with or without axial force\n• EN 1992-1-1 §6.1(2)P assumptions\n• DG_EN1992 §5.1 Basic assumptions",
+      "revision_note": "答案应体现应变相容与内力平衡。",
+      "original_answer_points": "• 平截面假定：截面在变形后仍保持平面\n• 粘结良好的钢筋与同位置混凝土应变相等\n• 受拉区混凝土抗拉强度忽略不计\n• 受压区混凝土应力—应变采用 §3.1.7 规定（抛物线—矩形、双线性或矩形）\n• 钢筋应力—应变采用 §3.2.7 规定（双线性，水平或倾斜上分支）\n• 预应力筋需考虑初始预应变\n• 极限状态由混凝土或钢筋极限应变控制"
+    }
+  },
+  {
+    "id": "Q12",
+    "question": "混凝土受压区应力—应变分布假设是什么？",
+    "category": "concept",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "3.1.7"
+        ],
+        "objects": [
+          "Table 3.1",
+          "Eq(3.17)-(3.22)"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "3.1.7"
+    ],
+    "expected_keywords": [
+      "抛物线",
+      "双线性分布（公式 3.19）",
+      "等效矩形应力块（公式 3.19a，参数 λ、η）",
+      "fcd 上限值",
+      "εc2, εcu2 / εc3, εcu3",
+      "受压混凝土可用抛物线"
+    ],
+    "expected_concepts": [
+      "抛物线—矩形分布（公式 3.17、3.18）",
+      "双线性分布（公式 3.19）",
+      "等效矩形应力块（公式 3.19a，参数 λ、η）",
+      "fcd 上限值",
+      "εc2, εcu2 / εc3, εcu3"
+    ],
+    "expected_answer_points": [
+      "受压混凝土可用抛物线-矩形、双线性、等效矩形应力块。抛物线-矩形用 εc2、εcu2、n；矩形应力块用 λ、η。"
+    ],
+    "expected_formulas": [
+      "fcd = αcc",
+      "fck/γc",
+      "≤C50/60：λ = 0.8，η = 1.0",
+      "C90：λ = 0.7，η = 0.8",
+      "≤C50：n = 2，εc2 = 2‰，εcu2 = 3.5‰",
+      "C90：n = 1.4，εc2 = 2.6‰，εcu2 = 2.6‰"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §3.1.7；Table 3.1；Eq(3.17)-(3.22)",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.1.7 Stress-strain relations for the design of cross-sections\n• EN 1992-1-1 Figure 3.3 (parabola-rectangle), 3.4 (bi-linear)\n• DG_EN1992 §5.1.1, Fig. 5.2",
+      "revision_note": "≤C50/60 时 λ=0.8、η=1.0；>C50 按公式递减。",
+      "original_answer_points": "• 允许三种受压应力—应变模型：抛物线—矩形（首选）、双线性、等效矩形应力块\n• 抛物线—矩形：0 ≤ εc ≤ εc2 时 σc = fcd·[1-(1-εc/εc2)^n]；εc2 ≤ εc ≤ εcu2 时 σc = fcd（公式 3.17、3.18）\n• n、εc2、εcu2 随强度等级变化（≤C50/60 时 n=2, εc2=2‰, εcu2=3.5‰；C90 时 n=1.4, εc2=2.6‰, εcu2=2.6‰）\n• 等效矩形应力块：σc = η·fcd 作用在 λ·x 深度内\n• ≤C50/60：λ=0.8、η=1.0；C90：λ=0.7、η=0.8\n• 受压设计值 fcd = αcc·fck/γc，αcc 推荐 1.0（UK NA 取 0.85）"
+    }
+  },
+  {
+    "id": "Q13",
+    "question": "混凝土压碎应变限值是多少？",
+    "category": "parameter_lookup",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.1"
+        ],
+        "objects": [
+          "Table 3.1",
+          "Figure 6.1"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "6.1"
+    ],
+    "expected_keywords": [
+      "εcu2（抛物线",
+      "εcu3（双线性/矩形）",
+      "纯轴压 εc2",
+      "强度等级相关性",
+      "压碎应变需区分模型"
+    ],
+    "expected_concepts": [
+      "εcu2（抛物线—矩形）",
+      "εcu3（双线性/矩形）",
+      "纯轴压 εc2",
+      "强度等级相关性"
+    ],
+    "expected_answer_points": [
+      "压碎应变需区分模型：εcu2 用于抛物线-矩形，εcu3 用于双线性/矩形。≤C50/60 时常为 3.5‰；高强随 fck 增大降低。"
+    ],
+    "expected_formulas": [
+      "εcu2 = 3.5‰（fck ≤ 50 MPa）",
+      "εcu2 = 2.6‰（fck = 90 MPa）",
+      "εc2 = 2.0‰（fck ≤ 50 MPa，纯轴压）",
+      "C55: 3.1‰；C60: 2.9‰；C70: 2.7‰；C80: 2.6‰；C90: 2.6‰"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 Table 3.1；§6.1/Figure 6.1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.1.7 Table 3.1\n• EN 1992-1-1 §6.1 (Figure 6.1 — strain distribution at ULS)\n• DG_EN1992 §5.2 Limiting compressive strains",
+      "revision_note": "纯轴压/全截面均匀受压不能简单套用 3.5‰，应按 Figure 6.1 和 Table 3.1 的 εc2/εc3 理解。",
+      "original_answer_points": "• 受弯或偏心受压（中和轴在截面内）：εcu = 3.5‰（≤C50/60）\n• 对 fck > 50 MPa：εcu2 随强度提高而减小\n• 纯轴压（整截面受压）：εc2 = 2.0‰（≤C50/60）\n• 弯矩与轴力共存时，极限应变在两者间按 Fig. 6.1 线性插值\n• 对高强混凝土（C55~C90）压碎应变 εcu2 减小至 2.6‰"
+    }
+  },
+  {
+    "id": "Q14",
+    "question": "极限受力状态下混凝土受压区高度限值为多少？",
+    "category": "parameter_lookup",
+    "review_bucket": "重大修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.6.2",
+          "5.6.3",
+          "5.5"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.6.2",
+      "5.6.3",
+      "5.5"
+    ],
+    "expected_keywords": [
+      "xu/d 限值",
+      "中和轴限值与混凝土强度",
+      "弯矩重分布系数 δ",
+      "延性钢筋分类对 δ 的限制",
+      "按场景给出 x_u/d"
+    ],
+    "expected_concepts": [
+      "xu/d 限值",
+      "中和轴限值与混凝土强度",
+      "弯矩重分布系数 δ",
+      "延性钢筋分类对 δ 的限制"
+    ],
+    "expected_answer_points": [
+      "按场景给出 x_u/d：塑性分析无需直接转角验算时 ≤0.25(≤C50/60)、≤0.15(≥C55/67)；屈服铰转角简化程序时 ≤0.45(≤C50/60)、≤0.35(≥C55/67)；弯矩重分布则由 δ 与 x_u/d 的公式限制。"
+    ],
+    "expected_formulas": [
+      "fck ≤ 50：xu/d ≤ 0.45",
+      "fck ≥ 55：xu/d ≤ 0.35",
+      "δ ≥ 0.44 + 1.25",
+      "xu/d（≤C50）",
+      "δ ≥ 0.54 + 1.25",
+      "(0.6+0.0014/εcu2)",
+      "xu/d（>C50）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.6.2(2)；§5.6.3(2)；§5.5(4)",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.5 Linear elastic analysis with limited redistribution\n• EN 1992-1-1 公式 5.10a, 5.10b\n• DG_EN1992 §5.2 (eq. D5.6)",
+      "revision_note": "不得把 0.45/0.35 当作所有 ULS 正截面计算的通用限值。",
+      "original_answer_points": "• 为保证延性破坏，受压区高度比 xu/d 受限于混凝土等级与重分布系数\n• fck ≤ 50 MPa：xu/d ≤ 0.45（无重分布时）\n• fck ≥ 55 MPa：xu/d ≤ 0.35（无重分布时）\n• 考虑重分布时，δ ≥ k1 + k2·xu/d（≤C50）或 δ ≥ k3 + k4·xu/d（>C50），k1=0.44，k2=1.25（0.6+0.0014/εcu2）\n• Class B、C 钢筋 δ ≥ 0.7；Class A 钢筋 δ ≥ 0.8"
+    }
+  },
+  {
+    "id": "Q15",
+    "question": "弯矩重分布限值为多少？",
+    "category": "parameter_lookup",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.5"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.5"
+    ],
+    "expected_keywords": [
+      "重分布系数 δ = M重分布后/M弹性",
+      "塑性铰所需转动能力",
+      "受压区高度 xu/d 关联",
+      "延性等级 A/B/C 限制"
+    ],
+    "expected_concepts": [
+      "重分布系数 δ = M重分布后/M弹性",
+      "塑性铰所需转动能力",
+      "受压区高度 xu/d 关联",
+      "延性等级 A/B/C 限制"
+    ],
+    "expected_answer_points": [
+      "重分布系数 δ 需满足 δ≥k1+k2x_u/d 或 δ≥k3+k4x_u/d；并满足 Class B/C δ≥0.7、Class A δ≥0.8 的推荐下限。"
+    ],
+    "expected_formulas": [
+      "δ ≥ 0.7（B、C 类钢筋）— 最大 30% 重分布",
+      "δ ≥ 0.8（A 类钢筋）— 最大 20% 重分布",
+      "δ ≥ 0.44 + 1.25",
+      "xu/d（≤C50/60）",
+      "δ ≥ 0.54 + 1.25",
+      "xu/d（>C50/60）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.5(4)-(6)",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.5 Linear elastic analysis with limited redistribution\n• EN 1992-1-1 公式 5.10a~5.10b\n• DG_EN1992 §5.1 / Fig 5.6",
+      "revision_note": "柱弹性框架弯矩不应重分布；旋转能力不能可靠定义时不重分布。",
+      "original_answer_points": "• 连续梁、板可进行弯矩重分布以反映塑性内力调整\n• 重分布系数 δ 的下限由公式 5.10a/b 控制：δ ≥ k1 + k2·xu/d 或 δ ≥ k3 + k4·xu/d\n• 对 Class B/C 钢筋，δ ≥ 0.7（即最大重分布 30%）\n• 对 Class A（低延性）钢筋，δ ≥ 0.8（最大 20%）\n• 对柱 / 角柱体系，无重分布（δ=1）\n• 推荐 k1=0.44，k2=1.25 (0.6+0.0014/εcu2)，k3=0.54，k4=1.25 (0.6+0.0014/εcu2)，k5=0.7，k6=0.8"
+    }
+  },
+  {
+    "id": "Q16",
+    "question": "fcd 如何计算",
+    "category": "reasoning",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "3.1.6",
+          "2.4.2.4"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "3.1.6",
+      "2.4.2.4"
+    ],
+    "expected_keywords": [
+      "αcc 长期效应系数",
+      "γc 材料分项系数",
+      "fck 圆柱体特征强度",
+      "国家附录 NA 可调整 αcc"
+    ],
+    "expected_concepts": [
+      "αcc 长期效应系数",
+      "γc 材料分项系数",
+      "fck 圆柱体特征强度",
+      "国家附录 NA 可调整 αcc"
+    ],
+    "expected_answer_points": [
+      "fcd=αcc fck/γc；fctd=αct fctk,0.05/γc。EN 推荐 αcc=1.0，γc 持久/短暂通常 1.5。"
+    ],
+    "expected_formulas": [
+      "fcd = αcc",
+      "fck/γc（公式 3.15）",
+      "αcc：推荐 1.0；多国 NA 用 0.85",
+      "γc = 1.5（持久/短暂）；1.2（偶然）",
+      "示例：C30/37、αcc=1.0、γc=1.5 → fcd = 20 MPa；αcc=0.85 → fcd = 17 MPa"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §3.1.6；§2.4.2.4",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.1.6 Design compressive and tensile strengths\n• EN 1992-1-1 公式 3.15\n• DG_EN1992 §4.1.5",
+      "revision_note": "αcc 是国家附录参数，不要把 0.85 写成通用欧标值。",
+      "original_answer_points": "• 设计抗压强度按公式 3.15：fcd = αcc·fck/γc\n• αcc 考虑长期荷载效应与加载方式的不利影响\n• EN 1992-1-1 推荐 αcc = 1.0；英国 NA、中国常用 αcc = 0.85（CEB Model Code 取值）\n• γc = 1.5（持久 / 短暂 ULS）；γc = 1.2（偶然 ULS）\n• 对应设计抗拉强度：fctd = αct·fctk,0.05/γc，αct 推荐 1.0"
+    }
+  },
+  {
+    "id": "Q17",
+    "question": "截面计算中材料分项安全系数为多少？",
+    "category": "parameter_lookup",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "2.4.2.4"
+        ],
+        "objects": [
+          "Table 2.1N"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "2.4.2.4"
+    ],
+    "expected_keywords": [
+      "持久与短暂状况",
+      "偶然状况",
+      "SLS 验算",
+      "混凝土 γc 与钢筋 γs",
+      "材料分项系数"
+    ],
+    "expected_concepts": [
+      "持久与短暂状况",
+      "偶然状况",
+      "SLS 验算",
+      "混凝土 γc 与钢筋 γs"
+    ],
+    "expected_answer_points": [
+      "材料分项系数：持久/短暂 γc=1.5、普通钢筋 γs=1.15、预应力钢筋 γs=1.15；偶然 γc=1.2、γs=1.0；SLS 未另有规定时推荐 1.0。"
+    ],
+    "expected_formulas": [
+      "ULS 持久 / 短暂：γc = 1.5、γs = 1.15",
+      "ULS 偶然：γc = 1.2、γs = 1.0",
+      "SLS：γc = γs = 1.0"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §2.4.2.4/Table 2.1N",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §2.4.2.4 Partial factors for materials\n• EN 1992-1-1 Table 2.1N",
+      "revision_note": "疲劳材料分项系数推荐用持久设计状况值。",
+      "original_answer_points": "• 持久 / 短暂 ULS：γc = 1.5，γs = 1.15\n• 偶然 ULS（含地震）：γc = 1.2，γs = 1.0\n• 正常使用极限状态 SLS：γc = γs = 1.0\n• 疲劳验算与持久/短暂相同\n• 国家附录可作适度调整（如保留 1.5 / 1.15）\n• Table 2.1N 给出统一参考值"
+    }
+  },
+  {
+    "id": "Q18",
+    "question": "混凝土抗压强度标准值、设计值与平均强度之间是什么关系？",
+    "category": "concept",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "3.1.2",
+          "3.1.6"
+        ],
+        "objects": [
+          "Table 3.1"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "3.1.2",
+      "3.1.6"
+    ],
+    "expected_keywords": [
+      "fck 标准值（圆柱体 5% 分位）",
+      "fck,cube 立方体特征强度",
+      "fcm 平均抗压强度",
+      "fcd 设计抗压强度",
+      "强度等级表示 fck/fck,cube（C30/37）",
+      "关系"
+    ],
+    "expected_concepts": [
+      "fck 标准值（圆柱体 5% 分位）",
+      "fck,cube 立方体特征强度",
+      "fcm 平均抗压强度",
+      "fcd 设计抗压强度",
+      "强度等级表示 fck/fck,cube（C30/37）"
+    ],
+    "expected_answer_points": [
+      "关系：fck 为圆柱体特征强度，fck,cube 为立方体特征强度，fcm=fck+8，fcd=αcc fck/γc。C30/37 表示 fck=30MPa、fck,cube=37MPa。"
+    ],
+    "expected_formulas": [
+      "fcm = fck + 8 MPa",
+      "fcd = αcc",
+      "fck/γc（αcc=1.0、γc=1.5 时 ≈ 0.67",
+      "fck）",
+      "C30/37 → fck=30，fck,cube=37，fcm=38，fcd≈20 MPa",
+      "C50/60 → fck=50，fck,cube=60，fcm=58"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §3.1.2/Table 3.1；§3.1.6",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §3.1.2 Strength\n• EN 1992-1-1 §3.1.6 Design strengths\n• EN 1992-1-1 Table 3.1",
+      "revision_note": "说明 fck 是 28d 强度 5% 分位更完整。",
+      "original_answer_points": "• fck：圆柱体特征抗压强度，是 28 天试件抗压强度的 5% 分位值\n• fck,cube：立方体特征抗压强度，对应同一混凝土\n• fcm：平均抗压强度，fcm = fck + 8（MPa），用于变形与徐变计算\n• fcd：设计抗压强度，fcd = αcc·fck/γc\n• C 标号写法 fck/fck,cube，如 C30/37 表示 fck=30 MPa, fck,cube=37 MPa\n• 三者关系：fcd < fck < fcm（通常 fcd ≈ 0.67·fck，fcm = fck + 8）"
+    }
+  },
+  {
+    "id": "Q19",
+    "question": "钢筋的锚固长度与搭接长度受哪些因素影响？",
+    "category": "broad",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "8.4.2",
+          "8.4.3",
+          "8.4.4",
+          "8.7.2",
+          "8.7.3",
+          "8.7.4"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "8.4.2",
+      "8.4.3",
+      "8.4.4",
+      "8.7.2",
+      "8.7.3",
+      "8.7.4"
+    ],
+    "expected_keywords": [
+      "极限黏结应力 fbd",
+      "黏结条件（'好'/'其他'）",
+      "基本锚固长度 lb,rqd",
+      "设计锚固长度 lbd（含 α1~α5 修正）",
+      "搭接长度 l0（含 α6 修正）",
+      "钢筋直径、形状、横向钢筋、混凝土约束"
+    ],
+    "expected_concepts": [
+      "极限黏结应力 fbd",
+      "黏结条件（'好'/'其他'）",
+      "基本锚固长度 lb,rqd",
+      "设计锚固长度 lbd（含 α1~α5 修正）",
+      "搭接长度 l0（含 α6 修正）",
+      "钢筋直径、形状、横向钢筋、混凝土约束"
+    ],
+    "expected_answer_points": [
+      "fbd=2.25η1η2fctd；lb,rqd=(φ/4)(σsd/fbd)；lbd=α1α2α3α4α5lb,rqd 且不小于 lbd,min；搭接长度 l0=α1α2α3α5α6lb,rqd 且满足最小值。"
+    ],
+    "expected_formulas": [
+      "fbd = 2.25",
+      "η1",
+      "η2",
+      "fctd",
+      "lb,rqd = (φ/4)",
+      "σsd/fbd",
+      "lbd = α1",
+      "α2",
+      "α3",
+      "α4",
+      "α5",
+      "lb,rqd ≥ lb,min；α2",
+      "α3",
+      "α5 ≥ 0.7",
+      "l0 = α1",
+      "α2",
+      "α3",
+      "α5",
+      "α6",
+      "lb,rqd ≥ l0,min",
+      "α6 = 1.0 / 1.4 / 1.5（搭接率 ≤25%/33%/50%）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §8.4.2-§8.4.4；§8.7.2-§8.7.4",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §8.4 Anchorage of longitudinal reinforcement\n• EN 1992-1-1 §8.4.2 Ultimate bond stress（公式 8.2）\n• EN 1992-1-1 §8.4.3~8.4.4（公式 8.3, 8.4）\n• EN 1992-1-1 §8.7 Laps（公式 8.10）\n• EN 1992-1-1 Table 8.2 (α 系数), Table 8.3 (α6)",
+      "revision_note": "影响因素包括钢筋应力、直径、混凝土强度、黏结条件、保护层、横向钢筋、横向压力、搭接比例。",
+      "original_answer_points": "• 影响因素：钢筋应力 σsd、钢筋直径 φ、混凝土设计抗拉强度 fctd、黏结条件（好/其他）、钢筋形状（直/弯）、保护层、横向钢筋、横向压力、搭接率\n• 极限黏结应力 fbd = 2.25·η1·η2·fctd；η1=1.0（好的）/0.7（其他）；η2=1.0（φ≤32）/(132-φ)/100（φ>32）\n• 基本锚固长度 lb,rqd = (φ/4)·(σsd/fbd)（公式 8.3）\n• 设计锚固长度 lbd = α1·α2·α3·α4·α5·lb,rqd ≥ lb,min（公式 8.4）\n• α1: 弯钩形状；α2: 保护层；α3: 横向约束钢筋；α4: 焊接横筋；α5: 横向压力，1.0·α2·α3·α5 ≥ 0.7\n• 搭接长度 l0 = α1·α2·α3·α5·α6·lb,rqd ≥ l0,min（公式 8.10）\n• α6 依搭接率：≤25% 取 1.0、>25%~50% 取 1.4、>50% 取 1.5（Table 8.3）"
+    }
+  },
+  {
+    "id": "Q20",
+    "question": "什么情况下需要考虑二阶效应？",
+    "category": "concept",
+    "review_bucket": "通过",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.8.2",
+          "5.8.3",
+          "5.8.4"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.8.2",
+      "5.8.3",
+      "5.8.4"
+    ],
+    "expected_keywords": [
+      "长细比 λ = l0/i",
+      "长细比限值 λlim",
+      "无侧移与有侧移结构",
+      "ULS 整体稳定",
+      "缺陷（初始倾斜）"
+    ],
+    "expected_concepts": [
+      "长细比 λ = l0/i",
+      "长细比限值 λlim",
+      "无侧移与有侧移结构",
+      "ULS 整体稳定",
+      "缺陷（初始倾斜）"
+    ],
+    "expected_answer_points": [
+      "二阶效应小于相应一阶效应 10% 可忽略；孤立受压构件可用 λ≤λlim 判别，λ=l0/i，λlim=20ABC/√n。"
+    ],
+    "expected_formulas": [
+      "λ = l0/i",
+      "λlim = 20",
+      "A",
+      "B",
+      "C/√n",
+      "默认 A=0.7、B=1.1、C=0.7，约 λlim ≈ 10.78/√n",
+      "二阶弯矩贡献 > 10% 总弯矩 → 必须考虑",
+      "几何缺陷 θ0 = 1/200"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.8.2；§5.8.3；§5.8.4",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.8 Analysis of second order effects with axial load\n• EN 1992-1-1 §5.8.2 General\n• EN 1992-1-1 §5.8.3 Simplified criteria, slenderness λlim（公式 5.13N）",
+      "revision_note": "A 与徐变、B 与机械配筋率、C 与端弯矩比有关；整体结构可用 §5.8.3.3。",
+      "original_answer_points": "• 若二阶效应使内力 / 弯矩增加超过 10%，则必须考虑\n• 对长细比 λ > λlim 的受压构件需考虑二阶效应\n• λlim = 20·A·B·C/√n（公式 5.13N）；n = NEd/(Ac·fcd)\n• A = 1/(1+0.2·φef) （未知时取 0.7），B = √(1+2ω) （未知时取 1.1），C = 1.7 − rm（未知时取 0.7）\n• 对柔性结构、整体稳定关键的多层结构，需进行二阶整体分析\n• 可采用：完整非线性分析、基于名义曲率法、基于名义刚度法（§5.8.6~5.8.8）\n• 必须计入几何缺陷（§5.2，初始倾斜 θi = θ0·αh·αm）"
+    }
+  },
+  {
+    "id": "Q21",
+    "question": "受弯构件正截面承载力计算的一般步骤是什么？",
+    "category": "broad",
+    "review_bucket": "中等修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.1",
+          "3.1.7",
+          "3.2.7",
+          "9.2.1.1"
+        ],
+        "objects": []
+      },
+      {
+        "doc": "DG_EN1992",
+        "sections": [],
+        "objects": [
+          "Ch5"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "6.1",
+      "3.1.7",
+      "3.2.7",
+      "9.2.1.1"
+    ],
+    "expected_keywords": [
+      "平截面假定与极限应变",
+      "中和轴位置 x",
+      "应力块（抛物线",
+      "拉、压力平衡",
+      "弯矩平衡",
+      "最小/最大配筋率",
+      "一般步骤"
+    ],
+    "expected_concepts": [
+      "平截面假定与极限应变",
+      "中和轴位置 x",
+      "应力块（抛物线—矩形或矩形）",
+      "拉、压力平衡",
+      "弯矩平衡",
+      "最小/最大配筋率"
+    ],
+    "expected_answer_points": [
+      "一般步骤：确定 fcd/fyd 与本构；建立截面应变图；取中和轴 x；由应变相容得钢筋应力；用混凝土压区模型和钢筋力建立 ΣN=0、ΣM=MEd；求 As；检查最小/最大配筋、锚固和 SLS。"
+    ],
+    "expected_formulas": [
+      "fav ≈ 0.459",
+      "fck（抛物线—矩形，≤C50），β = 0.416",
+      "x/d ≤ 0.45（≤C50/60）；0.35（≥C55）",
+      "As,min = 0.26",
+      "fctm",
+      "b",
+      "d/fyk ≥ 0.0013",
+      "b",
+      "d",
+      "As,max = 0.04",
+      "Ac",
+      "MRd ≈ As",
+      "fyd",
+      "(d − 0.4",
+      "x)（简化）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §6.1；§3.1.7；§3.2.7；§9.2.1.1；DG_EN1992 Ch5",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §6.1 Bending with or without axial force\n• DG_EN1992 §5.2.1 Singly reinforced beams and slabs\n• DG_EN1992 §5.2.2 Doubly reinforced sections\n• DG_EN1992 §5.2.3 Flanged sections",
+      "revision_note": "不要把 DG 简化常数 fav、β 或塑性转角 x/d 限值作为所有截面承载力的标准要求。",
+      "original_answer_points": "• (1) 确定材料：fcd、fyd（结合 αcc、γc、γs）\n• (2) 假定混凝土极限应变 εcu2、钢筋极限应变 εud（或屈服）\n• (3) 假定中和轴位置 x，按平截面计算各层钢筋应变及应力\n• (4) 由力平衡 Σ轴向力 = 0（含 NEd 轴力）求出 x：fav·b·x + ΣAs'·σs' = As·fyd（含轴力时加入 NEd）\n• (5) 由弯矩平衡求 MRd = fav·b·x·(d − β·x) + ΣAs'·σs'·(d − d')\n• (6) 校核 x/d ≤ 0.45（≤C50）或 0.35（>C50）保证延性；不满足则改用双筋设计\n• (7) 验算最小配筋 As,min = max{0.26·fctm·bt·d/fyk ; 0.0013·bt·d}（§9.2.1.1）与最大 As,max = 0.04·Ac\n• 对 T/L 截面：若中和轴落在翼缘内则按矩形截面计算；否则按 T 形计算（公式 D5.10、D5.11）"
+    }
+  },
+  {
+    "id": "Q22",
+    "question": "后张法预应力损失如何计算",
+    "category": "reasoning",
+    "review_bucket": "中等修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.10.3",
+          "5.10.5",
+          "5.10.6"
+        ],
+        "objects": [
+          "Table 5.1"
+        ]
+      }
+    ],
+    "expected_sections": [
+      "5.10.3",
+      "5.10.5",
+      "5.10.6"
+    ],
+    "expected_keywords": [
+      "短期损失",
+      "长期损失",
+      "摩擦损失公式（μ、k）",
+      "锚具回缩（slip）",
+      "徐变系数 φ(t,t0)",
+      "钢筋松弛 Δσpr",
+      "后张即时损失"
+    ],
+    "expected_concepts": [
+      "短期损失：弹性压缩、摩擦、锚具回缩、瞬时温度",
+      "长期损失：徐变、收缩、松弛",
+      "摩擦损失公式（μ、k）",
+      "锚具回缩（slip）",
+      "徐变系数 φ(t,t0)",
+      "钢筋松弛 Δσpr"
+    ],
+    "expected_answer_points": [
+      "后张即时损失：混凝土瞬时变形 ΔPel、摩擦 ΔPμ(x)、锚具回缩 ΔPsl；长期损失：徐变、收缩、松弛 ΔPc+s+r。摩擦损失 ΔPμ=Pmax(1−e^{−μ(θ+kx)})。"
+    ],
+    "expected_formulas": [
+      "ΔPμ(x) = Pmax",
+      "(1 − e^(−μ(θ+k",
+      "x)))",
+      "μ：摩擦系数（0.16~0.30）",
+      "k：意外角变化 (rad/m)（0.005~0.01）",
+      "σp,max ≤ 0.8",
+      "fpk 或 0.9",
+      "fp0.1k",
+      "总长期损失 = 公式 5.46（徐变+收缩+松弛耦合）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.10.3；§5.10.5；§5.10.6；Table 5.1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.10 Prestressed members and structures\n• EN 1992-1-1 §5.10.4 Immediate losses for pre-tensioning\n• EN 1992-1-1 §5.10.5 Immediate losses for post-tensioning（公式 5.43~5.46）\n• EN 1992-1-1 §5.10.6 Time dependent losses（公式 5.46）\n• DG_EN1992 Ch 11 Prestressed concrete",
+      "revision_note": "μ 按 Table 5.1/ETA 取；k 一般 0.005<k<0.01 per metre。",
+      "original_answer_points": "• 后张法即时损失（§5.10.5）：\n•   (a) 弹性压缩损失（同一构件多束分阶段张拉时）\n•   (b) 摩擦损失：ΔPμ(x) = Pmax·(1 − e^(−μ(θ+k·x)))（公式 5.45）\n•   (c) 锚具回缩（slip）损失\n•   (d) 张拉阶段瞬时损失\n• 长期损失（§5.10.6，公式 5.46）：徐变、收缩、松弛联合作用\n•   Δσp,c+s+r = [εcs·Ep + 0.8·Δσpr + (Ep/Ecm)·φ(t,t0)·σc,QP] / [1 + (Ep/Ecm)·(Ap/Ac)·(1+Ac·zcp²/Ic)·(1+0.8·φ(t,t0))]\n• 其中：εcs 收缩、Δσpr 松弛、φ(t,t0) 徐变系数、σc,QP 准永久组合下混凝土应力\n• 最大张拉应力 σp,max ≤ min(0.8·fpk, 0.9·fp0.1k)；锚固后 ≤ min(0.75·fpk, 0.85·fp0.1k)（§5.10.2、5.10.3）"
+    }
+  },
+  {
+    "id": "Q23",
+    "question": "预应力在各类极限状态下的影响是什么",
+    "category": "broad",
+    "review_bucket": "重大修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "2.4.2.2",
+          "5.10.7",
+          "5.10.8",
+          "5.10.9"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "2.4.2.2",
+      "5.10.7",
+      "5.10.8",
+      "5.10.9"
+    ],
+    "expected_keywords": [
+      "外力 vs. 内部约束作用",
+      "ULS 中预应力作为有利或不利作用",
+      "SLS 上下界 rsup=1.05、rinf=0.95",
+      "超静定结构中预应力次内力",
+      "疲劳",
+      "ULS"
+    ],
+    "expected_concepts": [
+      "外力 vs. 内部约束作用",
+      "ULS 中预应力作为有利或不利作用",
+      "γP（持久 γP,fav=1.0、不利 γP,unfav=1.3）",
+      "SLS 上下界 rsup=1.05、rinf=0.95",
+      "超静定结构中预应力次内力",
+      "疲劳：取平均值"
+    ],
+    "expected_answer_points": [
+      "ULS：Pd,t(x)=γP Pm,t(x)，γP,fav 推荐 1.0；外部预应力稳定不利 γP,unfav 推荐 1.3，局部效应推荐 1.2。SLS/疲劳：Pk,sup=rsupPm,t，Pk,inf=rinfPm,t。"
+    ],
+    "expected_formulas": [
+      "ULS：γP,fav = 1.0；γP,unfav = 1.3（推荐 γP = 1.0）",
+      "SLS：rsup/rinf = 1.05/0.95（后张），1.10/0.90（先张）",
+      "SLS 压应力限 σc ≤ 0.6",
+      "fck（环境腐蚀防控）",
+      "SLS 钢筋应力限 σs ≤ 0.8",
+      "fyk（特征组合）"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §2.4.2.2；§5.10.7；§5.10.8；§5.10.9",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.10.7 Consideration of prestress in analysis\n• EN 1992-1-1 §5.10.8 Effects of prestressing at ULS\n• EN 1992-1-1 §5.10.9 Effects of prestressing at SLS and limit state of fatigue\n• DG_EN1992 Ch 11",
+      "revision_note": "rsup/rinf：先张或无粘结筋 1.05/0.95；后张有粘结筋 1.10/0.90；采取直接测量等措施可 1.0/1.0。",
+      "original_answer_points": "• ULS 下（§5.10.8）：\n•   - 预应力按外部作用 / 内部应变同时考虑\n•   - 对锚固区采用 Pk = Pm,t（特征值），对其他位置可取平均值 Pm,t\n•   - 不利状态采用 γP,unfav=1.3；有利 γP,fav=1.0；推荐 γP=1.0\n•   - 超静定结构次内力按弹性分析考虑\n• SLS 下（§5.10.9）：\n•   - 上界 Pk,sup = rsup·Pm,t（rsup=1.05 后张/1.10 先张）\n•   - 下界 Pk,inf = rinf·Pm,t（rinf=0.95 后张/0.90 先张）\n•   - 用于检查混凝土压应力（≤0.6·fck）、裂缝、变形\n• 疲劳验算取平均预应力 Pm,t\n• 对承载力，预应力即可作为'轴力'参与内力计算（提高抗弯/抗剪承载力）"
+    }
+  },
+  {
+    "id": "Q24",
+    "question": "剪应力一般验证程序是怎样的",
+    "category": "concept",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.2.1",
+          "6.2.2",
+          "6.2.3"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "6.2.1",
+      "6.2.2",
+      "6.2.3"
+    ],
+    "expected_keywords": [
+      "VEd（设计剪力）",
+      "VRd,c（无腹筋构件抗剪）",
+      "VRd,s（腹筋承担）",
+      "VRd,max（压杆混凝土极限）",
+      "桁架模型 (truss model)",
+      "剪力验证"
+    ],
+    "expected_concepts": [
+      "VEd（设计剪力）",
+      "VRd,c（无腹筋构件抗剪）",
+      "VRd,s（腹筋承担）",
+      "VRd,max（压杆混凝土极限）",
+      "桁架模型 (truss model)",
+      "θ 压杆倾角（21.8°~45°，cotθ 在 1.0~2.5）"
+    ],
+    "expected_answer_points": [
+      "剪力验证：求 VEd；计算 VRd,c；若 VEd≤VRd,c，则不需计算抗剪筋但通常仍考虑最小抗剪筋；若 VEd>VRd,c，则按桁架模型设计 VRd,s 并满足 VEd≤VRd 与 VEd≤VRd,max。"
+    ],
+    "expected_formulas": [
+      "VRd,c = [CRd,c",
+      "k",
+      "(100",
+      "ρl",
+      "fck)^(1/3) + k1",
+      "σcp]",
+      "bw",
+      "d；CRd,c = 0.18/γc",
+      "k = 1 + √(200/d) ≤ 2.0",
+      "vmin = 0.035",
+      "k^(3/2)",
+      "fck^(1/2)",
+      "VRd,s = (Asw/s)",
+      "z",
+      "fywd",
+      "cotθ",
+      "VRd,max = αcw",
+      "bw",
+      "z",
+      "ν1",
+      "fcd/(cotθ+tanθ)",
+      "1.0 ≤ cotθ ≤ 2.5",
+      "ν1 = 0.6",
+      "(1 − fck/250)"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §6.2.1；§6.2.2；§6.2.3",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §6.2 Shear\n• EN 1992-1-1 §6.2.1 General verification procedure\n• EN 1992-1-1 §6.2.2 Members not requiring design shear reinforcement\n• EN 1992-1-1 §6.2.3 Members requiring design shear reinforcement (truss model)",
+      "revision_note": "均布荷载支座附近可按距支座 d 处规则，但支座处仍需检查不超过 VRd,max。",
+      "original_answer_points": "• (1) 计算设计剪力 VEd，并取距支座 d 处截面（支座为压力反力时）\n• (2) 计算 VRd,c（公式 6.2.a/b，无需腹筋构件的抗剪承载力）：VRd,c = [CRd,c·k·(100·ρl·fck)^(1/3) + k1·σcp]·bw·d，且 ≥ (vmin + k1·σcp)·bw·d\n• (3) 比较：VEd ≤ VRd,c → 无需配置抗剪钢筋（仅按构造）\n• (4) 若 VEd > VRd,c：按桁架模型计算 VRd,s = (Asw/s)·z·fywd·cotθ（公式 6.8）\n• (5) 同时检查压杆强度：VRd,max = αcw·bw·z·ν1·fcd/(cotθ+tanθ)（公式 6.9）\n• (6) 取 VRd = min{VRd,s ; VRd,max}\n• (7) 选取 cotθ 在 1.0~2.5（21.8° ≤ θ ≤ 45°）\n• (8) 最大间距 sl,max = 0.75·d·(1+cotα)（公式 9.6N）\n• (9) 最小箍筋率 ρw,min = (0.08·√fck)/fyk（公式 9.5N）"
+    }
+  },
+  {
+    "id": "Q25",
+    "question": "单向板的设计步骤包括哪些",
+    "category": "broad",
+    "review_bucket": "中等修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "5.3.1",
+          "6.1",
+          "6.2",
+          "7.3",
+          "7.4",
+          "9.3.1"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "5.3.1",
+      "6.1",
+      "6.2",
+      "7.3",
+      "7.4",
+      "9.3.1"
+    ],
+    "expected_keywords": [
+      "单向板定义",
+      "跨中与支座弯矩",
+      "最小配筋率",
+      "次方向分布钢筋（≥20% 主筋）",
+      "构造钢筋间距限值",
+      "挠度与裂缝控制",
+      "单向板设计流程"
+    ],
+    "expected_concepts": [
+      "单向板定义",
+      "跨中与支座弯矩",
+      "最小配筋率",
+      "次方向分布钢筋（≥20% 主筋）",
+      "构造钢筋间距限值",
+      "挠度与裂缝控制"
+    ],
+    "expected_answer_points": [
+      "单向板设计流程：判定单向板与有效跨；确定荷载组合；分析 MEd/VEd；按 §6.1 配主筋；按 §9.3.1 配分布筋和间距；按 §6.2 验剪；按 §7.3/§7.4 控制裂缝与挠度；完成支座/自由边构造。"
+    ],
+    "expected_formulas": [
+      "厚度 h ≈ leff/30~leff/25",
+      "As,min = 0.26",
+      "fctm",
+      "b",
+      "d/fyk ≥ 0.0013",
+      "b",
+      "d",
+      "分布筋 As,次 ≥ 0.2",
+      "As,主",
+      "smax,主 = min(3h, 400 mm)",
+      "smax,次 = min(3.5h, 450 mm)"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §5.3.1；§6.1；§6.2；§7.3；§7.4；§9.3.1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §5.3.1 Idealisation\n• EN 1992-1-1 §6.1 Bending\n• EN 1992-1-1 §6.2.2 (无需抗剪钢筋判别)\n• EN 1992-1-1 §7.3 Cracks; §7.4 Deflection\n• EN 1992-1-1 §9.3 Solid slabs",
+      "revision_note": "板厚初估可作为经验值，但不应列为欧标硬性基线。",
+      "original_answer_points": "• (1) 确定板厚 h（一般 leff/30~leff/25），跨度 leff\n• (2) 计算荷载（恒载+活载）形成设计弯矩 MEd（连续板可考虑弯矩重分布）\n• (3) 主筋（受拉）：按 §6.1 计算 As = MEd/(z·fyd) 或采用设计图表\n• (4) 最小配筋：As,min = max{0.26·fctm·bt·d/fyk ; 0.0013·bt·d}（§9.2.1.1）\n• (5) 次方向分布钢筋：As,次 ≥ 0.20·As,主筋（§9.3.1.1(2)）\n• (6) 主筋最大间距：smax,主 = min(3·h, 400) mm；集中荷载/最大弯矩处 min(2·h, 250)\n• (7) 次筋最大间距：smax,次 = min(3.5·h, 450) mm；集中荷载/最大弯矩处 min(3·h, 400)\n• (8) 剪力验算：通常 VEd ≤ VRd,c 即可（无需抗剪钢筋）\n• (9) 裂缝、挠度控制（§7.3、§7.4）\n• (10) 边支座最小弯矩取跨中弯矩 25%（§9.3.1.2(1)）"
+    }
+  },
+  {
+    "id": "Q26",
+    "question": "单向板构造配筋有什么规定",
+    "category": "broad",
+    "review_bucket": "中等修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "9.3.1.1",
+          "9.3.1.2",
+          "9.3.2",
+          "9.2.1.1"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "9.3.1.1",
+      "9.3.1.2",
+      "9.3.2",
+      "9.2.1.1"
+    ],
+    "expected_keywords": [
+      "最小受力配筋率",
+      "最大配筋率",
+      "次方向分布钢筋",
+      "最大间距",
+      "边支座最小弯矩",
+      "板厚 ≥ 200 mm 时才考虑抗剪钢筋"
+    ],
+    "expected_concepts": [
+      "最小受力配筋率",
+      "最大配筋率",
+      "次方向分布钢筋",
+      "最大间距",
+      "边支座最小弯矩",
+      "板厚 ≥ 200 mm 时才考虑抗剪钢筋"
+    ],
+    "expected_answer_points": [
+      "主筋最小/最大配筋引用 §9.2.1.1；次向分布筋 ≥20% 主筋；普通区主筋间距≤min(3h,400mm)，次筋≤min(3.5h,450mm)；集中荷载/最大弯矩区主筋≤min(2h,250mm)，次筋≤min(3h,400mm)。"
+    ],
+    "expected_formulas": [
+      "As,min = 0.26",
+      "fctm",
+      "b",
+      "d/fyk ≥ 0.0013",
+      "b",
+      "d",
+      "As,max = 0.04",
+      "Ac",
+      "As,次 ≥ 0.2",
+      "As,主",
+      "smax,主 = min(3h, 400 mm)；最大弯矩处 min(2h, 250 mm)",
+      "smax,次 = min(3.5h, 450 mm)；最大弯矩处 min(3h, 400 mm)",
+      "板厚 ≥ 200 mm 方可设抗剪钢筋"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §9.3.1.1；§9.3.1.2；§9.3.2；§9.2.1.1",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §9.3.1 Flexural reinforcement\n• EN 1992-1-1 §9.3.1.1 (1)~(4)\n• EN 1992-1-1 §9.3.2 Shear reinforcement\n• EN 1992-1-1 §9.3.1.2 边支座 / 角部要求",
+      "revision_note": "若设置板抗剪筋，板厚至少 200mm；并补充简支支座、部分固定边、自由边构造。",
+      "original_answer_points": "• (1) 最小受力配筋：As,min = max{0.26·fctm·bt·d/fyk ; 0.0013·bt·d}（§9.2.1.1）\n• (2) 最大配筋：As,max = 0.04·Ac（搭接区除外）\n• (3) 次方向（分布）钢筋：As,次 ≥ 0.20·As,主筋（单向板）\n• (4) 主筋最大间距：min(3·h, 400 mm)；集中荷载或最大弯矩区 min(2·h, 250 mm)\n• (5) 次筋最大间距：min(3.5·h, 450 mm)；集中荷载或最大弯矩区 min(3·h, 400 mm)\n• (6) 边支座最小弯矩 ≥ 0.25·跨中弯矩（§9.3.1.2(1)）\n• (7) 边支座顶部钢筋的锚固按 §9.3.1.2\n• (8) 仅当板厚 h ≥ 200 mm 时才允许使用抗剪钢筋（§9.3.2）\n• (9) 角部需配置加强钢筋抵抗扭转及次应力"
+    }
+  },
+  {
+    "id": "Q27",
+    "question": "单向板分布筋的配置有什么规定",
+    "category": "concept",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "9.3.1.1"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "9.3.1.1"
+    ],
+    "expected_keywords": [
+      "次方向分布钢筋",
+      "横向配筋率 ≥ 20% 主筋",
+      "最大间距控制",
+      "集中荷载区域加密"
+    ],
+    "expected_concepts": [
+      "次方向分布钢筋",
+      "横向配筋率 ≥ 20% 主筋",
+      "最大间距控制",
+      "集中荷载区域加密"
+    ],
+    "expected_answer_points": [
+      "单向板次向分布筋不小于主筋面积的 20%；普通区间距≤min(3.5h,450mm)，集中荷载或最大弯矩区≤min(3h,400mm)。"
+    ],
+    "expected_formulas": [
+      "As,次 ≥ 0.20",
+      "As,主",
+      "smax,次 = min(3.5",
+      "h, 450 mm)",
+      "集中荷载/最大弯矩处 smax,次 = min(3",
+      "h, 400 mm)"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §9.3.1.1(2)-(3)",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §9.3.1.1(2) Secondary transverse reinforcement",
+      "revision_note": "支座附近无横向弯矩时，可不为主上部钢筋配置横向分布筋。",
+      "original_answer_points": "• 单向板必须在次方向（横向）布置分布钢筋\n• 分布筋面积 ≥ 主筋面积的 20%（As,次 ≥ 0.20·As,主）\n• 在主筋方向是无支承边的搭接区，可省略次方向钢筋\n• 次筋最大间距 smax,次 = min(3.5·h, 450 mm)\n• 在集中荷载作用区或最大弯矩区，次筋间距加密为 min(3·h, 400 mm)\n• 次筋应布置于主筋外侧（靠近受压区面）"
+    }
+  },
+  {
+    "id": "Q28",
+    "question": "构件在哪些情况下无需设计抗剪力钢筋",
+    "category": "concept",
+    "review_bucket": "中等修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.2.1",
+          "6.2.2",
+          "9.2.2"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "6.2.1",
+      "6.2.2",
+      "9.2.2"
+    ],
+    "expected_keywords": [
+      "VEd ≤ VRd,c",
+      "VRd,c 公式 6.2.a/b",
+      "板、墙等次要构件",
+      "构造最低抗剪钢筋率"
+    ],
+    "expected_concepts": [
+      "VEd ≤ VRd,c",
+      "VRd,c 公式 6.2.a/b",
+      "板、墙等次要构件",
+      "构造最低抗剪钢筋率"
+    ],
+    "expected_answer_points": [
+      "当 VEd≤VRd,c 时不需按承载力计算抗剪筋；但通常仍需最小抗剪筋。可省略最小抗剪筋的典型情况：可横向重分配荷载的板类构件，以及不显著影响整体抗力和稳定的次要构件。"
+    ],
+    "expected_formulas": [
+      "VRd,c = [CRd,c",
+      "k",
+      "(100",
+      "ρl",
+      "fck)^(1/3) + k1",
+      "σcp]",
+      "bw",
+      "d；推荐 CRd,c = 0.18/γc，k1=0.15",
+      "vmin = 0.035",
+      "k^(3/2)",
+      "fck^(1/2)",
+      "k = 1 + √(200/d) ≤ 2.0",
+      "板厚 h < 200 mm 不允许配抗剪钢筋"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §6.2.1(3)-(4)；§6.2.2；§9.2.2",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §6.2.1(4) — 无需抗剪钢筋的判别\n• EN 1992-1-1 §6.2.2 Members not requiring design shear reinforcement\n• EN 1992-1-1 §9.3.2 Slabs",
+      "revision_note": "不要笼统说墙或所有次要构件均无需剪力筋。",
+      "original_answer_points": "• 当 VEd ≤ VRd,c 时无需通过计算配置抗剪钢筋\n• 适用对象：单向板、双向板、墙等次要构件，且不存在显著动力 / 偶然作用\n• 板（slab）即使 VEd > VRd,c 仍允许重新分布；板厚 < 200 mm 不应配置抗剪钢筋\n• 次梁与梁宽较小的构件无显著横向荷载时也可放宽\n• 对于不需要配置抗剪钢筋的梁，仍需提供构造最低横向钢筋（§9.2.2(5)）"
+    }
+  },
+  {
+    "id": "Q29",
+    "question": "需要设计剪力筋的构件有什么特征",
+    "category": "broad",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.2.1",
+          "6.2.3",
+          "9.2.2",
+          "9.3.2"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "6.2.1",
+      "6.2.3",
+      "9.2.2",
+      "9.3.2"
+    ],
+    "expected_keywords": [
+      "VEd > VRd,c",
+      "桁架模型",
+      "竖向箍筋 / 弯起钢筋 / 斜筋",
+      "最小箍筋率 ρw,min",
+      "最大间距 sl,max、st,max"
+    ],
+    "expected_concepts": [
+      "VEd > VRd,c",
+      "桁架模型",
+      "竖向箍筋 / 弯起钢筋 / 斜筋",
+      "最小箍筋率 ρw,min",
+      "最大间距 sl,max、st,max"
+    ],
+    "expected_answer_points": [
+      "当 VEd>VRd,c 时需要设计抗剪筋；按可变角桁架模型确定 VRd,s，同时满足 VEd≤VRd 和 VEd≤VRd,max；还应满足最小配箍率、纵向/横向间距和纵筋附加拉力要求。"
+    ],
+    "expected_formulas": [
+      "判别：VEd > VRd,c",
+      "ρw,min = 0.08",
+      "√fck/fyk",
+      "sl,max = 0.75",
+      "d",
+      "(1+cotα)；st,max = 0.75",
+      "d ≤ 600 mm",
+      "VRd,s = (Asw/s)",
+      "z",
+      "fywd",
+      "cotθ；1.0 ≤ cotθ ≤ 2.5",
+      "弯起钢筋占比 ≤ 50%"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §6.2.1(5)-(7)；§6.2.3；§9.2.2；§9.3.2",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §6.2.1(4)\n• EN 1992-1-1 §6.2.3 Members requiring design shear reinforcement\n• EN 1992-1-1 §9.2.2 Shear reinforcement",
+      "revision_note": "板中设剪力筋时应满足 h≥200mm。",
+      "original_answer_points": "• 当 VEd > VRd,c 时必须设计抗剪钢筋（按桁架模型 §6.2.3）\n• 典型构件：梁（特别是承担集中荷载、深跨比小的梁）、厚板（≥ 200 mm）、地下结构构件、有动力或偶然作用\n• 抗剪钢筋形式：闭合箍筋（首选）、弯起钢筋、斜筋（与轴线 ≥ 45°）\n• 最小箍筋率 ρw ≥ ρw,min = 0.08·√fck/fyk（公式 9.5N）\n• 纵向最大间距 sl,max = 0.75·d·(1 + cotα)（公式 9.6N）；横向 st,max = 0.75·d ≤ 600 mm\n• 弯起钢筋承担剪力 ≤ 50%\n• 在搭接区与高弯剪复合区应加密"
+    }
+  },
+  {
+    "id": "Q30",
+    "question": "结构抗扭转设计程序是怎样的",
+    "category": "broad",
+    "review_bucket": "小幅修改",
+    "expected_documents": [
+      {
+        "doc": "EN1992",
+        "sections": [
+          "6.3.1",
+          "6.3.2",
+          "6.3.3",
+          "9.2.3"
+        ],
+        "objects": []
+      }
+    ],
+    "expected_sections": [
+      "6.3.1",
+      "6.3.2",
+      "6.3.3",
+      "9.2.3"
+    ],
+    "expected_keywords": [
+      "等效薄壁空心截面",
+      "壁厚 tef = A/u",
+      "剪流 τt = TEd/(2",
+      "Ak",
+      "tef,i)",
+      "桁架模型（拉杆 + 压杆）",
+      "纵筋 + 闭合箍筋",
+      "扭转设计"
+    ],
+    "expected_concepts": [
+      "等效薄壁空心截面",
+      "壁厚 tef = A/u",
+      "剪流 τt = TEd/(2",
+      "Ak",
+      "tef,i)",
+      "桁架模型（拉杆 + 压杆）",
+      "扭剪组合 (TEd/TRd,max)+(VEd/VRd,max) ≤ 1",
+      "纵筋 + 闭合箍筋"
+    ],
+    "expected_answer_points": [
+      "扭转设计：判断平衡扭转/协调扭转；换算为等效薄壁闭合截面；tef=A/u 且不小于 2c1；τt=TEd/(2Ak tef)；按桁架模型配置纵筋与闭合箍筋；进行 T/V 组合压杆验算。"
+    ],
+    "expected_formulas": [
+      "tef,i = A/u（≥ 2c1）",
+      "TEd = 2",
+      "Ak",
+      "τt",
+      "tef",
+      "ΣAsl",
+      "fyd/uk = TEd",
+      "cotθ/(2",
+      "Ak)",
+      "Asw/s = TEd/(2",
+      "Ak",
+      "fyd",
+      "cotθ)",
+      "TRd,max = 2",
+      "ν",
+      "αcw",
+      "fcd",
+      "Ak",
+      "tef,i",
+      "sinθ",
+      "cosθ；ν = 0.6",
+      "(1−fck/250)",
+      "(TEd/TRd,max)+(VEd/VRd,max) ≤ 1.0",
+      "1.0 ≤ cotθ ≤ 2.5",
+      "箍筋间距 ≤ u/8、≤ 0.75",
+      "d、≤ 最小边长"
+    ],
+    "must_not_include": [],
+    "notes": {
+      "raw_sections_field": "EN1992 §6.3.1-§6.3.3；§9.2.3",
+      "raw_sections_original_unreviewed": "• EN 1992-1-1 §6.3 Torsion\n• EN 1992-1-1 §6.3.1 General\n• EN 1992-1-1 §6.3.2 Design procedure（公式 6.26~6.30）\n• EN 1992-1-1 §9.2.3 Torsional reinforcement",
+      "revision_note": "核心条件包括 TEd/TRd,max+VEd/VRd,max≤1；满足 TEd/TRd,c+VEd/VRd,c≤1 的近似矩形实心截面可仅设最小配筋。",
+      "original_answer_points": "• (1) 计算 TEd（设计扭矩）与 VEd（同位置）\n• (2) 将实心截面转换为等效薄壁空心截面，tef,i = A/u（外缘到中心钢筋距离的 2 倍以内）\n• (3) 计算剪流：τt,i·tef,i = TEd/(2·Ak)（公式 6.26）\n• (4) 检查混凝土压杆容量：(TEd/TRd,max) + (VEd/VRd,max) ≤ 1.0（公式 6.29），TRd,max = 2·ν·αcw·fcd·Ak·tef,i·sinθ·cosθ（公式 6.30）\n• (5) 计算扭转纵筋：ΣAsl·fyd/uk = TEd·cotθ/(2·Ak)（公式 6.28）\n• (6) 计算扭转横向钢筋（封闭箍筋）：Asw/s = TEd/(2·Ak·fyd·cotθ)\n• (7) 注意：剪扭组合时纵筋面积叠加，箍筋面积按剪流方向叠加\n• (8) 对实心截面：仅当 TEd ≤ TEd,min（公式 6.31）且 VEd ≤ VRd,c 时可不验算扭转\n• (9) 构造要求（§9.2.3）：闭合箍筋（≥135° 弯钩），间距 ≤ u/8、≤ smax,V、≤ 截面最小边长；纵筋每角配置且沿周长分布、间距 ≤ 350 mm\n• (10) 选取 cotθ：1.0 ≤ cotθ ≤ 2.5"
+    }
+  }
+]
