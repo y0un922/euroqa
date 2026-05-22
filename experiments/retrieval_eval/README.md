@@ -2,12 +2,12 @@
 
 完全隔离的 RAG 检索召回评测模块。**与 `server/` / `pipeline/` / `tests/eval/` / `shared/` 业务模块零代码侵入**，删除整个目录即可彻底回滚。
 
-## 用法
+## Usage
 
 ### 1. 数据集转换（一次性）
 
 ```bash
-python3 -m experiments.retrieval_eval.dataset.convert \
+uv run python -m experiments.retrieval_eval.dataset.convert \
   --input golden_dataset_reviewed.xlsx \
   --output experiments/retrieval_eval/dataset/test_questions_v2.json
 ```
@@ -20,21 +20,26 @@ python3 -m experiments.retrieval_eval.dataset.convert \
 - `category` — broad / exact_ref / parameter_lookup / reasoning / concept
 - `notes` — 原始未审查字段做溯源参考
 
-### 2. 跑 baseline 评测（待实施）
+### 2. 跑 baseline 评测
 
 ```bash
-uv run python experiments/retrieval_eval/run_baseline.py --top-k 10
-# 输出 results/baseline_<date>.json
+uv run python experiments/retrieval_eval/run_baseline.py \
+  --top-k 10 \
+  --questions experiments/retrieval_eval/dataset/test_questions_v2.json \
+  --output experiments/retrieval_eval/results/baseline_manual.json
 ```
 
-需要本地 Milvus + Elasticsearch 启动。
+不传 `--output` 时默认输出 `experiments/retrieval_eval/results/<exp>_<date>.json`。
+可用 `--exp smoke|baseline|high-recall|no-rerank|no-cap` 切换短反馈实验配置。
 
-### 3. 分诊报告（待实施）
+### 3. 分诊报告
 
 ```bash
-python3 experiments/retrieval_eval/triage.py results/baseline_<date>.json
-# 输出 results/triage_<date>.md
+uv run python experiments/retrieval_eval/triage.py \
+  experiments/retrieval_eval/results/baseline_manual.json
 ```
+
+不传 `--output` 时默认输出 `experiments/retrieval_eval/results/triage_<date>.md`。
 
 ### 4. 零侵入验证
 
@@ -42,33 +47,55 @@ python3 experiments/retrieval_eval/triage.py results/baseline_<date>.json
 bash experiments/retrieval_eval/verify_isolation.sh
 ```
 
-## 前置条件
+如果 task 起点不是当前 `master` merge-base，可显式指定：
+
+```bash
+TASK_START_REF=<sha> bash experiments/retrieval_eval/verify_isolation.sh
+```
+
+## Prerequisites
 
 - `golden_dataset_reviewed.xlsx`（项目根目录，已有）
-- Milvus（默认 `localhost:19530`，collection `eurocode_chunks`）
-- Elasticsearch（默认 `http://localhost:9200`，index `eurocode_chunks`）
+- `openpyxl`：仅数据集转换需要；本 task 不修改 `pyproject.toml`，缺失时请在运行环境预装
+- Milvus：默认 `localhost:19530`，collection `eurocode_chunks`
+- Elasticsearch：默认 `http://localhost:9200`，index `eurocode_chunks`
 - BGE-M3 embedding model（可本地或远程，由 `server.config` 决定）
 - BGE Reranker v2-m3
 
-## 删除影响
+如果使用本项目 Docker Compose 栈，先确认服务已启动：
+
+```bash
+docker compose ps
+```
+
+baseline 需要 Milvus / Elasticsearch / embedding / rerank 均可用；否则 runner 会在每题 `error` 字段记录异常。
+
+## Deletion Impact
 
 ```bash
 rm -rf experiments/retrieval_eval
 ```
 
 这之后：
-- ✅ `server/` 任何业务接口仍可启动（不依赖本目录）
-- ✅ `tests/eval/eval_retrieval.py` 仍可跑（独立的 v1 评测）
-- ✅ `pipeline/` 索引、`tests/` 单测均不受影响
+- `server/` 任何业务接口仍可启动（不依赖本目录）
+- `tests/eval/eval_retrieval.py` 仍可跑（独立的 v1 评测）
+- `pipeline/` 索引、`tests/` 单测均不受影响
+- 已生成的 `experiments/retrieval_eval/results/*` 会随目录删除；这些结果默认不进 git
 
-## 内部依赖风险
+## Internal Dependencies Risks
 
 本沙箱通过 `import` 调用业务代码的**内部方法**：
-- `server.core.retrieval.HybridRetriever._vector_search` / `_bm25_search` / `_rrf_fuse_results` / `_rerank`
+- `server.core.retrieval.HybridRetriever._vector_search`
+- `server.core.retrieval.HybridRetriever._bm25_search`
+- `server.core.retrieval.HybridRetriever._rrf_fuse_results`
+- `server.core.retrieval.HybridRetriever._cross_doc_aggregate`
+- `server.core.retrieval.HybridRetriever._rerank`
+- `server.core.retrieval.HybridRetriever._fetch_cross_ref_chunks`
+- `server.core.retrieval.HybridRetriever._fetch_object_chunks_by_object_ids`
 - `server.core.query_understanding.analyze_query`
 - `server.config.ServerConfig`
 
-如果业务 refactor 这些内部方法签名，`trace/wrapper.py` 必须同步更新。详见 `.trellis/tasks/05-22-retrieval-recall-eval-sandbox/research/retrieval-internals.md`。
+如果业务 refactor 这些内部方法签名，`trace/wrapper.py` 必须同步更新。`TracingHybridRetriever` 是单线程评测 wrapper，不应复用到 ASGI worker 或线上请求链路。详见 `.trellis/tasks/05-22-retrieval-recall-eval-sandbox/research/retrieval-internals.md`。
 
 ## 目录布局
 
@@ -81,13 +108,14 @@ experiments/retrieval_eval/
     schema.py               # QuestionV2 dataclass
     convert.py              # xlsx → v2 json
     test_questions_v2.json  # 30 题金标
-  metrics/                  # 8 个指标 + 三维分桶（Step 2，待实施）
-  trace/                    # 分阶段 trace wrapper（Step 3，待实施）
+  metrics/                  # 8 个指标 + 三维分桶
+  trace/                    # 分阶段 trace wrapper
   results/                  # 评测结果（git-ignored）
-  runner.py                 # 通用 runner（Step 3）
-  run_baseline.py           # 主入口（Step 3）
-  triage.py                 # 分诊报告（Step 4）
-  verify_isolation.sh       # 零侵入校验（Step 5）
+  runner.py                 # 通用 runner
+  run_baseline.py           # 主入口
+  triage.py                 # 分诊报告
+  triage_rules.py           # 5 类失败模式规则
+  verify_isolation.sh       # 零侵入校验
 ```
 
 ## 设计文档
@@ -98,5 +126,4 @@ experiments/retrieval_eval/
 
 ## 不依赖新 PyPI 包
 
-本沙箱不引入新的 `pyproject.toml` 依赖。所有 import 都使用项目已有的包：
-`openpyxl`（system python 已装）、`structlog`、`pymilvus`、`elasticsearch`、`FlagEmbedding`、`FlagReranker`。
+本沙箱不引入新的 `pyproject.toml` 依赖。除转换脚本需要运行环境提供 `openpyxl` 外，其余 import 都使用项目已有的包：`structlog`、`pymilvus`、`elasticsearch`、`FlagEmbedding`、`FlagReranker`。
