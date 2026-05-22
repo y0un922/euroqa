@@ -65,63 +65,16 @@ function findDocumentForSource(
   return matchedDocumentId ? findDocumentById(matchedDocumentId, documents) : null;
 }
 
-function looksLikeContentSnippet(value: string): boolean {
-  const normalized = value.trim();
-  if (!normalized) {
-    return true;
-  }
-
-  if (normalized.length > 120) {
-    return true;
-  }
-
-  if (/[.!?。！？；;]\s+\S/.test(normalized)) {
-    return true;
-  }
-
-  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
-  if (wordCount >= 14 && !/\.(pdf|docx?)$/i.test(normalized)) {
-    return true;
-  }
-
-  return false;
-}
-
 function resolveSourceDisplayTitle(
   source: Source,
   document: DocumentInfo | null
 ): string {
-  const sourceDisplayTitle = source.display_title?.trim();
-  if (sourceDisplayTitle && !looksLikeContentSnippet(sourceDisplayTitle)) {
-    return sourceDisplayTitle;
-  }
-
-  const sourceTitle = source.title?.trim();
-  if (sourceTitle && !looksLikeContentSnippet(sourceTitle)) {
-    return sourceTitle;
-  }
-
-  const documentTitle = document?.title?.trim();
-  if (documentTitle) {
-    return documentTitle;
-  }
-
-  const documentName = document?.name?.trim();
-  if (documentName) {
-    return documentName;
-  }
-
-  const candidates = [
-    source.file?.trim(),
-    source.document_id?.trim(),
-    source.docId?.trim()
-  ].filter((value): value is string => Boolean(value));
-
   return (
-    candidates.find((candidate) => !looksLikeContentSnippet(candidate)) ??
-    source.file?.trim() ??
-    source.document_id?.trim() ??
-    source.docId?.trim() ??
+    source.file?.trim() ||
+    document?.name?.trim() ||
+    document?.title?.trim() ||
+    source.document_id?.trim() ||
+    source.docId?.trim() ||
     "未命名文档"
   );
 }

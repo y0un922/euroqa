@@ -359,7 +359,7 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
     normalized_sources: list[Source] = []
     for source in sources:
         document_id = _resolve_document_id(source)
-        display_title = (source.display_title or source.title or source.file).strip()
+        display_title = source.file.strip() or document_id
         highlight_text = source.highlight_text.strip() or _build_highlight_text(
             source.original_text,
             [int(source.page)] if str(source.page).strip().isdigit() else [],
@@ -375,7 +375,7 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
                     "highlight_text": highlight_text,
                     "locator_text": locator_text,
                     "translation": "",
-                    "title": source.title.strip() or display_title,
+                    "title": display_title,
                 }
             )
         )
@@ -387,7 +387,7 @@ def _build_retrieval_context_entry(
 ) -> dict[str, Any]:
     """Build a frontend-exportable retrieval snapshot item from a chunk."""
     meta = chunk.metadata
-    display_title = meta.display_title or meta.source_title or meta.source
+    display_title = meta.source
     entry: dict[str, Any] = {
         "chunk_id": chunk.chunk_id,
         "document_id": _resolve_document_id(chunk),
@@ -889,7 +889,7 @@ def _format_prompt_chunk_block(chunk: Chunk, label: str) -> str:
     page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
     section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
     clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
-    display_name = meta.display_title or meta.source_title or meta.source
+    display_name = meta.source
     source_name = meta.source
     return (
         f"{label}\n"
@@ -908,7 +908,7 @@ def _format_prompt_metadata_line(chunk: Chunk, label: str) -> str:
     section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
     clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
     page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
-    display_name = meta.display_title or meta.source_title or meta.source
+    display_name = meta.source
     return (
         f"- {label} 文档名: {display_name}; 来源ID: {meta.source}; "
         f"条款/章节: {clause_str} / {section_str}; "
@@ -1081,7 +1081,7 @@ def _build_sources_from_chunks(
     for chunk in ordered_chunks:
         meta = chunk.metadata
         document_id = _resolve_document_id(chunk)
-        display_title = meta.display_title or meta.source_title or meta.source
+        display_title = meta.source
         # Primary: use bbox from pipeline metadata
         bbox = list(meta.bbox) if meta.bbox else []
         resolved_page = str(meta.bbox_page_idx + 1) if meta.bbox_page_idx >= 0 else ""

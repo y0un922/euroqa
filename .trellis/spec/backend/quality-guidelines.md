@@ -345,6 +345,7 @@ model = config.contextualize_llm_model or config.llm_model
 - Response `sources` must be built from the same citable chunk ordering as prompt `[Ref-N]`, including guide/commentary/example chunks that may be cited.
 - Frontend citation linkification maps only `[Ref-N]` / `[REF-N]` to `sources[N-1]`. Guide/commentary/example evidence must arrive as ordinary entries in `sources`; do not add frontend-only `[Guide-N]` or `[GuideExample-N]` citation namespaces.
 - Frontend retrieval context must preserve the backend groups `chunks`, `parent_chunks`, `ref_chunks`, `guide_chunks`, and `guide_example_chunks` for export/debug snapshots, while clickable answer citations still come only from `sources`.
+- Citation display names are file-name/source-key contracts. Prompt `文档名`, API `sources[].display_title/title`, and frontend `ReferenceRecord.displayTitle` must prefer the stable uploaded filename/source key (`metadata.source` in the current local pipeline; Huake `fileName` once supplied) over parser-derived PDF titles, OCR headings, section titles, bibliography text, or chunk content.
 - Guide retrieval must classify guide documents from generic uploaded-document metadata such as `source`, `source_title`, `section_path`, or `clause_ids`; it must not filter for a fixed uploaded PDF name.
 
 #### 3. Tests Required
@@ -355,6 +356,7 @@ model = config.contextualize_llm_model or config.llm_model
 - Retrieval context tests may assert guide/example observability fields, but not at the expense of citable `chunks`.
 - Frontend citation tests must assert uppercase `[REF-N]` is normalized to `[Ref-N]`, and legacy `[Guide-N]` text is not converted into a separate clickable namespace.
 - Frontend export tests must assert `ref_chunks`, `guide_chunks`, and `guide_example_chunks` are present in Markdown retrieval context exports when supplied by the backend.
+- Frontend/API tests must assert parser-derived `display_title/title` values do not override `source.file` for citation labels.
 
 #### 4. Wrong vs Correct
 

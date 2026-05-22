@@ -168,7 +168,7 @@ test("buildReferenceRecords prefers source document_id over fuzzy matching", () 
   );
 
   assert.equal(references[0]?.documentId, "EXACT_DOC_ID");
-  assert.equal(references[0]?.displayTitle, "Eurocode - Basis of structural design");
+  assert.equal(references[0]?.displayTitle, "EN 1990:2002");
   assert.equal(
     references[0]?.source.highlight_text,
     "The design working life should be specified."
@@ -208,7 +208,7 @@ test("buildReferenceRecords falls back to file match when source document_id is 
   assert.equal(references[0]?.documentId, "EN1992-1-1_2004(1).pdf");
 });
 
-test("buildReferenceRecords exposes display title when available", () => {
+test("buildReferenceRecords displays the source file instead of parsed titles", () => {
   const references = buildReferenceRecords(
     [
       {
@@ -238,10 +238,10 @@ test("buildReferenceRecords exposes display title when available", () => {
     []
   );
 
-  assert.equal(references[0]?.displayTitle, "Eurocode 2: Design of concrete structures");
+  assert.equal(references[0]?.displayTitle, "EN 1992:2004");
 });
 
-test("buildReferenceRecords rejects snippet-like source titles in favor of loaded document names", () => {
+test("buildReferenceRecords ignores snippet-like source titles in favor of source file", () => {
   const bibliographySnippet =
     "Designers' Guide to EN 1991-1-2, 1992-1-2, 1993-1-2 and EN 1994-1-2. Eurocode 1: Actions on Structures. Eurocode 3: Design of Steel Structures. Eurocode 4: Design of Composite Steel and Concrete Structures. Fire Engineering.";
   const references = buildReferenceRecords(
@@ -273,7 +273,7 @@ test("buildReferenceRecords rejects snippet-like source titles in favor of loade
     []
   );
 
-  assert.equal(references[0]?.displayTitle, "DG EN1992-1-1 -1-2");
+  assert.equal(references[0]?.displayTitle, "DG_EN1992-1-1_-1-2");
 });
 
 test("getPreferredReferenceIndex prefers the first source with a clause", () => {
