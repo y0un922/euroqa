@@ -241,6 +241,41 @@ test("buildReferenceRecords exposes display title when available", () => {
   assert.equal(references[0]?.displayTitle, "Eurocode 2: Design of concrete structures");
 });
 
+test("buildReferenceRecords rejects snippet-like source titles in favor of loaded document names", () => {
+  const bibliographySnippet =
+    "Designers' Guide to EN 1991-1-2, 1992-1-2, 1993-1-2 and EN 1994-1-2. Eurocode 1: Actions on Structures. Eurocode 3: Design of Steel Structures. Eurocode 4: Design of Composite Steel and Concrete Structures. Fire Engineering.";
+  const references = buildReferenceRecords(
+    [
+      {
+        file: "DG_EN1992-1-1_-1-2",
+        document_id: "DG_EN1992-1-1_-1-2",
+        display_title: bibliographySnippet,
+        title: bibliographySnippet,
+        section: "References",
+        page: "1",
+        clause: "",
+        original_text: bibliographySnippet,
+        highlight_text: bibliographySnippet,
+        locator_text: bibliographySnippet,
+        translation: ""
+      }
+    ],
+    [
+      {
+        id: "DG_EN1992-1-1_-1-2",
+        name: "DG EN1992-1-1 -1-2",
+        title: "DG EN1992-1-1 -1-2",
+        total_pages: 180,
+        chunk_count: 0
+      }
+    ],
+    "medium",
+    []
+  );
+
+  assert.equal(references[0]?.displayTitle, "DG EN1992-1-1 -1-2");
+});
+
 test("getPreferredReferenceIndex prefers the first source with a clause", () => {
   const index = getPreferredReferenceIndex([
     {

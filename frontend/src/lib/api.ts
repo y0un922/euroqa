@@ -40,6 +40,92 @@ import { clearToken, dispatchAuthExpired, getToken } from "./auth";
 const normalize = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
+function findDocumentById(
+  documentId: string,
+  documents: DocumentInfo[]
+): DocumentInfo | null {
+  if (!documentId) {
+    return null;
+  }
+
+  return documents.find((document) => document.id === documentId) ?? null;
+}
+
+function findDocumentForSource(
+  source: Source,
+  documents: DocumentInfo[]
+): DocumentInfo | null {
+  const sourceDocumentId = source.document_id || source.docId || "";
+  const exactDocument = findDocumentById(sourceDocumentId, documents);
+  if (exactDocument) {
+    return exactDocument;
+  }
+
+  const matchedDocumentId = matchSourceToDocumentId(source.file, documents);
+  return matchedDocumentId ? findDocumentById(matchedDocumentId, documents) : null;
+}
+
+function looksLikeContentSnippet(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized.length > 120) {
+    return true;
+  }
+
+  if (/[.!?。！？；;]\s+\S/.test(normalized)) {
+    return true;
+  }
+
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  if (wordCount >= 14 && !/\.(pdf|docx?)$/i.test(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+function resolveSourceDisplayTitle(
+  source: Source,
+  document: DocumentInfo | null
+): string {
+  const sourceDisplayTitle = source.display_title?.trim();
+  if (sourceDisplayTitle && !looksLikeContentSnippet(sourceDisplayTitle)) {
+    return sourceDisplayTitle;
+  }
+
+  const sourceTitle = source.title?.trim();
+  if (sourceTitle && !looksLikeContentSnippet(sourceTitle)) {
+    return sourceTitle;
+  }
+
+  const documentTitle = document?.title?.trim();
+  if (documentTitle) {
+    return documentTitle;
+  }
+
+  const documentName = document?.name?.trim();
+  if (documentName) {
+    return documentName;
+  }
+
+  const candidates = [
+    source.file?.trim(),
+    source.document_id?.trim(),
+    source.docId?.trim()
+  ].filter((value): value is string => Boolean(value));
+
+  return (
+    candidates.find((candidate) => !looksLikeContentSnippet(candidate)) ??
+    source.file?.trim() ??
+    source.document_id?.trim() ??
+    source.docId?.trim() ??
+    "未命名文档"
+  );
+}
+
 export function parseSseBuffer(buffer: string): SseParseResult {
   const normalizedBuffer = buffer.replace(/\r\n/g, "\n");
   const segments = normalizedBuffer.split("\n\n");
@@ -237,14 +323,16 @@ export function buildReferenceRecords(
 ) {
   const prefix = messageId ? `${messageId}-ref` : "ref";
   return sources.map((source, index) => {
-    const matchedDocumentId = matchSourceToDocumentId(source.file, documents);
     const sourceDocumentId = source.document_id || source.docId || "";
-    const hasDocumentId = documents.some((document) => document.id === sourceDocumentId);
-    const displayTitle = source.display_title?.trim() || source.title?.trim() || source.file;
+    const matchedDocument = findDocumentForSource(source, documents);
+    const hasDocumentId = Boolean(findDocumentById(sourceDocumentId, documents));
+    const displayTitle = resolveSourceDisplayTitle(source, matchedDocument);
     return {
       id: `${prefix}-${index + 1}`,
       source,
-      documentId: hasDocumentId ? sourceDocumentId : matchedDocumentId || sourceDocumentId || null,
+      documentId: hasDocumentId
+        ? sourceDocumentId
+        : matchedDocument?.id || sourceDocumentId || null,
       displayTitle,
       confidence,
       relatedRefs
