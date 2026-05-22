@@ -56,12 +56,12 @@ export function buildInlineReferenceAnchor(
   const ordinal = getReferenceOrdinal(referenceId, references);
   if (ordinal) {
     const reference = references[ordinal - 1];
-    const sourceLabel = `${reference.source.file} · ${reference.source.clause}`;
+    const sourceLabel = `${reference.displayTitle} · ${reference.source.clause}`;
     return {
       badge: String(ordinal),
       tone: "matched",
       tooltip: `引用 ${ordinal} · ${sourceLabel}`,
-      ariaLabel: `查看引用 ${ordinal}：${reference.source.file} ${reference.source.clause}`
+      ariaLabel: `查看引用 ${ordinal}：${reference.displayTitle} ${reference.source.clause}`
     };
   }
 

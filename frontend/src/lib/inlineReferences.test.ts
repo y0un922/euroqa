@@ -7,8 +7,10 @@ import type { ReferenceRecord } from "./types.ts";
 const references: ReferenceRecord[] = [
   {
     id: "m5-ref-1",
+    displayTitle: "Eurocode - Basis of structural design",
     source: {
       file: "EN1990 2002",
+      display_title: "Eurocode - Basis of structural design",
       title: "Basis",
       section: "Section 3",
       page: "12",
@@ -22,8 +24,10 @@ const references: ReferenceRecord[] = [
   },
   {
     id: "m5-ref-2",
+    displayTitle: "EN 1991-1-4:2005",
     source: {
       file: "EN1991-1-4",
+      display_title: "EN 1991-1-4:2005",
       title: "Actions on structures",
       section: "Section 2",
       page: "44",
@@ -53,8 +57,8 @@ test("buildInlineReferenceAnchor returns compact metadata for matched citations"
   assert.deepEqual(anchor, {
     badge: "2",
     tone: "matched",
-    tooltip: "引用 2 · EN1991-1-4 · 4.2.1",
-    ariaLabel: "查看引用 2：EN1991-1-4 4.2.1"
+    tooltip: "引用 2 · EN 1991-1-4:2005 · 4.2.1",
+    ariaLabel: "查看引用 2：EN 1991-1-4:2005 4.2.1"
   });
 });
 

@@ -343,6 +343,8 @@ model = config.contextualize_llm_model or config.llm_model
 - `RetrievalResult.guide_chunks` and `RetrievalResult.guide_example_chunks` are observability/helper views. They must not be implemented by subtracting guide-like chunks from `RetrievalResult.chunks`.
 - Prompt builders use one citable citation namespace: `[Ref-N]`. Do not introduce `[Guide-N]` or `[GuideExample-N]` as answer citations unless the frontend source contract supports them.
 - Response `sources` must be built from the same citable chunk ordering as prompt `[Ref-N]`, including guide/commentary/example chunks that may be cited.
+- Frontend citation linkification maps only `[Ref-N]` / `[REF-N]` to `sources[N-1]`. Guide/commentary/example evidence must arrive as ordinary entries in `sources`; do not add frontend-only `[Guide-N]` or `[GuideExample-N]` citation namespaces.
+- Frontend retrieval context must preserve the backend groups `chunks`, `parent_chunks`, `ref_chunks`, `guide_chunks`, and `guide_example_chunks` for export/debug snapshots, while clickable answer citations still come only from `sources`.
 - Guide retrieval must classify guide documents from generic uploaded-document metadata such as `source`, `source_title`, `section_path`, or `clause_ids`; it must not filter for a fixed uploaded PDF name.
 
 #### 3. Tests Required
@@ -351,6 +353,8 @@ model = config.contextualize_llm_model or config.llm_model
 - Prompt tests must assert guide/example evidence is represented as `[Ref-N]`, not `[Guide-N]` / `[GuideExample-N]`.
 - Generation tests must assert `sources` covers every citable guide/example chunk included in the `[Ref-N]` prompt ordering.
 - Retrieval context tests may assert guide/example observability fields, but not at the expense of citable `chunks`.
+- Frontend citation tests must assert uppercase `[REF-N]` is normalized to `[Ref-N]`, and legacy `[Guide-N]` text is not converted into a separate clickable namespace.
+- Frontend export tests must assert `ref_chunks`, `guide_chunks`, and `guide_example_chunks` are present in Markdown retrieval context exports when supplied by the backend.
 
 #### 4. Wrong vs Correct
 
@@ -443,10 +447,6 @@ await conv_mgr.add_turn_async(
     groundedness=response.groundedness,
 )
 ```
-
-- Tests for guide retrieval must include an arbitrary guide-like uploaded document name, not a fixed project seed document.
-- Tests must prove guide-like chunks are excluded from `RetrievalResult.chunks`.
-- Tests must prove `guide_chunks` remains present in API retrieval context for backward compatibility.
 
 ### Scenario: Retrieval Source Filter Equivalence
 

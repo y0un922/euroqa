@@ -7,7 +7,7 @@ export const UNMATCHED_CITATION_PREFIX = "citation://";
  * 匹配 LLM 输出中的 [Ref-N] 引用标记。
  * 全局匹配，每次调用前自动重置 lastIndex。
  */
-const REF_CITATION_PATTERN = /\[Ref-(\d+)\]/g;
+const REF_CITATION_PATTERN = /\[Ref-(\d+)\]/gi;
 
 /**
  * 将 Markdown 中的 [Ref-N] 标记转换为可点击的引用链接。
@@ -31,7 +31,7 @@ export function linkifyReferenceCitations(
       return `[${label}](${UNMATCHED_CITATION_PREFIX}${encodeURIComponent(label)})`;
     }
 
-    return `[${full}](${REFERENCE_LINK_PREFIX}${reference.id})`;
+    return `[[Ref-${indexStr}]](${REFERENCE_LINK_PREFIX}${reference.id})`;
   });
 }
 

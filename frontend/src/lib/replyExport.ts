@@ -59,12 +59,13 @@ function formatTextBlock(text: string, emptyLabel: string): string {
 }
 
 function formatSource(source: Source, index: number): string {
+  const displayTitle = source.display_title?.trim() || source.title || source.file;
   const lines = [
     buildHeading(3, `Source ${index + 1}`),
     "",
     `- File: ${source.file}`,
     `- Document ID: ${source.document_id?.trim() || "-"}`,
-    `- Title: ${source.title || "-"}`,
+    `- Title: ${displayTitle || "-"}`,
     `- Section: ${source.section || "-"}`,
     `- Page: ${String(source.page || "-")}`,
     `- Clause: ${source.clause || "-"}`,
@@ -90,12 +91,13 @@ function formatSources(sources: Source[]): string {
 }
 
 function formatRetrievalContextItem(item: RetrievalContextItem, index: number): string {
+  const displayTitle = item.display_title?.trim() || item.title || item.file;
   const lines = [
     buildHeading(4, `Chunk ${index + 1}`),
     "",
     `- File: ${item.file}`,
     `- Document ID: ${item.document_id || "-"}`,
-    `- Title: ${item.title || "-"}`,
+    `- Title: ${displayTitle || "-"}`,
     `- Section: ${item.section || "-"}`,
     `- Page: ${String(item.page || "-")}`,
     `- Clause: ${item.clause || "-"}`,
@@ -124,15 +126,25 @@ function formatRetrievalContextGroup(
 }
 
 function formatRetrievalContext(context: RetrievalContext | null | undefined): string {
-  if (!context || (context.chunks.length === 0 && context.parent_chunks.length === 0)) {
+  const groups: Array<[string, RetrievalContextItem[]]> = context
+    ? [
+        ["Retrieved Chunks", context.chunks],
+        ["Parent Chunks", context.parent_chunks],
+        ["Cross-Reference Chunks", context.ref_chunks ?? []],
+        ["Guide Chunks", context.guide_chunks ?? []],
+        ["Guide Example Chunks", context.guide_example_chunks ?? []]
+      ]
+    : [];
+  const hasContext = groups.some(([, items]) => items.length > 0);
+
+  if (!context || !hasContext) {
     return "> No retrieval context recorded.";
   }
 
-  return [
-    formatRetrievalContextGroup("Retrieved Chunks", context.chunks),
-    "",
-    formatRetrievalContextGroup("Parent Chunks", context.parent_chunks)
-  ].join("\n");
+  return groups
+    .filter(([, items]) => items.length > 0)
+    .map(([title, items]) => formatRetrievalContextGroup(title, items))
+    .join("\n\n");
 }
 
 function buildTurnSections(turn: ChatTurn, sectionLevel: number): string {
@@ -188,7 +200,10 @@ export function isChatTurnExportable(turn: ChatTurn): boolean {
   const hasRetrievalContext = Boolean(
     turn.retrievalContext &&
       (turn.retrievalContext.chunks.length > 0 ||
-        turn.retrievalContext.parent_chunks.length > 0)
+        turn.retrievalContext.parent_chunks.length > 0 ||
+        (turn.retrievalContext.ref_chunks?.length ?? 0) > 0 ||
+        (turn.retrievalContext.guide_chunks?.length ?? 0) > 0 ||
+        (turn.retrievalContext.guide_example_chunks?.length ?? 0) > 0)
   );
 
   return (

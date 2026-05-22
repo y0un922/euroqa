@@ -525,7 +525,7 @@ export default function MainWorkspace({
                                 }`}
                                 key={reference.id}
                                 onClick={() => onReferenceClick(reference.id)}
-                                title={`引用 ${ordinal} · ${reference.source.file} · ${reference.source.clause}`}
+                                title={`引用 ${ordinal} · ${reference.displayTitle} · ${reference.source.clause}`}
                                 type="button"
                               >
                                 <span
@@ -539,7 +539,7 @@ export default function MainWorkspace({
                                 </span>
                                 <FileText className="h-3.5 w-3.5" />
                                 <span className="font-mono text-xs leading-5">
-                                  {reference.source.file} · {reference.source.clause}
+                                  {reference.displayTitle} · {reference.source.clause}
                                 </span>
                               </button>
                             );

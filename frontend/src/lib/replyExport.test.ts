@@ -23,6 +23,7 @@ function createDoneTurn(overrides: Partial<ChatTurn> = {}): ChatTurn {
       {
         file: "EN 1990:2002",
         document_id: "EN1990_2002",
+        display_title: "Eurocode - Basis of structural design",
         title: "Eurocode - Basis of structural design",
         section: "Section 2 Requirements > 2.3 Design working life",
         page: "28",
@@ -42,6 +43,7 @@ function createDoneTurn(overrides: Partial<ChatTurn> = {}): ChatTurn {
           chunk_id: "chunk_023",
           document_id: "EN1990_2002",
           file: "EN 1990:2002",
+          display_title: "Eurocode - Basis of structural design",
           title: "Eurocode - Basis of structural design",
           section: "Section 2 Requirements > 2.3 Design working life",
           page: "28",
@@ -55,11 +57,51 @@ function createDoneTurn(overrides: Partial<ChatTurn> = {}): ChatTurn {
           chunk_id: "parent_chunk_002",
           document_id: "EN1990_2002",
           file: "EN 1990:2002",
+          display_title: "Eurocode - Basis of structural design",
           title: "Eurocode - Basis of structural design",
           section: "Section 2 Requirements",
           page: "28",
           clause: "2.3",
           content: "Indicative categories for design working life are listed in Table 2.1."
+        }
+      ],
+      ref_chunks: [
+        {
+          chunk_id: "table_2_1",
+          document_id: "EN1990_2002",
+          file: "EN 1990:2002",
+          display_title: "Eurocode - Basis of structural design",
+          title: "Eurocode - Basis of structural design",
+          section: "Section 2 Requirements",
+          page: "29",
+          clause: "Table 2.1",
+          content: "Table 2.1 gives indicative design working life categories."
+        }
+      ],
+      guide_chunks: [
+        {
+          chunk_id: "guide_001",
+          document_id: "DG_EN1990",
+          file: "DG_EN1990",
+          display_title: "Designers' Guide to EN 1990",
+          title: "Designers' Guide to EN 1990",
+          section: "Commentary 2.3",
+          page: "31",
+          clause: "Commentary 2.3",
+          content: "The guide explains how working life categories are applied."
+        }
+      ],
+      guide_example_chunks: [
+        {
+          chunk_id: "guide_example_001",
+          document_id: "DG_EN1990",
+          file: "DG_EN1990",
+          display_title: "Designers' Guide to EN 1990",
+          title: "Designers' Guide to EN 1990",
+          section: "Worked Example 2.1",
+          page: "33",
+          clause: "Worked Example 2.1",
+          content: "Worked example for applying design working life categories."
         }
       ]
     },
@@ -113,6 +155,12 @@ test("buildReplyMarkdown includes answer, citation sources and retrieval context
   assert.match(markdown, /#### Chunk 1/);
   assert.match(markdown, /- Score: 0\.9100/);
   assert.match(markdown, /### Parent Chunks/);
+  assert.match(markdown, /### Cross-Reference Chunks/);
+  assert.match(markdown, /Table 2\.1 gives indicative design working life categories\./);
+  assert.match(markdown, /### Guide Chunks/);
+  assert.match(markdown, /Designers' Guide to EN 1990/);
+  assert.match(markdown, /### Guide Example Chunks/);
+  assert.match(markdown, /Worked example for applying design working life categories\./);
 });
 
 test("buildConversationMarkdown only exports question and answer for completed turns", () => {

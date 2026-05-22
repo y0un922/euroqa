@@ -177,6 +177,8 @@ export default function EvidencePanel({
     }
 
     const fileLabel =
+      activeReference.displayTitle ||
+      activeReference.source.title ||
       activeReference.source.file ||
       activeReference.documentId ||
       activeReference.source.document_id ||

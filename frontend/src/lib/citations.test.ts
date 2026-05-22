@@ -14,8 +14,10 @@ import type { ReferenceRecord } from "./types.ts";
 const references: ReferenceRecord[] = [
   {
     id: "m1-ref-1",
+    displayTitle: "Eurocode - Basis of structural design",
     source: {
       file: "EN 1990:2002",
+      display_title: "Eurocode - Basis of structural design",
       title: "Basis",
       section: "2.3",
       page: "28",
@@ -29,8 +31,10 @@ const references: ReferenceRecord[] = [
   },
   {
     id: "m1-ref-2",
+    displayTitle: "Eurocode 2: Design of concrete structures",
     source: {
       file: "EN 1992-1-1:2004",
+      display_title: "Eurocode 2: Design of concrete structures",
       title: "Concrete",
       section: "3.1",
       page: "45",
@@ -64,6 +68,23 @@ test("linkifyReferenceCitations maps multiple references correctly", () => {
     result,
     "[[Ref-1]](reference://m1-ref-1) 和 [[Ref-2]](reference://m1-ref-2) 均有说明。"
   );
+});
+
+test("linkifyReferenceCitations normalizes uppercase ref markers", () => {
+  const markdown = "DG 证据也通过 [REF-2] 统一引用。";
+  const result = linkifyReferenceCitations(markdown, references);
+
+  assert.equal(
+    result,
+    "DG 证据也通过 [[Ref-2]](reference://m1-ref-2) 统一引用。"
+  );
+});
+
+test("linkifyReferenceCitations does not create guide-specific links", () => {
+  const markdown = "旧格式 [Guide-1] 只作为普通文本保留。";
+  const result = linkifyReferenceCitations(markdown, references);
+
+  assert.equal(result, markdown);
 });
 
 test("linkifyReferenceCitations marks out-of-range index as unmatched", () => {

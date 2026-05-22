@@ -8,11 +8,13 @@ test("buildPdfViewerPayload keeps page navigation but drops highlight inputs", (
     {
       id: "ref-1",
       documentId: "EN1992-1-1_2004",
+      displayTitle: "EN 1992-1-1:2004",
       confidence: "high",
       relatedRefs: [],
       source: {
         file: "EN1992-1-1_2004.pdf",
         document_id: "EN1992-1-1_2004",
+        display_title: "EN 1992-1-1:2004",
         title: "EN1992-1-1_2004.pdf",
         section: "6.1",
         page: "83",

@@ -35,6 +35,7 @@ export type QueryRequestPayload = {
 export type Source = {
   file: string;
   document_id?: string;
+  display_title?: string;
   element_type?: "text" | "table" | "formula" | "image";
   docId?: string;
   elementType?: "text" | "table" | "figure" | "formula";
@@ -72,6 +73,7 @@ export type RetrievalContextItem = {
   document_id: string;
   file: string;
   title: string;
+  display_title?: string;
   section: string;
   page: number | string;
   clause: string;
@@ -82,6 +84,9 @@ export type RetrievalContextItem = {
 export type RetrievalContext = {
   chunks: RetrievalContextItem[];
   parent_chunks: RetrievalContextItem[];
+  ref_chunks?: RetrievalContextItem[];
+  guide_chunks?: RetrievalContextItem[];
+  guide_example_chunks?: RetrievalContextItem[];
 };
 
 export type QueryResponse = {
@@ -212,6 +217,7 @@ export type ReferenceRecord = {
   id: string;
   source: Source;
   documentId: string | null;
+  displayTitle: string;
   confidence: Confidence;
   relatedRefs: string[];
 };
