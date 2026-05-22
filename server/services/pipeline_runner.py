@@ -30,13 +30,12 @@ logger = structlog.get_logger()
 _INDEX_READY_SENTINEL = ".indexed"
 
 
-def _resolve_source_title(meta: dict, fallback: str) -> str:
-    """Resolve a stable display title for one parsed document."""
-    for key in ("display_title", "title", "source_title", "document_title"):
-        value = meta.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return fallback.strip() or fallback
+def _resolve_requested_file_name(meta: dict) -> str:
+    """Resolve the client-provided file name from per-document parse options."""
+    value = meta.get("file_name")
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
 
 
 def _resolve_context_summary_enabled(meta: dict, fallback: bool = True) -> bool:
@@ -126,6 +125,7 @@ async def run_single_document(
         raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
 
     parse_options = _load_parse_options(output_dir)
+    requested_file_name = _resolve_requested_file_name(parse_options)
     requested_context_summary_enabled = _resolve_context_summary_enabled(
         parse_options,
         pipeline_config.context_summary_enabled,
@@ -149,7 +149,7 @@ async def run_single_document(
     meta_path = output_dir / f"{doc_id}_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     content_list = _load_content_list(md_path, meta)
-    source_title = _resolve_source_title(meta, display_source_name)
+    source_title = requested_file_name or display_source_name
     context_summary_enabled = _resolve_context_summary_enabled(
         meta,
         requested_context_summary_enabled,

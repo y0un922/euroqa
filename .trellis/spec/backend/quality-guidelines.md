@@ -30,6 +30,66 @@ Questions to answer:
 
 ## Required Patterns
 
+### Scenario: External Document Parse and Status Contracts
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to `/api/v1/documents/parse`, `/api/v1/documents/status`, single-document pipeline metadata, or Huake-facing document response fields.
+- Reason: Huake-visible status and file names are API contracts. Missing documents must not look like parse failures, and retrieval context must not expose opaque `docId` values when the client supplied a readable file name.
+
+#### 2. Signatures
+
+- Parse endpoint: `POST /api/v1/documents/parse` with `DocumentParseRequest`.
+- Status endpoint: `POST /api/v1/documents/status` with `DocumentStatusBatchRequest`.
+- Single-document runner: `run_single_document(doc_id: str, pipeline_config: PipelineConfig, on_progress: ProgressCallback | None = None) -> dict[str, int]`.
+- Parse options file: `{parsed_dir}/{doc_id}/parse_options.json`.
+
+#### 3. Contracts
+
+- `DocumentParseRequest.file_name` must be persisted to `parse_options.json` as `file_name`.
+- Queued single-document parsing must use persisted `file_name` for chunk `metadata.source_title` when it is present.
+- Do not generate or read MinerU/OCR/markdown-derived titles (`display_title`, `title`, `source_title`, or `document_title`) for retrieval display names.
+- Chunk `metadata.source` remains the stable backend `doc_id`; do not replace it with the display file name because deletion, rebuild, and source filters depend on it.
+- Missing/unuploaded documents in `/api/v1/documents/status` return external `status="not_found"` and `stage="not_found"`, with `error.type="NOT_FOUND"`.
+- Actual parser or pipeline failures continue to return `status="failed"`.
+
+#### 4. Validation & Error Matrix
+
+- PDF and parsed directory both absent -> `status="not_found"`, `stage="not_found"`, `error.type="NOT_FOUND"`.
+- Task manager reports `PipelineStage.ERROR` -> `status="failed"` with internal error detail.
+- `file_name` is present and non-empty -> use it as retrieval display title.
+- `file_name` is missing or blank -> use the legacy `docId` display fallback; do not inspect parsed title metadata.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: Huake sends `fileName="Eurocode 2 - Concrete Design.pdf"` for `docId="huake_opaque_doc_123"`; answer sources show the filename while backend source keys stay `huake_opaque_doc_123`.
+- Base: local/manual pipeline runs without parse options use the legacy `docId` display fallback.
+- Bad: replacing `metadata.source` with the filename, which breaks delete/reindex cleanup by `doc_id`.
+- Bad: reporting a never-uploaded `docId` as `failed`, forcing clients to infer missing state from error text.
+
+#### 6. Tests Required
+
+- API tests must assert `parse_options.json` stores `file_name` from `DocumentParseRequest.fileName`.
+- Pipeline runner tests must assert client `file_name` becomes chunk `source_title`.
+- Parse tests must assert Stage 1 does not write `display_title` from MinerU metadata or markdown headings.
+- Status endpoint tests must assert missing documents return `not_found` and not `failed`.
+- Existing source-building tests should continue to verify readable file names flow into answer sources.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+display_title = _resolve_display_title(metadata, markdown, pdf_path.stem)
+source_title = _resolve_source_title(meta, doc_id.replace("_", " "))
+```
+
+##### Correct
+
+```python
+source_title = requested_file_name or display_source_name
+```
+
 ### Scenario: Deterministic Query-Understanding Stabilizers
 
 #### 1. Scope / Trigger

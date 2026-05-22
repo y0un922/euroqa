@@ -9,7 +9,7 @@ import fitz
 import pytest
 
 from pipeline.config import PipelineConfig
-from pipeline.parse import parse_pdf, _resolve_display_title
+from pipeline.parse import parse_pdf
 from pipeline.structure import parse_markdown_to_tree
 
 
@@ -67,27 +67,6 @@ def _write_pdf(path, page_count: int) -> None:
     doc.close()
 
 
-def test_resolve_display_title_prefers_metadata_title():
-    metadata = {"title": "Eurocode 2: Design of concrete structures"}
-    markdown = "# EN 1992-1-1:2004\n\ncontent"
-
-    assert _resolve_display_title(metadata, markdown, "EN1992-1-1_2004") == "Eurocode 2: Design of concrete structures"
-
-
-def test_resolve_display_title_infers_from_markdown_when_metadata_missing():
-    metadata = {}
-    markdown = (
-        "ICS 91.010.30; 91.080.40\n\n"
-        "# English version\n\n"
-        "# Eurocode 2: Design of concrete structures - Part 1-1: General rules and rules for buildings\n\n"
-        "more content"
-    )
-
-    assert _resolve_display_title(metadata, markdown, "EN1992-1-1_2004") == (
-        "Eurocode 2: Design of concrete structures - Part 1-1: General rules and rules for buildings"
-    )
-
-
 @pytest.mark.asyncio
 async def test_parse_pdf_local_provider_writes_markdown_and_meta(tmp_path, monkeypatch):
     pdf_path = tmp_path / "demo.pdf"
@@ -134,7 +113,7 @@ async def test_parse_pdf_local_provider_writes_markdown_and_meta(tmp_path, monke
     assert md_path.read_text(encoding="utf-8") == "# Demo\n\ncontent"
     meta = json.loads((output_dir / "demo_meta.json").read_text(encoding="utf-8"))
     assert meta["title"] == "Demo Title"
-    assert meta["display_title"] == "Demo Title"
+    assert "display_title" not in meta
     assert meta["context_summary_enabled"] is False
     assert [call[:2] for call in calls] == [
         ("POST", "http://localhost:8000/api/v1/extract"),
@@ -225,7 +204,7 @@ async def test_parse_pdf_official_provider_downloads_full_md_zip(tmp_path, monke
     meta = json.loads((output_dir / "demo_meta.json").read_text(encoding="utf-8"))
     assert meta["provider"] == "official"
     assert meta["batch_id"] == "batch-1"
-    assert meta["display_title"] == "Official Demo"
+    assert "display_title" not in meta
     assert meta["context_summary_enabled"] is True
     assert meta["result"]["data_id"] == "demo"
     assert meta["content_list_output"] == "demo_content_list.json"

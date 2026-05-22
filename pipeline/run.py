@@ -29,15 +29,6 @@ logger = structlog.get_logger()
 _STAGE_ORDER = {"1": 1, "2": 2, "3": 3, "3.5": 3.5, "4": 4}
 
 
-def _resolve_source_title(meta: dict, fallback: str) -> str:
-    """Resolve a stable display title for a parsed document."""
-    for key in ("display_title", "title", "source_title", "document_title"):
-        value = meta.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return fallback.strip() or fallback
-
-
 def _resolve_context_summary_enabled(meta: dict, config: PipelineConfig) -> bool:
     """Resolve whether Stage 3.5 contextual summaries should run."""
     value = meta.get("context_summary_enabled")
@@ -226,7 +217,7 @@ async def _run_pipeline(
                 meta_path = md_path.parent / f"{doc_id}_meta.json"
                 meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
                 content_list = _load_content_list(md_path, meta)
-                source_title = _resolve_source_title(meta, display_source_name)
+                source_title = display_source_name
                 context_summary_enabled = _resolve_context_summary_enabled(meta, config)
 
                 # Stage 2: Structure

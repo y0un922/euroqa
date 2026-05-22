@@ -5,7 +5,6 @@ import asyncio
 from dataclasses import dataclass
 import io
 import json
-import re
 from pathlib import Path
 import zipfile
 
@@ -19,93 +18,6 @@ from pipeline.config import PipelineConfig
 logger = structlog.get_logger()
 
 _MINERU_OFFICIAL_MAX_PAGES = 200
-_TITLE_BLACKLIST = (
-    "english version",
-    "contents",
-    "contents list",
-    "table of contents",
-    "management centre",
-    "supersedes",
-    "this european standard",
-)
-
-
-def _normalize_display_title(value: str) -> str:
-    """Normalize a candidate display title."""
-    return re.sub(r"\s+", " ", value).strip(" \t\r\n\"'`")
-
-
-def _looks_like_display_title(value: str) -> bool:
-    """Return whether a string looks like a readable document title."""
-    candidate = _normalize_display_title(value)
-    if not candidate:
-        return False
-    if len(candidate) < 8:
-        return False
-    lower = candidate.casefold()
-    if any(marker in lower for marker in _TITLE_BLACKLIST):
-        return False
-    if candidate.lower().startswith("ics "):
-        return False
-    if candidate.lower().startswith("fig "):
-        return False
-    return bool(re.search(r"[A-Za-z\u4e00-\u9fff]", candidate))
-
-
-def _score_display_title_candidate(value: str) -> int:
-    """Score a line of markdown as a possible human-readable title."""
-    candidate = _normalize_display_title(value)
-    if not _looks_like_display_title(candidate):
-        return -1
-
-    score = len(candidate.split())
-    if "Eurocode" in candidate:
-        score += 5
-    if "Design" in candidate or "Rules" in candidate or "Standard" in candidate:
-        score += 3
-    if re.search(r"EN\s*\d{4}", candidate):
-        score += 4
-    if candidate.startswith("#"):
-        score += 2
-    if ":" in candidate or "-" in candidate:
-        score += 1
-    if candidate.isupper():
-        score -= 2
-    return score
-
-
-def _extract_display_title_from_markdown(markdown: str) -> str:
-    """Infer a readable title from the first meaningful markdown lines."""
-    best_title = ""
-    best_score = -1
-    for raw_line in markdown.splitlines()[:80]:
-        stripped = raw_line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("!"):
-            continue
-        if stripped in {"# English version", "## Contents List"}:
-            continue
-        candidate = stripped.lstrip("#").strip()
-        score = _score_display_title_candidate(candidate)
-        if score > best_score:
-            best_score = score
-            best_title = candidate
-    return best_title
-
-
-def _resolve_display_title(metadata: dict, markdown: str, fallback: str) -> str:
-    """Resolve a stable title for downstream display and prompts."""
-    for key in ("display_title", "title", "source_title", "document_title"):
-        value = metadata.get(key)
-        if isinstance(value, str) and _looks_like_display_title(value):
-            return _normalize_display_title(value)
-
-    inferred = _extract_display_title_from_markdown(markdown)
-    if inferred:
-        return inferred
-
-    return _normalize_display_title(fallback) or fallback
 
 
 @dataclass(frozen=True)
@@ -232,7 +144,6 @@ async def _parse_pdf_via_local(
         result = result_resp.json()
         content_list = result.get("content_list")
         metadata = result.get("metadata", {})
-        display_title = _resolve_display_title(metadata, result.get("markdown", ""), pdf_path.stem)
 
         md_path = _write_parse_outputs(
             output_dir,
@@ -240,7 +151,6 @@ async def _parse_pdf_via_local(
             result.get("markdown", ""),
             {
                 **metadata,
-                "display_title": display_title,
                 "context_summary_enabled": context_summary_enabled,
             },
             content_list=content_list,
@@ -616,17 +526,11 @@ async def _parse_pdf_via_official(
 
         if len(parts) == 1:
             matched, markdown, zip_metadata, content_list = part_results[0]
-            display_title = _resolve_display_title(
-                matched.get("result", {}),
-                markdown,
-                pdf_path.stem,
-            )
             metadata = {
                 "provider": "official",
                 "batch_id": batch_id,
                 "result": matched,
                 "original_page_count": page_count,
-                "display_title": display_title,
                 "context_summary_enabled": context_summary_enabled,
                 **zip_metadata,
             }
@@ -636,11 +540,9 @@ async def _parse_pdf_via_official(
                 part_results,
                 original_page_count=page_count,
             )
-            display_title = _resolve_display_title(split_metadata, markdown, pdf_path.stem)
             metadata = {
                 "provider": "official",
                 "batch_id": batch_id,
-                "display_title": display_title,
                 "context_summary_enabled": context_summary_enabled,
                 **split_metadata,
             }

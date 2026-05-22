@@ -1921,6 +1921,7 @@ class TestDocumentsEndpoint:
             )
         )
         assert parse_options["context_summary_enabled"] is False
+        assert parse_options["file_name"] == "EN 1992-1-1.pdf"
 
     def test_upload_to_minio_uploads_pdf_and_triggers_parse(
         self, client, tmp_path: Path
@@ -2060,6 +2061,34 @@ class TestDocumentsEndpoint:
                 }
             ],
         }
+
+    def test_batch_document_status_returns_not_found_for_missing_document(
+        self, client, tmp_path: Path
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            parsed_dir=str(tmp_path / "parsed"),
+            pdf_dir=str(tmp_path / "pdfs"),
+            es_url="http://127.0.0.1:1",
+        )
+
+        resp = client.post(
+            "/api/v1/documents/status",
+            json={"docIds": ["MISSING_DOC"]},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 200
+        result = body["results"][0]
+        assert result["docId"] == "MISSING_DOC"
+        assert result["status"] == "not_found"
+        assert result["progress"] == 0.0
+        assert result["stage"] == "not_found"
+        assert result["message"] == "文档不存在或尚未上传"
+        assert result["chunkCount"] is None
+        assert result["error"]["type"] == "NOT_FOUND"
+        assert result["error"]["detail"] == "文档不存在或尚未上传"
+        assert result["error"]["stage"] == "not_found"
 
     def test_batch_delete_documents_contract_is_summary_and_mocked(
         self, client, tmp_path: Path

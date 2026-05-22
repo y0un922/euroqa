@@ -223,14 +223,14 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
     if not pdf_path.is_file() and not parsed_dir.is_dir():
         return DocumentStatusItem(
             doc_id=doc_id,
-            status="failed",
+            status="not_found",
             progress=0.0,
-            stage="error",
-            message="文档不存在",
+            stage="not_found",
+            message="文档不存在或尚未上传",
             error=DocumentStatusError(
                 type="NOT_FOUND",
-                detail="文档不存在",
-                stage="error",
+                detail="文档不存在或尚未上传",
+                stage="not_found",
                 timestamp=_utc_iso(),
             ),
         )
@@ -285,6 +285,7 @@ def _persist_parse_options(request: DocumentParseRequest, config) -> None:
         json.dumps(
             {
                 "context_summary_enabled": request.context_summary_enabled,
+                "file_name": request.file_name,
             },
             ensure_ascii=False,
             indent=2,
