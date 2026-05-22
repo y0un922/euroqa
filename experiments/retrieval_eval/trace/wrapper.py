@@ -30,6 +30,7 @@ class TracingHybridRetriever(HybridRetriever):
         self._trace_phase = "idle"
         self.disable_rerank = disable_rerank
         self.disable_cap = disable_cap
+        self._force_rerank_query: str | None = None
 
     async def retrieve_with_trace(
         self,
@@ -132,6 +133,10 @@ class TracingHybridRetriever(HybridRetriever):
         chunks: list[Chunk],
         top_n: int,
     ) -> list[tuple[Chunk, float]]:
+        actual_query = self._force_rerank_query or query
+        if self._trace is not None and self._trace_phase == "main":
+            self._trace.rerank_query_actual = actual_query
+
         if self.disable_rerank:
             ranked = [(chunk, 0.0) for chunk in chunks[:top_n]]
             if self._trace is not None and self._trace_phase == "main":
@@ -141,7 +146,7 @@ class TracingHybridRetriever(HybridRetriever):
                 ]
             return ranked
 
-        ranked = await super()._rerank(query, chunks, top_n)
+        ranked = await super()._rerank(actual_query, chunks, top_n)
         if self._trace is not None and self._trace_phase == "main":
             self._trace.reranked = [
                 _chunk_hit(chunk, rerank_score=score)

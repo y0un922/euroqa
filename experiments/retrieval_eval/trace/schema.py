@@ -17,6 +17,7 @@ class RetrievalTrace:
     rrf_fused: list[dict[str, Any]] = field(default_factory=list)
     after_cap: list[dict[str, Any]] = field(default_factory=list)
     reranked: list[dict[str, Any]] = field(default_factory=list)
+    rerank_query_actual: str = ""
     cross_ref_added: list[str] = field(default_factory=list)
     object_id_fetched: list[str] = field(default_factory=list)
 

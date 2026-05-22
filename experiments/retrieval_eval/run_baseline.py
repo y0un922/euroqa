@@ -39,6 +39,7 @@ async def _main() -> None:
             glossary=get_glossary(),
             config=config,
             top_k=args.top_k,
+            exp=args.exp,
         )
     finally:
         await retriever.close()
@@ -64,7 +65,14 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument(
         "--exp",
-        choices=["baseline", "smoke", "high-recall", "no-rerank", "no-cap"],
+        choices=[
+            "baseline",
+            "smoke",
+            "high-recall",
+            "no-rerank",
+            "no-cap",
+            "rerank-english",
+        ],
         default="baseline",
     )
     return parser.parse_args()

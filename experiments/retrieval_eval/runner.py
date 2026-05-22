@@ -29,6 +29,7 @@ async def run_evaluation(
     glossary: dict[str, str],
     config: ServerConfig,
     top_k: int = 10,
+    exp: str = "baseline",
 ) -> dict:
     """Run analyze_query → retrieve_with_trace → metric calculation for each question."""
     per_question: list[dict[str, Any]] = []
@@ -36,14 +37,19 @@ async def run_evaluation(
     for question in questions:
         try:
             analysis = await analyze_query(question.question, glossary, config)
-            result, trace = await retriever.retrieve_with_trace(
-                queries=analysis.expanded_queries,
-                original_query=analysis.original_question,
-                filters=analysis.filters,
-                intent_label=analysis.intent_label,
-                target_hint=analysis.target_hint,
-                requested_objects=getattr(analysis, "requested_objects", []),
-            )
+            if exp == "rerank-english":
+                retriever._force_rerank_query = _first_query(analysis.expanded_queries)
+            try:
+                result, trace = await retriever.retrieve_with_trace(
+                    queries=analysis.expanded_queries,
+                    original_query=analysis.original_question,
+                    filters=analysis.filters,
+                    intent_label=analysis.intent_label,
+                    target_hint=analysis.target_hint,
+                    requested_objects=getattr(analysis, "requested_objects", []),
+                )
+            finally:
+                retriever._force_rerank_query = None
             chunks = result.chunks[:top_k]
             metrics = _question_metrics(question, result, chunks, top_k)
             per_question.append(
@@ -139,6 +145,14 @@ def _expected_direct_refs(question: QuestionV2) -> list[str]:
     for doc in question.expected_documents:
         refs.extend(doc.objects)
     return refs
+
+
+def _first_query(queries: list[str]) -> str | None:
+    for query in queries:
+        normalized = (query or "").strip()
+        if normalized:
+            return normalized
+    return None
 
 
 def _chunk_summary(chunk: Any, score: float | None = None) -> dict[str, Any]:

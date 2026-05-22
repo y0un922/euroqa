@@ -30,7 +30,9 @@ uv run python experiments/retrieval_eval/run_baseline.py \
 ```
 
 不传 `--output` 时默认输出 `experiments/retrieval_eval/results/<exp>_<date>.json`。
-可用 `--exp smoke|baseline|high-recall|no-rerank|no-cap` 切换短反馈实验配置。
+可用 `--exp smoke|baseline|high-recall|no-rerank|no-cap|rerank-english` 切换短反馈实验配置。
+
+- `rerank-english`: 保持候选池和 rerank 开启，但强制 rerank query 使用 `expanded_queries[0]`，用于验证中文 rerank query 对英文 chunks 的跨语言错配假设。
 
 ### 3. 分诊报告
 
