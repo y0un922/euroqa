@@ -10,7 +10,14 @@ from textual.screen import ModalScreen
 from textual.containers import Container
 from textual import work
 
-from tools.tui.utils import format_error, BackendError
+from tools.tui.utils import (
+    BackendError,
+    FullRowDataTable,
+    FullTextScreen,
+    format_error,
+    format_full_row,
+    trunc_id,
+)
 from server.config import ServerConfig
 
 
@@ -42,6 +49,7 @@ class MilvusPane(Widget):
         self._error: BackendError | None = None
         self._page_offset = 0
         self._page_size = 50
+        self._chunk_rows: dict[str, dict[str, object]] = {}
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -52,15 +60,18 @@ class MilvusPane(Widget):
                 yield Button("Vector Search", id="milvus-vec-search", variant="success")
                 yield Button("Refresh", id="milvus-refresh", variant="default")
                 yield Button("Delete", id="milvus-delete", variant="error")
-            yield DataTable(id="milvus-table")
+            yield FullRowDataTable(id="milvus-table")
             with Horizontal(classes="page-bar"):
                 yield Button("← Prev", id="milvus-prev")
                 yield Static("", id="milvus-page-info")
                 yield Button("Next →", id="milvus-next")
+            yield Static("Select a row to view details", classes="detail-panel", id="milvus-detail")
 
     async def on_mount(self) -> None:
         table = self.query_one("#milvus-table", DataTable)
-        table.add_columns("chunk_id", "source", "element_type")
+        table.add_column("chunk_id", width=30)
+        table.add_column("source", width=50)
+        table.add_column("element_type", width=20)
         table.cursor_type = "row"
         table.zebra_stripes = True
         self._connect_and_load()
@@ -99,6 +110,7 @@ class MilvusPane(Widget):
             return
         table = self.query_one("#milvus-table", DataTable)
         table.clear()
+        self._chunk_rows.clear()
         try:
             results = self._collection.query(
                 expr="",
@@ -107,11 +119,13 @@ class MilvusPane(Widget):
                 limit=self._page_size,
             )
             for row in results:
+                chunk_id = row.get("chunk_id", "")
+                self._chunk_rows[chunk_id] = dict(row)
                 table.add_row(
-                    row.get("chunk_id", ""),
-                    row.get("source", ""),
+                    trunc_id(chunk_id),
+                    trunc_id(row.get("source", ""), head=44, tail=6),
                     row.get("element_type", ""),
-                    key=row.get("chunk_id", ""),
+                    key=chunk_id,
                 )
             page_info = self.query_one("#milvus-page-info", Static)
             end = self._page_offset + len(results)
@@ -119,6 +133,57 @@ class MilvusPane(Widget):
         except Exception as exc:
             self._error = format_error(exc)
             self._show_error()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self._show_detail(str(event.row_key.value))
+
+    def on_full_row_data_table_row_double_clicked(
+        self,
+        event: FullRowDataTable.RowDoubleClicked,
+    ) -> None:
+        if event.data_table.id != "milvus-table":
+            return
+        chunk_id = str(event.row_key.value)
+        row = self._chunk_rows.get(chunk_id)
+        if not row:
+            return
+        event.stop()
+        self.app.push_screen(
+            FullTextScreen(
+                "Milvus chunk",
+                format_full_row("Milvus chunk", row),
+            )
+        )
+
+    @work(thread=True)
+    def _show_detail(self, chunk_id: str) -> None:
+        if not self._collection:
+            return
+        try:
+            results = self._collection.query(
+                expr=f'chunk_id == "{chunk_id}"',
+                output_fields=["chunk_id", "source", "element_type"],
+            )
+            if results:
+                row = results[0]
+                text = (
+                    f"chunk_id:     {row.get('chunk_id', '')}\n"
+                    f"source:       {row.get('source', '')}\n"
+                    f"element_type: {row.get('element_type', '')}"
+                )
+            else:
+                text = f"No data found for chunk_id: {chunk_id}"
+
+            def update():
+                detail = self.query_one("#milvus-detail", Static)
+                detail.update(text)
+
+            self.app.call_from_thread(update)
+        except Exception as exc:
+            def show_err():
+                detail = self.query_one("#milvus-detail", Static)
+                detail.update(f"[bold red]Error:[/] {exc}")
+            self.app.call_from_thread(show_err)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -156,12 +221,15 @@ class MilvusPane(Widget):
             def update():
                 table = self.query_one("#milvus-table", DataTable)
                 table.clear()
+                self._chunk_rows.clear()
                 for row in results:
+                    chunk_id = row.get("chunk_id", "")
+                    self._chunk_rows[chunk_id] = dict(row)
                     table.add_row(
-                        row.get("chunk_id", ""),
-                        row.get("source", ""),
+                        trunc_id(chunk_id),
+                        trunc_id(row.get("source", ""), head=44, tail=6),
                         row.get("element_type", ""),
-                        key=row.get("chunk_id", ""),
+                        key=chunk_id,
                     )
 
             self.app.call_from_thread(update)
@@ -196,14 +264,22 @@ class MilvusPane(Widget):
             def update():
                 table = self.query_one("#milvus-table", DataTable)
                 table.clear()
+                self._chunk_rows.clear()
                 if results:
                     for hit in results[0]:
                         score = hit.score
+                        chunk_id = hit.entity.get("chunk_id", "")
+                        self._chunk_rows[chunk_id] = {
+                            "chunk_id": chunk_id,
+                            "source": hit.entity.get("source", ""),
+                            "element_type": hit.entity.get("element_type", ""),
+                            "score": score,
+                        }
                         table.add_row(
-                            hit.entity.get("chunk_id", ""),
-                            hit.entity.get("source", ""),
+                            trunc_id(chunk_id),
+                            trunc_id(hit.entity.get("source", ""), head=44, tail=6),
                             f"{hit.entity.get('element_type', '')}  [dim]score={score:.4f}[/]",
-                            key=hit.entity.get("chunk_id", ""),
+                            key=chunk_id,
                         )
 
             self.app.call_from_thread(update)
@@ -229,6 +305,6 @@ class MilvusPane(Widget):
             try:
                 self._collection.delete(expr=f'chunk_id == "{chunk_id}"')
                 self._load_page()
-                self.notify(f"Deleted {chunk_id}", severity="information")
+                self.notify(f"Deleted {chunk_id}", severity="information", markup=False)
             except Exception as exc:
-                self.notify(f"Error: {exc}", severity="error")
+                self.notify(f"Error: {exc}", severity="error", markup=False)

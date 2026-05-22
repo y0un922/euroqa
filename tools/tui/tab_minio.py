@@ -8,7 +8,7 @@ from textual.widgets import Button, DataTable, Input, Static
 from textual.widget import Widget
 from textual import work
 
-from tools.tui.utils import format_error, BackendError
+from tools.tui.utils import format_error, trunc_id, BackendError
 from server.config import ServerConfig
 
 
@@ -37,7 +37,9 @@ class MinioPane(Widget):
 
     async def on_mount(self) -> None:
         table = self.query_one("#minio-table", DataTable)
-        table.add_columns("object_name", "size", "last_modified")
+        table.add_column("object_name", width=50)
+        table.add_column("size", width=12)
+        table.add_column("last_modified", width=20)
         table.cursor_type = "row"
         table.zebra_stripes = True
         self._connect_and_list()
@@ -76,7 +78,12 @@ class MinioPane(Widget):
             for obj in objects:
                 size_str = _fmt_size(obj.size) if obj.size else "—"
                 modified = str(obj.last_modified)[:19] if obj.last_modified else "—"
-                table.add_row(obj.object_name, size_str, modified, key=obj.object_name)
+                table.add_row(
+                    trunc_id(obj.object_name, head=44, tail=4),
+                    size_str,
+                    modified,
+                    key=obj.object_name,
+                )
             stats = self.query_one("#minio-stats", Static)
             stats.update(
                 f"[bold green]✓[/] Bucket: [bold]{bucket}[/]  "
@@ -150,9 +157,9 @@ class MinioPane(Widget):
                 await self._cascade_delete_chunks(object_name)
             self._refresh_list()
             msg = f"Deleted {object_name}" + (" + associated chunks" if cascade else "")
-            self.notify(msg, severity="information")
+            self.notify(msg, severity="information", markup=False)
         except Exception as exc:
-            self.notify(f"Error: {exc}", severity="error")
+            self.notify(f"Error: {exc}", severity="error", markup=False)
 
     async def _cascade_delete_chunks(self, object_name: str) -> None:
         source = object_name.replace("uploads/", "").replace(".pdf", "")

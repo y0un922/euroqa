@@ -10,7 +10,13 @@ from textual.widgets import Button, DataTable, Input, Static
 from textual.widget import Widget
 from textual import work
 
-from tools.tui.utils import format_error, BackendError
+from tools.tui.utils import (
+    BackendError,
+    FullRowDataTable,
+    FullTextScreen,
+    format_error,
+    trunc_id,
+)
 from server.config import ServerConfig
 
 
@@ -28,6 +34,7 @@ class ElasticsearchPane(Widget):
         self._page_size = 50
         self._current_query = ""
         self._source_filter = ""
+        self._hit_rows: dict[str, dict[str, object]] = {}
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -38,7 +45,7 @@ class ElasticsearchPane(Widget):
                 yield Button("Search", id="es-go", variant="primary")
                 yield Button("Refresh", id="es-refresh", variant="default")
                 yield Button("Delete", id="es-delete", variant="error")
-            yield DataTable(id="es-table")
+            yield FullRowDataTable(id="es-table")
             with Horizontal(classes="page-bar"):
                 yield Button("← Prev", id="es-prev")
                 yield Static("", id="es-page-info")
@@ -47,7 +54,10 @@ class ElasticsearchPane(Widget):
 
     async def on_mount(self) -> None:
         table = self.query_one("#es-table", DataTable)
-        table.add_columns("chunk_id", "source", "element_type", "section_path")
+        table.add_column("chunk_id", width=30)
+        table.add_column("source", width=40)
+        table.add_column("element_type", width=16)
+        table.add_column("section_path", width=30)
         table.cursor_type = "row"
         table.zebra_stripes = True
         self._connect_and_load()
@@ -80,14 +90,22 @@ class ElasticsearchPane(Widget):
             results = await self._search_es()
             table = self.query_one("#es-table", DataTable)
             table.clear()
+            self._hit_rows.clear()
             hits = results["hits"]["hits"]
             for hit in hits:
                 src = hit["_source"]
+                chunk_id = src.get("chunk_id", hit["_id"])
+                self._hit_rows[hit["_id"]] = {
+                    "_id": hit["_id"],
+                    "_index": hit.get("_index", ""),
+                    "_score": hit.get("_score", ""),
+                    "_source": src,
+                }
                 table.add_row(
-                    src.get("chunk_id", hit["_id"]),
-                    src.get("source", ""),
+                    trunc_id(chunk_id),
+                    trunc_id(src.get("source", ""), head=26, tail=4),
                     src.get("element_type", ""),
-                    src.get("section_path", ""),
+                    trunc_id(src.get("section_path", ""), head=26, tail=4),
                     key=hit["_id"],
                 )
             total = results["hits"]["total"]["value"]
@@ -143,6 +161,24 @@ class ElasticsearchPane(Widget):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self._show_detail(str(event.row_key.value))
 
+    def on_full_row_data_table_row_double_clicked(
+        self,
+        event: FullRowDataTable.RowDoubleClicked,
+    ) -> None:
+        if event.data_table.id != "es-table":
+            return
+        doc_id = str(event.row_key.value)
+        row = self._hit_rows.get(doc_id)
+        if not row:
+            return
+        event.stop()
+        self.app.push_screen(
+            FullTextScreen(
+                "Elasticsearch chunk",
+                json.dumps(row, indent=2, ensure_ascii=False),
+            )
+        )
+
     @work
     async def _show_detail(self, doc_id: str) -> None:
         if not self._es:
@@ -178,6 +214,6 @@ class ElasticsearchPane(Widget):
                     body={"query": {"term": {"chunk_id": chunk_id}}},
                 )
                 await self._load_page()
-                self.notify(f"Deleted {chunk_id}", severity="information")
+                self.notify(f"Deleted {chunk_id}", severity="information", markup=False)
             except Exception as exc:
-                self.notify(f"Error: {exc}", severity="error")
+                self.notify(f"Error: {exc}", severity="error", markup=False)

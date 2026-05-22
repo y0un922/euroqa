@@ -138,6 +138,30 @@ class EuroQATUI(App):
     #confirm-buttons Button {
         margin: 0 2;
     }
+
+    /* ── Full text dialog ── */
+    FullTextScreen {
+        align: center middle;
+    }
+    #full-text-dialog {
+        width: 90%;
+        height: 85%;
+        border: thick $primary 80%;
+        background: $surface;
+        padding: 1 2;
+    }
+    #full-text-title {
+        height: 1;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #full-text-content {
+        height: 1fr;
+    }
+    #full-text-close {
+        margin-top: 1;
+        align-horizontal: center;
+    }
     """
 
     def __init__(self) -> None:
