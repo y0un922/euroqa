@@ -37,7 +37,7 @@ async def run_evaluation(
     for question in questions:
         try:
             analysis = await analyze_query(question.question, glossary, config)
-            if exp == "rerank-english":
+            if exp in ("rerank-english", "rerank-en-fill"):
                 retriever._force_rerank_query = _first_query(analysis.expanded_queries)
             try:
                 result, trace = await retriever.retrieve_with_trace(

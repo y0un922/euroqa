@@ -31,7 +31,7 @@ async def _main() -> None:
         config,
         disable_rerank=args.exp == "no-rerank",
         disable_cap=args.exp == "no-cap",
-        rerank_fill_from_candidates=args.exp == "rerank-fill",
+        rerank_fill_from_candidates=args.exp in ("rerank-fill", "rerank-en-fill"),
     )
     try:
         result = await run_evaluation(
@@ -73,6 +73,7 @@ def _parse_args() -> argparse.Namespace:
             "no-rerank",
             "no-cap",
             "rerank-english",
+            "rerank-en-fill",
             "rerank-fill",
         ],
         default="baseline",

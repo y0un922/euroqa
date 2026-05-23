@@ -30,9 +30,10 @@ uv run python experiments/retrieval_eval/run_baseline.py \
 ```
 
 不传 `--output` 时默认输出 `experiments/retrieval_eval/results/<exp>_<date>.json`。
-可用 `--exp smoke|baseline|high-recall|no-rerank|no-cap|rerank-english|rerank-fill` 切换短反馈实验配置。
+可用 `--exp smoke|baseline|high-recall|no-rerank|no-cap|rerank-english|rerank-en-fill|rerank-fill` 切换短反馈实验配置。
 
 - `rerank-english`: 保持候选池和 rerank 开启，但强制 rerank query 使用 `expanded_queries[0]`，用于验证中文 rerank query 对英文 chunks 的跨语言错配假设。
+- `rerank-en-fill`: 在 `rerank-english` 基础上启用 `rerank_fill_from_candidates` — rerank 只决定 top 5，剩 5 个按 after-cap RRF 顺序补齐，用于在保留 rerank 排序质量的同时不丢 recall@10。
 - `rerank-fill`: rerank 只选前 5 个，再按原候选顺序补齐到 top10，用于验证“排序质量 + 覆盖多样性”组合策略。
 
 ### 3. 分诊报告
