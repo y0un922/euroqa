@@ -66,7 +66,7 @@ class ServerConfig(BaseSettings):
 
     vector_top_k: int = 30
     bm25_top_k: int = 30
-    rerank_top_n: int = 10
+    rerank_top_n: int = 15
     max_context_tokens: int = 4000
 
     conversation_ttl_hours: int = 24

@@ -29,7 +29,7 @@ def test_server_config_defaults(monkeypatch, tmp_path: Path):
 
     cfg = ServerConfig()
 
-    assert cfg.rerank_top_n == 10
+    assert cfg.rerank_top_n == 15
     assert cfg.rerank_max_length == 8192
     assert cfg.use_unified_tokenizer is True
 
