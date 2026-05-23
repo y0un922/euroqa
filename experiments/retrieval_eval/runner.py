@@ -5,6 +5,9 @@ from __future__ import annotations
 import statistics
 from typing import Any
 
+import httpx
+from openai import AsyncOpenAI
+
 from server.config import ServerConfig
 from server.core.query_understanding import analyze_query
 
@@ -21,6 +24,8 @@ from experiments.retrieval_eval.metrics import (
     section_recall_at_k,
 )
 from experiments.retrieval_eval.trace.wrapper import TracingHybridRetriever
+
+_TRANSLATION_CACHE: dict[str, str] = {}
 
 
 async def run_evaluation(
@@ -39,6 +44,11 @@ async def run_evaluation(
             analysis = await analyze_query(question.question, glossary, config)
             if exp in ("rerank-english", "rerank-en-fill"):
                 retriever._force_rerank_query = _first_query(analysis.expanded_queries)
+            if exp == "rerank-translated-original":
+                retriever._force_rerank_query = await _translate_original_question(
+                    analysis.original_question,
+                    config,
+                )
             if exp == "multi-query-max-rerank":
                 retriever._force_rerank_queries = _non_empty_queries(analysis.expanded_queries)
             try:
@@ -60,6 +70,11 @@ async def run_evaluation(
                     **to_jsonable(question),
                     "analysis": {
                         "expanded_queries": list(analysis.expanded_queries),
+                        "rerank_translated_original": (
+                            trace.rerank_query_actual
+                            if exp == "rerank-translated-original"
+                            else None
+                        ),
                         "intent_label": analysis.intent_label,
                         "filters": dict(analysis.filters),
                         "target_hint": _jsonable(analysis.target_hint),
@@ -160,6 +175,55 @@ def _first_query(queries: list[str]) -> str | None:
 
 def _non_empty_queries(queries: list[str]) -> list[str]:
     return [query.strip() for query in queries if (query or "").strip()]
+
+
+async def _translate_original_question(question: str, config: ServerConfig) -> str:
+    cached = _TRANSLATION_CACHE.get(question)
+    if cached:
+        return cached
+
+    api_key = (
+        config.translation_llm_api_key
+        or config.query_expansion_llm_api_key
+        or config.llm_api_key
+    )
+    base_url = (
+        config.translation_llm_base_url
+        or config.query_expansion_llm_base_url
+        or config.llm_base_url
+    )
+    model = (
+        config.translation_llm_model
+        or config.query_expansion_llm_model
+        or config.llm_model
+    )
+    if not api_key:
+        raise RuntimeError("rerank-translated-original requires an LLM API key")
+
+    prompt = (
+        "Translate the following Chinese Eurocode engineering question into one "
+        "faithful English retrieval query. Preserve all symbols, clause numbers, "
+        "table names, standard names, variables, and numeric values exactly. "
+        "Do not answer, expand, infer clauses, add synonyms, or add explanations. "
+        "Return only the English translation.\n\n"
+        f"Chinese question:\n{question}"
+    )
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=httpx.Timeout(timeout=30.0, connect=5.0),
+    )
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
+        max_tokens=220,
+    )
+    translated = (response.choices[0].message.content or "").strip()
+    if not translated:
+        raise RuntimeError("translation LLM returned an empty query")
+    _TRANSLATION_CACHE[question] = translated
+    return translated
 
 
 def _chunk_summary(chunk: Any, score: float | None = None) -> dict[str, Any]:

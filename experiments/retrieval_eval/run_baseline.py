@@ -77,6 +77,7 @@ def _parse_args() -> argparse.Namespace:
             "rerank-en-fill",
             "rerank-fill",
             "multi-query-max-rerank",
+            "rerank-translated-original",
         ],
         default="baseline",
     )
