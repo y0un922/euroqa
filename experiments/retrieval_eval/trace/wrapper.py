@@ -26,6 +26,7 @@ class TracingHybridRetriever(HybridRetriever):
         disable_cap: bool = False,
         rerank_fill_from_candidates: bool = False,
         rerank_fill_rerank_top_n: int = 5,
+        multi_query_max_rerank: bool = False,
     ) -> None:
         super().__init__(config)
         self._trace: RetrievalTrace | None = None
@@ -34,7 +35,9 @@ class TracingHybridRetriever(HybridRetriever):
         self.disable_cap = disable_cap
         self.rerank_fill_from_candidates = rerank_fill_from_candidates
         self.rerank_fill_rerank_top_n = rerank_fill_rerank_top_n
+        self.multi_query_max_rerank = multi_query_max_rerank
         self._force_rerank_query: str | None = None
+        self._force_rerank_queries: list[str] = []
 
     async def retrieve_with_trace(
         self,
@@ -137,9 +140,11 @@ class TracingHybridRetriever(HybridRetriever):
         chunks: list[Chunk],
         top_n: int,
     ) -> list[tuple[Chunk, float]]:
-        actual_query = self._force_rerank_query or query
+        actual_queries = self._actual_rerank_queries(query)
+        actual_query = actual_queries[0]
         if self._trace is not None and self._trace_phase == "main":
             self._trace.rerank_query_actual = actual_query
+            self._trace.rerank_queries_actual = list(actual_queries)
 
         if self.disable_rerank:
             ranked = [(chunk, 0.0) for chunk in chunks[:top_n]]
@@ -150,7 +155,9 @@ class TracingHybridRetriever(HybridRetriever):
                 ]
             return ranked
 
-        if self.rerank_fill_from_candidates:
+        if self.multi_query_max_rerank:
+            ranked = await self._multi_query_max_rerank(actual_queries, chunks, top_n)
+        elif self.rerank_fill_from_candidates:
             ranked = await self._rerank_then_fill(actual_query, chunks, top_n)
         else:
             ranked = await super()._rerank(actual_query, chunks, top_n)
@@ -185,6 +192,45 @@ class TracingHybridRetriever(HybridRetriever):
         if self._trace is not None and self._trace_phase == "main":
             self._trace.rerank_fill_added = fill_added
         return filled
+
+    def _actual_rerank_queries(self, fallback_query: str) -> list[str]:
+        queries = [
+            query.strip()
+            for query in self._force_rerank_queries
+            if (query or "").strip()
+        ]
+        if queries:
+            return queries
+        if self._force_rerank_query and self._force_rerank_query.strip():
+            return [self._force_rerank_query.strip()]
+        return [fallback_query]
+
+    async def _multi_query_max_rerank(
+        self,
+        queries: list[str],
+        chunks: list[Chunk],
+        top_n: int,
+    ) -> list[tuple[Chunk, float]]:
+        if not chunks:
+            return []
+
+        best_scores: dict[str, float] = {}
+        for query in queries:
+            ranked = await super()._rerank(query, chunks, len(chunks))
+            for chunk, score in ranked:
+                previous = best_scores.get(chunk.chunk_id)
+                if previous is None or score > previous:
+                    best_scores[chunk.chunk_id] = float(score)
+
+        ranked_all = sorted(
+            enumerate(chunks),
+            key=lambda item: (best_scores.get(item[1].chunk_id, float("-inf")), -item[0]),
+            reverse=True,
+        )
+        return [
+            (chunk, best_scores.get(chunk.chunk_id, 0.0))
+            for _, chunk in ranked_all[:top_n]
+        ]
 
     async def _fetch_object_chunks_by_object_ids(
         self,

@@ -19,6 +19,7 @@ class RetrievalTrace:
     reranked: list[dict[str, Any]] = field(default_factory=list)
     rerank_fill_added: list[dict[str, Any]] = field(default_factory=list)
     rerank_query_actual: str = ""
+    rerank_queries_actual: list[str] = field(default_factory=list)
     cross_ref_added: list[str] = field(default_factory=list)
     object_id_fetched: list[str] = field(default_factory=list)
 

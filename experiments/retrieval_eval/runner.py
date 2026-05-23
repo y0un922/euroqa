@@ -39,6 +39,8 @@ async def run_evaluation(
             analysis = await analyze_query(question.question, glossary, config)
             if exp in ("rerank-english", "rerank-en-fill"):
                 retriever._force_rerank_query = _first_query(analysis.expanded_queries)
+            if exp == "multi-query-max-rerank":
+                retriever._force_rerank_queries = _non_empty_queries(analysis.expanded_queries)
             try:
                 result, trace = await retriever.retrieve_with_trace(
                     queries=analysis.expanded_queries,
@@ -50,6 +52,7 @@ async def run_evaluation(
                 )
             finally:
                 retriever._force_rerank_query = None
+                retriever._force_rerank_queries = []
             chunks = result.chunks[:top_k]
             metrics = _question_metrics(question, result, chunks, top_k)
             per_question.append(
@@ -153,6 +156,10 @@ def _first_query(queries: list[str]) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _non_empty_queries(queries: list[str]) -> list[str]:
+    return [query.strip() for query in queries if (query or "").strip()]
 
 
 def _chunk_summary(chunk: Any, score: float | None = None) -> dict[str, Any]:
