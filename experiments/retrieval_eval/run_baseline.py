@@ -29,10 +29,11 @@ async def _main() -> None:
     config = _build_config(args)
     retriever = TracingHybridRetriever(
         config,
-        disable_rerank=args.exp == "no-rerank",
+        disable_rerank=_disable_rerank(args.exp),
         disable_cap=args.exp == "no-cap",
         rerank_fill_from_candidates=args.exp in ("rerank-fill", "rerank-en-fill"),
         multi_query_max_rerank=args.exp == "multi-query-max-rerank",
+        max_per_source_override=_max_per_source_override(args.exp),
     )
     try:
         result = await run_evaluation(
@@ -71,8 +72,12 @@ def _parse_args() -> argparse.Namespace:
             "baseline",
             "smoke",
             "high-recall",
+            "high-recall-no-rerank",
             "no-rerank",
             "no-cap",
+            "cap3-no-rerank",
+            "cap7-no-rerank",
+            "cap10-no-rerank",
             "rerank-english",
             "rerank-en-fill",
             "rerank-fill",
@@ -98,9 +103,43 @@ def _build_config(args: argparse.Namespace) -> ServerConfig:
                 "rerank_top_n": max(args.top_k, 20),
             }
         )
-    if args.exp == "no-rerank":
+    if args.exp == "high-recall-no-rerank":
+        return config.model_copy(
+            update={
+                "vector_top_k": 80,
+                "bm25_top_k": 80,
+                "rerank_top_n": args.top_k,
+            }
+        )
+    if args.exp in {
+        "no-rerank",
+        "cap3-no-rerank",
+        "cap7-no-rerank",
+        "cap10-no-rerank",
+        "high-recall-no-rerank",
+    }:
         return config.model_copy(update={"rerank_top_n": args.top_k})
     return config
+
+
+def _max_per_source_override(exp: str) -> int | None:
+    if exp == "cap3-no-rerank":
+        return 3
+    if exp == "cap7-no-rerank":
+        return 7
+    if exp == "cap10-no-rerank":
+        return 10
+    return None
+
+
+def _disable_rerank(exp: str) -> bool:
+    return exp in {
+        "no-rerank",
+        "high-recall-no-rerank",
+        "cap3-no-rerank",
+        "cap7-no-rerank",
+        "cap10-no-rerank",
+    }
 
 
 def _default_output_path(exp: str) -> Path:

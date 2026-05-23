@@ -27,6 +27,7 @@ class TracingHybridRetriever(HybridRetriever):
         rerank_fill_from_candidates: bool = False,
         rerank_fill_rerank_top_n: int = 5,
         multi_query_max_rerank: bool = False,
+        max_per_source_override: int | None = None,
     ) -> None:
         super().__init__(config)
         self._trace: RetrievalTrace | None = None
@@ -36,6 +37,7 @@ class TracingHybridRetriever(HybridRetriever):
         self.rerank_fill_from_candidates = rerank_fill_from_candidates
         self.rerank_fill_rerank_top_n = rerank_fill_rerank_top_n
         self.multi_query_max_rerank = multi_query_max_rerank
+        self.max_per_source_override = max_per_source_override
         self._force_rerank_query: str | None = None
         self._force_rerank_queries: list[str] = []
 
@@ -125,9 +127,10 @@ class TracingHybridRetriever(HybridRetriever):
         if self.disable_cap:
             aggregated = list(results)
         else:
+            effective_max_per_source = self.max_per_source_override or max_per_source
             aggregated = super()._cross_doc_aggregate(
                 results,
-                max_per_source=max_per_source,
+                max_per_source=effective_max_per_source,
                 filters=filters,
             )
         if self._trace is not None and self._trace_phase == "main":
