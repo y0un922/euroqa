@@ -12,7 +12,7 @@ Euro_QA 是一个面向中国工程师的欧洲建筑规范（Eurocode）问答�
 | 向量数据库 | Milvus（COSINE, HNSW ef=128） |
 | 全文检索 | Elasticsearch（BM25, multi_match） |
 | Embedding | BAAI/bge-m3（本地或远程 API） |
-| Rerank | BAAI/bge-reranker-v2-m3（本地或远程 API） |
+| Rerank | Qwen/Qwen3-Reranker-8B（远程 API） |
 | LLM | OpenAI-compatible API（默认 DeepSeek） |
 | PDF 解析 | MinerU（本地/官方 API） |
 | 前端 | React + TypeScript + Vite |

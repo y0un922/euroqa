@@ -844,7 +844,9 @@ class HybridRetriever:
         if not guide_candidates:
             return []
 
-        rerank_query = (original_query or guide_queries[0]).strip()
+        # 重排序优先使用 expanded query 的英文版本，对英文 chunks 更准
+        primary_query = queries[0].strip() if queries else ""
+        rerank_query = primary_query or (original_query or "").strip() or guide_queries[0]
         try:
             reranked = await self._rerank(rerank_query, guide_candidates, min(3, len(guide_candidates)))
             return [chunk for chunk, _ in reranked]
@@ -904,8 +906,11 @@ class HybridRetriever:
         if not guide_candidates:
             return []
 
+        # 优先用 example_query/英文 expanded query，对英文 chunks 更准
+        primary_query = queries[0].strip() if queries else ""
         rerank_query = (
             normalized_hint.example_query
+            or primary_query
             or (original_query or "").strip()
             or guide_queries[0]
         )
@@ -1452,8 +1457,8 @@ class HybridRetriever:
         chunk_ids = [r["chunk_id"] for r in aggregated]
         chunks = await self._fetch_chunks(chunk_ids)
 
-        # 重排序（使用原始中文问题，bge-reranker 支持跨语言）
-        rerank_query = normalized_original or primary_query
+        # 重排序（使用 expanded query 的英文版本，对英文 chunks 更准）
+        rerank_query = primary_query or normalized_original
         try:
             reranked = await self._rerank(rerank_query, chunks, cfg.rerank_top_n)
             final_chunks = [c for c, _ in reranked]
