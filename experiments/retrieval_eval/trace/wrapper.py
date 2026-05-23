@@ -24,12 +24,16 @@ class TracingHybridRetriever(HybridRetriever):
         *,
         disable_rerank: bool = False,
         disable_cap: bool = False,
+        rerank_fill_from_candidates: bool = False,
+        rerank_fill_rerank_top_n: int = 5,
     ) -> None:
         super().__init__(config)
         self._trace: RetrievalTrace | None = None
         self._trace_phase = "idle"
         self.disable_rerank = disable_rerank
         self.disable_cap = disable_cap
+        self.rerank_fill_from_candidates = rerank_fill_from_candidates
+        self.rerank_fill_rerank_top_n = rerank_fill_rerank_top_n
         self._force_rerank_query: str | None = None
 
     async def retrieve_with_trace(
@@ -146,13 +150,41 @@ class TracingHybridRetriever(HybridRetriever):
                 ]
             return ranked
 
-        ranked = await super()._rerank(actual_query, chunks, top_n)
+        if self.rerank_fill_from_candidates:
+            ranked = await self._rerank_then_fill(actual_query, chunks, top_n)
+        else:
+            ranked = await super()._rerank(actual_query, chunks, top_n)
         if self._trace is not None and self._trace_phase == "main":
             self._trace.reranked = [
                 _chunk_hit(chunk, rerank_score=score)
                 for chunk, score in ranked
             ]
         return ranked
+
+    async def _rerank_then_fill(
+        self,
+        query: str,
+        chunks: list[Chunk],
+        top_n: int,
+    ) -> list[tuple[Chunk, float]]:
+        rerank_top_n = min(max(self.rerank_fill_rerank_top_n, 0), top_n)
+        reranked = await super()._rerank(query, chunks, rerank_top_n)
+        selected_ids = {chunk.chunk_id for chunk, _ in reranked}
+        filled: list[tuple[Chunk, float]] = list(reranked)
+        fill_added: list[dict[str, Any]] = []
+
+        for chunk in chunks:
+            if len(filled) >= top_n:
+                break
+            if chunk.chunk_id in selected_ids:
+                continue
+            selected_ids.add(chunk.chunk_id)
+            filled.append((chunk, 0.0))
+            fill_added.append(_chunk_hit(chunk, rerank_score=0.0))
+
+        if self._trace is not None and self._trace_phase == "main":
+            self._trace.rerank_fill_added = fill_added
+        return filled
 
     async def _fetch_object_chunks_by_object_ids(
         self,
