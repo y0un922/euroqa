@@ -41,7 +41,7 @@ async def _main() -> None:
             retriever=retriever,
             glossary=get_glossary(),
             config=config,
-            top_k=args.top_k,
+            top_k=_effective_top_k(args),
             exp=args.exp,
         )
     finally:
@@ -83,6 +83,8 @@ def _parse_args() -> argparse.Namespace:
             "rerank-fill",
             "multi-query-max-rerank",
             "rerank-translated-original",
+            "qwen-en-rerank-top15",
+            "qwen-en-rerank-top20",
         ],
         default="baseline",
     )
@@ -103,6 +105,10 @@ def _build_config(args: argparse.Namespace) -> ServerConfig:
                 "rerank_top_n": max(args.top_k, 20),
             }
         )
+    if args.exp == "qwen-en-rerank-top15":
+        return config.model_copy(update={"rerank_top_n": 15})
+    if args.exp == "qwen-en-rerank-top20":
+        return config.model_copy(update={"rerank_top_n": 20})
     if args.exp == "high-recall-no-rerank":
         return config.model_copy(
             update={
@@ -140,6 +146,14 @@ def _disable_rerank(exp: str) -> bool:
         "cap7-no-rerank",
         "cap10-no-rerank",
     }
+
+
+def _effective_top_k(args: argparse.Namespace) -> int:
+    if args.exp == "qwen-en-rerank-top15":
+        return max(args.top_k, 15)
+    if args.exp == "qwen-en-rerank-top20":
+        return max(args.top_k, 20)
+    return args.top_k
 
 
 def _default_output_path(exp: str) -> Path:

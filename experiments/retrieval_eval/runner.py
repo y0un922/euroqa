@@ -42,7 +42,12 @@ async def run_evaluation(
     for question in questions:
         try:
             analysis = await analyze_query(question.question, glossary, config)
-            if exp in ("rerank-english", "rerank-en-fill"):
+            if exp in {
+                "rerank-english",
+                "rerank-en-fill",
+                "qwen-en-rerank-top15",
+                "qwen-en-rerank-top20",
+            }:
                 retriever._force_rerank_query = _first_query(analysis.expanded_queries)
             if exp == "rerank-translated-original":
                 retriever._force_rerank_query = await _translate_original_question(
@@ -116,21 +121,49 @@ def _question_metrics(
     top_k: int,
 ) -> dict[str, float]:
     metrics: dict[str, float] = {
-        "doc_recall@10": doc_recall_at_k(chunks, question.expected_documents, top_k),
+        "doc_recall@10": doc_recall_at_k(chunks, question.expected_documents, min(10, top_k)),
         "section_recall@1": section_recall_at_k(chunks, question.expected_documents, 1),
         "section_recall@3": section_recall_at_k(chunks, question.expected_documents, 3),
         "section_recall@5": section_recall_at_k(chunks, question.expected_documents, 5),
-        "section_recall@10": section_recall_at_k(chunks, question.expected_documents, top_k),
+        "section_recall@10": section_recall_at_k(chunks, question.expected_documents, min(10, top_k)),
         "mrr_section": mrr_section(chunks, question.expected_sections),
-        "ndcg@10": ndcg_at_k(chunks, question.expected_sections, top_k),
-        "keyword_recall@10": keyword_recall_at_k(chunks, question.expected_keywords, top_k),
-        "concept_recall@10": concept_recall_at_k(chunks, question.expected_concepts, top_k),
+        "ndcg@10": ndcg_at_k(chunks, question.expected_sections, min(10, top_k)),
+        "keyword_recall@10": keyword_recall_at_k(
+            chunks,
+            question.expected_keywords,
+            min(10, top_k),
+        ),
+        "concept_recall@10": concept_recall_at_k(
+            chunks,
+            question.expected_concepts,
+            min(10, top_k),
+        ),
         "direct_ref_resolution_rate": direct_ref_resolution_rate(
             result,
             _expected_direct_refs(question),
         ),
         "noise_intrusion_rate": noise_intrusion_rate(chunks, question.must_not_include),
     }
+    if top_k >= 15:
+        metrics.update(
+            {
+                "doc_recall@15": doc_recall_at_k(chunks, question.expected_documents, 15),
+                "section_recall@15": section_recall_at_k(chunks, question.expected_documents, 15),
+                "ndcg@15": ndcg_at_k(chunks, question.expected_sections, 15),
+                "keyword_recall@15": keyword_recall_at_k(chunks, question.expected_keywords, 15),
+                "concept_recall@15": concept_recall_at_k(chunks, question.expected_concepts, 15),
+            }
+        )
+    if top_k >= 20:
+        metrics.update(
+            {
+                "doc_recall@20": doc_recall_at_k(chunks, question.expected_documents, 20),
+                "section_recall@20": section_recall_at_k(chunks, question.expected_documents, 20),
+                "ndcg@20": ndcg_at_k(chunks, question.expected_sections, 20),
+                "keyword_recall@20": keyword_recall_at_k(chunks, question.expected_keywords, 20),
+                "concept_recall@20": concept_recall_at_k(chunks, question.expected_concepts, 20),
+            }
+        )
     return metrics
 
 

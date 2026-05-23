@@ -30,7 +30,7 @@ uv run python experiments/retrieval_eval/run_baseline.py \
 ```
 
 不传 `--output` 时默认输出 `experiments/retrieval_eval/results/<exp>_<date>.json`。
-可用 `--exp smoke|baseline|high-recall|high-recall-no-rerank|no-rerank|no-cap|cap3-no-rerank|cap7-no-rerank|cap10-no-rerank|rerank-english|rerank-en-fill|rerank-fill|multi-query-max-rerank|rerank-translated-original` 切换短反馈实验配置。
+可用 `--exp smoke|baseline|high-recall|high-recall-no-rerank|no-rerank|no-cap|cap3-no-rerank|cap7-no-rerank|cap10-no-rerank|rerank-english|rerank-en-fill|rerank-fill|multi-query-max-rerank|rerank-translated-original|qwen-en-rerank-top15|qwen-en-rerank-top20` 切换短反馈实验配置。
 
 - `high-recall-no-rerank`: 将 dense/BM25 候选池扩大到 80/80，并关闭 rerank，用于验证扩大候选池是否只是在 rerank 阶段被误杀。
 - `cap3-no-rerank` / `cap7-no-rerank` / `cap10-no-rerank`: 在关闭 rerank 的前提下扫描 `_cross_doc_aggregate(max_per_source=...)`，用于寻找 recall 与文档多样性的 cap 平衡点。
@@ -39,6 +39,7 @@ uv run python experiments/retrieval_eval/run_baseline.py \
 - `rerank-fill`: rerank 只选前 5 个，再按原候选顺序补齐到 top10，用于验证“排序质量 + 覆盖多样性”组合策略。
 - `multi-query-max-rerank`: 对每个候选 chunk 分别用所有 `expanded_queries` rerank，取最高分排序，用于验证单 query rerank 是否压缩了多查询覆盖面。
 - `rerank-translated-original`: 将用户原始中文问题直译为英文后作为 rerank query，用于验证“语言一致但不改写语义”是否优于 `expanded_queries[0]`。
+- `qwen-en-rerank-top15` / `qwen-en-rerank-top20`: 使用 `expanded_queries[0]` 作为英文 rerank query，并将 rerank 输出深度扩到 15/20，用于评估生成上下文是否应接收更多高质量证据。
 
 ### 3. 分诊报告
 
