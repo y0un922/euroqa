@@ -14,10 +14,13 @@ async def retrieve(ctx: RunContextWrapper[QADeps], query: str) -> str:
 
 async def _retrieve_impl(ctx: RunContextWrapper[QADeps], query: str) -> str:
     analysis = await analyze_query(query, ctx.context.glossary, ctx.context.config)
+    filters = dict(analysis.filters)
+    if ctx.context.domain_filter:
+        filters["source"] = ctx.context.domain_filter
     result = await ctx.context.retriever.retrieve(
         analysis.expanded_queries,
         original_query=query,
-        filters=analysis.filters,
+        filters=filters,
         intent_label=analysis.intent_label,
         question_type=analysis.question_type,
         guide_hint=analysis.guide_hint,

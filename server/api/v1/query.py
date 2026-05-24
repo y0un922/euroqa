@@ -1,19 +1,32 @@
 """POST /api/v1/query — main Q&A endpoint with optional SSE streaming."""
+
 from __future__ import annotations
 
 import json
 import inspect
-import asyncio
 import time
 
+from agents import Agent
 import structlog
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
+from server.agents.deps import QADeps
+from server.agents.evidence import EvidenceBundle
+from server.agents.qa_agent import AgentDecision, build_qa_agent, run_qa_agent
 from server.config import ServerConfig
-from server.deps import get_config, get_conversation_manager, get_glossary, get_retriever
-from server.core.query_understanding import analyze_query, extract_filters
-from server.core.generation import generate_answer, generate_answer_stream, postprocess_citations
+from server.deps import (
+    get_config,
+    get_conversation_manager,
+    get_glossary,
+    get_retriever,
+)
+from server.core.conversation import ConversationState
+from server.core.generation import (
+    generate_answer,
+    generate_answer_stream,
+    postprocess_citations,
+)
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
 from shared.spot_check import (
     SpotCheckRecorder,
@@ -25,6 +38,8 @@ from shared.spot_check import (
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
+
+_qa_agent: Agent[QADeps] | None = None
 
 
 _QUESTION_TYPE_LABELS = {
@@ -68,12 +83,55 @@ def _spot_check_query_signals(question_type: object) -> dict[str, object]:
     }
 
 
-async def _get_conversation_state(conv_mgr: object, conversation_id: str | None) -> object:
+async def _get_conversation_state(
+    conv_mgr: object, conversation_id: str | None
+) -> object:
     """Load conversation state from sync or async managers."""
     getter = getattr(conv_mgr, "get_or_create_async", None)
     if getter is not None:
         return await getter(conversation_id)
     return conv_mgr.get_or_create(conversation_id)
+
+
+def _get_or_build_agent(config: ServerConfig) -> Agent[QADeps]:
+    """Return the lazily constructed QA agent."""
+    global _qa_agent
+    if _qa_agent is None:
+        _qa_agent = build_qa_agent(config)
+    return _qa_agent
+
+
+def _conversation_state_for_agent(
+    conv: object,
+    req: QueryRequest,
+) -> ConversationState:
+    """Build the agent-facing conversation state from the loaded session."""
+    history = (
+        list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
+    )
+    return ConversationState(
+        conversation_id=getattr(conv, "conversation_id"),
+        history=history,
+    )
+
+
+def _build_agent_deps(
+    *,
+    runtime_config: ServerConfig,
+    retriever: object,
+    glossary: dict[str, str],
+    conv: object,
+    req: QueryRequest,
+) -> QADeps:
+    """Build request-scoped dependencies for agent tool execution."""
+    return QADeps(
+        config=runtime_config,
+        retriever=retriever,
+        glossary=glossary,
+        bundle=EvidenceBundle(),
+        conversation_state=_conversation_state_for_agent(conv, req),
+        domain_filter=req.domain,
+    )
 
 
 async def _add_conversation_turn(
@@ -90,12 +148,17 @@ async def _add_conversation_turn(
     answer_mode: str | None = None,
     groundedness: str | None = None,
     thinking: str | None = None,
+    tool_trace: list[dict] | None = None,
     response_payload: dict[str, object] | None = None,
 ) -> str | None:
     """Persist one Q&A turn through sync or async managers."""
     serialized_sources = _serialize_sources_for_history(sources)
-    serialized_retrieval_context = _serialize_retrieval_context_for_history(retrieval_context)
-    serialized_response_payload = _serialize_response_payload_for_history(response_payload)
+    serialized_retrieval_context = _serialize_retrieval_context_for_history(
+        retrieval_context
+    )
+    serialized_response_payload = _serialize_response_payload_for_history(
+        response_payload
+    )
     metadata_kwargs = {
         "sources": serialized_sources,
         "related_refs": related_refs,
@@ -105,6 +168,7 @@ async def _add_conversation_turn(
         "answer_mode": answer_mode,
         "groundedness": groundedness,
         "thinking": thinking,
+        "tool_trace": tool_trace,
         "response_payload": serialized_response_payload,
     }
     adder = getattr(conv_mgr, "add_turn_async", None)
@@ -115,11 +179,16 @@ async def _add_conversation_turn(
             conversation_id,
             question,
             answer,
-            **metadata_kwargs,
+            **_filter_turn_metadata(adder, metadata_kwargs),
         )
     sync_adder = getattr(conv_mgr, "add_turn")
     if _supports_turn_metadata(sync_adder):
-        sync_adder(conversation_id, question, answer, **metadata_kwargs)
+        sync_adder(
+            conversation_id,
+            question,
+            answer,
+            **_filter_turn_metadata(sync_adder, metadata_kwargs),
+        )
     else:
         sync_adder(conversation_id, question, answer)
     return None
@@ -132,7 +201,9 @@ def _supports_turn_metadata(adder: object) -> bool:
     except (TypeError, ValueError):
         return False
     parameters = signature.parameters.values()
-    return any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters) or any(
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters
+    ) or any(
         name in signature.parameters
         for name in (
             "sources",
@@ -143,9 +214,28 @@ def _supports_turn_metadata(adder: object) -> bool:
             "answer_mode",
             "groundedness",
             "thinking",
+            "tool_trace",
             "response_payload",
         )
     )
+
+
+def _filter_turn_metadata(adder: object, metadata_kwargs: dict) -> dict:
+    """Pass only metadata keywords accepted by the conversation manager."""
+    try:
+        signature = inspect.signature(adder)
+    except (TypeError, ValueError):
+        return {}
+    if any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    ):
+        return metadata_kwargs
+    return {
+        key: value
+        for key, value in metadata_kwargs.items()
+        if key in signature.parameters
+    }
 
 
 def _serialize_sources_for_history(
@@ -227,6 +317,7 @@ def _external_done_payload(
     question_type: str | None,
     groundedness: str | None,
     title: str | None,
+    answer_mode: str | None = None,
 ) -> dict:
     """Merge stream done metadata required by the external API document."""
     sources = [
@@ -239,9 +330,10 @@ def _external_done_payload(
         "code": 200,
         "sources": sources,
         "relatedRefs": related_refs,
-        "confidence": data.get("confidence") or _confidence_from_groundedness(groundedness),
+        "confidence": data.get("confidence")
+        or _confidence_from_groundedness(groundedness),
         "questionType": question_type or data.get("question_type"),
-        "answerMode": _answer_mode_from_groundedness(groundedness),
+        "answerMode": answer_mode or _answer_mode_from_groundedness(groundedness),
         "groundedness": groundedness,
         "title": title,
     }
@@ -334,7 +426,9 @@ def _retrieval_summary(result: object) -> tuple[str, dict]:
     if evidence_count == 0:
         summary = "暂未稳定定位到规范证据，回答会明确说明当前证据不足。"
     elif source_count > 0:
-        summary = f"找到 {evidence_count} 条相关规范证据，覆盖 {source_count} 个文档来源。"
+        summary = (
+            f"找到 {evidence_count} 条相关规范证据，覆盖 {source_count} 个文档来源。"
+        )
     else:
         summary = f"找到 {evidence_count} 条相关规范证据。"
     return summary, {
@@ -382,6 +476,94 @@ def _guide_summary(result: object) -> tuple[str, str, dict]:
     )
 
 
+async def _run_agent_dispatch(
+    *,
+    req: QueryRequest,
+    runtime_config: ServerConfig,
+    retriever: object,
+    glossary: dict[str, str],
+    conv_mgr: object,
+) -> tuple[AgentDecision, EvidenceBundle, object]:
+    """Run the QA agent and return its decision, evidence bundle, and session."""
+    conv = await _get_conversation_state(conv_mgr, _conversation_id_from_request(req))
+    deps = _build_agent_deps(
+        runtime_config=runtime_config,
+        retriever=retriever,
+        glossary=glossary,
+        conv=conv,
+        req=req,
+    )
+    agent = _get_or_build_agent(runtime_config)
+    decision, bundle = await run_qa_agent(agent, req.question, deps, max_turns=5)
+    return decision, bundle, conv
+
+
+def _agent_stage_summary(
+    decision: AgentDecision, bundle: EvidenceBundle
+) -> tuple[str, dict]:
+    """Summarize the agent decision for progress payloads."""
+    facts: dict[str, object] = {"action": decision.action}
+    if decision.action == "compose_rag":
+        facts["chunk_count"] = bundle.chunk_count
+        summary = f"已确认为规范问题，检索到 {bundle.chunk_count} 条证据。"
+    elif decision.action == "clarify":
+        summary = "识别为模糊问题，已请求用户补充关键信息。"
+    else:
+        summary = "识别为闲聊或上下文充足问题，直接生成简短回复。"
+    return summary, facts
+
+
+def _build_agent_chat_payload(
+    *,
+    decision: AgentDecision,
+    bundle: EvidenceBundle,
+    groundedness: str | None = None,
+) -> dict[str, object]:
+    """Build the external payload for chat/clarify agent responses."""
+    answer_mode = decision.action
+    confidence = "high"
+    return {
+        "answer": decision.direct_reply or "",
+        "sources": [],
+        "related_refs": [],
+        "confidence": confidence,
+        "retrieval_context": {
+            "chunks": [],
+            "parent_chunks": [],
+            "guide_chunks": [],
+            "guide_example_chunks": [],
+            "ref_chunks": [],
+            "resolved_refs": [],
+            "unresolved_refs": [],
+        },
+        "question_type": None,
+        "engineering_context": None,
+        "groundedness": groundedness,
+        "answerMode": answer_mode,
+        "tool_trace": bundle.tool_trace,
+    }
+
+
+def _record_agent_spot_check(
+    recorder: SpotCheckRecorder | None,
+    decision: AgentDecision,
+    bundle: EvidenceBundle,
+) -> None:
+    """Record agent-mode query signals without running query understanding twice."""
+    if recorder is None:
+        return
+    recorder.record("expanded_queries", {"queries": []})
+    recorder.record(
+        "query_signals",
+        {
+            "agent_action": decision.action,
+            "chunk_count": bundle.chunk_count,
+            "exact_refs": [],
+            "procedural_cues": False,
+        },
+    )
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query(
     req: QueryRequest,
@@ -391,65 +573,65 @@ async def query(
     conv_mgr=Depends(get_conversation_manager),
 ) -> QueryResponse:
     runtime_config = _resolve_runtime_config(config, req)
-    recorder = SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
+    recorder = (
+        SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
+    )
     token = set_current_recorder(recorder)
     try:
-        analysis = await analyze_query(req.question, glossary, runtime_config)
-        if recorder:
-            recorder.record(
-                "expanded_queries",
-                {"queries": analysis.expanded_queries},
+        decision, bundle, conv = await _run_agent_dispatch(
+            req=req,
+            runtime_config=runtime_config,
+            retriever=retriever,
+            glossary=glossary,
+            conv_mgr=conv_mgr,
+        )
+        _record_agent_spot_check(recorder, decision, bundle)
+
+        if decision.action == "compose_rag":
+            history = (
+                list(getattr(conv, "history", []) or [])[
+                    -config.max_conversation_rounds :
+                ]
+                if _uses_external_session(req)
+                else []
             )
-            recorder.record(
-                "query_signals",
-                _spot_check_query_signals(analysis.question_type),
+            response = await generate_answer(
+                question=req.question,
+                chunks=bundle.chunks,
+                parent_chunks=bundle.parent_chunks,
+                scores=bundle.scores,
+                glossary_terms=bundle.glossary_hits,
+                conversation_history=history,
+                config=runtime_config,
+                ref_chunks=bundle.ref_chunks,
+                guide_chunks=bundle.guide_chunks,
+                guide_example_chunks=bundle.guide_example_chunks,
+                groundedness=bundle.groundedness,
+                resolved_refs=bundle.resolved_refs,
+                unresolved_refs=bundle.unresolved_refs,
             )
+            response = response.model_copy(
+                update={
+                    "conversation_id": conv.conversation_id,
+                    "groundedness": bundle.groundedness,
+                }
+            )
+            answer_mode = _answer_mode_from_groundedness(response.groundedness)
+        else:
+            response = QueryResponse(
+                answer=decision.direct_reply or "",
+                sources=[],
+                related_refs=[],
+                confidence="high",
+                conversation_id=conv.conversation_id,
+                degraded=False,
+                retrieval_context=RetrievalContext(),
+                question_type=None,
+                engineering_context=None,
+                groundedness=None,
+            )
+            answer_mode = decision.action
 
-        filters = analysis.filters
-        if req.domain:
-            filters["source"] = req.domain
-
-        result = await retriever.retrieve(
-            queries=analysis.expanded_queries,
-            original_query=analysis.original_question,
-            filters=filters,
-            intent_label=analysis.intent_label,
-            question_type=analysis.question_type.value if analysis.question_type else None,
-            guide_hint=analysis.guide_hint,
-            target_hint=analysis.target_hint,
-            requested_objects=analysis.requested_objects,
-            preferred_element_type=analysis.preferred_element_type,
-        )
-
-        conv = await _get_conversation_state(conv_mgr, _conversation_id_from_request(req))
-        history = list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
-
-        response = await generate_answer(
-            question=req.question,
-            chunks=result.chunks,
-            parent_chunks=result.parent_chunks,
-            scores=result.scores,
-            glossary_terms=analysis.matched_terms,
-            conversation_history=history[-config.max_conversation_rounds:],
-            config=runtime_config,
-            ref_chunks=result.ref_chunks,
-            guide_chunks=result.guide_chunks,
-            guide_example_chunks=result.guide_example_chunks,
-            question_type=analysis.question_type,
-            engineering_context=analysis.engineering_context,
-            groundedness=result.groundedness,
-            resolved_refs=result.resolved_refs,
-            unresolved_refs=result.unresolved_refs,
-            intent_label=analysis.intent_label,
-        )
-        response = response.model_copy(
-            update={
-                "conversation_id": conv.conversation_id,
-                "question_type": analysis.question_type.value if analysis.question_type else None,
-                "engineering_context": analysis.engineering_context.model_dump() if analysis.engineering_context else None,
-                "groundedness": result.groundedness,
-            }
-        )
         if _uses_external_session(req):
             await _add_conversation_turn(
                 conv_mgr,
@@ -461,8 +643,9 @@ async def query(
                 retrieval_context=response.retrieval_context,
                 question_type=response.question_type,
                 engineering_context=response.engineering_context,
-                answer_mode=_answer_mode_from_groundedness(response.groundedness),
+                answer_mode=answer_mode,
                 groundedness=response.groundedness,
+                tool_trace=bundle.tool_trace,
             )
 
         return response
@@ -484,46 +667,40 @@ async def query_stream(
 
     async def event_generator():
         started_at = time.perf_counter()
-        recorder = SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
+        recorder = (
+            SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
+        )
         token = set_current_recorder(recorder)
         try:
             yield {
                 "event": "progress",
                 "data": json.dumps(
                     _progress_event(
-                        stage="understanding",
+                        stage="agent_thinking",
                         status="running",
-                        title="理解问题",
-                        summary="正在理解问题并提取检索线索...",
+                        title="分析问题",
+                        summary="Agent 正在理解问题并决定策略...",
                         started_at=started_at,
                     ),
                     ensure_ascii=False,
                 ),
             }
-            pre_filters = extract_filters(req.question)
-            if req.domain:
-                pre_filters["source"] = req.domain
-            analysis, prefetch_results = await asyncio.gather(
-                analyze_query(req.question, glossary, runtime_config),
-                retriever.prefetch_vectors(req.question, pre_filters),
+            decision, bundle, conv = await _run_agent_dispatch(
+                req=req,
+                runtime_config=runtime_config,
+                retriever=retriever,
+                glossary=glossary,
+                conv_mgr=conv_mgr,
             )
-            if recorder:
-                recorder.record(
-                    "expanded_queries",
-                    {"queries": analysis.expanded_queries},
-                )
-                recorder.record(
-                    "query_signals",
-                    _spot_check_query_signals(analysis.question_type),
-                )
-            summary, facts = _understanding_summary(analysis)
+            _record_agent_spot_check(recorder, decision, bundle)
+            summary, facts = _agent_stage_summary(decision, bundle)
             yield {
                 "event": "progress",
                 "data": json.dumps(
                     _progress_event(
-                        stage="understanding",
+                        stage="agent_thinking",
                         status="completed",
-                        title="理解问题",
+                        title="分析问题",
                         summary=summary,
                         started_at=started_at,
                         facts=facts,
@@ -532,41 +709,61 @@ async def query_stream(
                 ),
             }
 
-            filters = analysis.filters
-            if req.domain:
-                filters["source"] = req.domain
+            if decision.action != "compose_rag":
+                payload = _build_agent_chat_payload(decision=decision, bundle=bundle)
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(
+                        _progress_event(
+                            stage=decision.action,
+                            status="completed",
+                            title="生成回复",
+                            summary="Agent 已生成直接回复。",
+                            started_at=started_at,
+                            facts={"action": decision.action},
+                        ),
+                        ensure_ascii=False,
+                    ),
+                }
+                yield {
+                    "event": "chunk",
+                    "data": json.dumps(
+                        {"text": decision.direct_reply or "", "done": False},
+                        ensure_ascii=False,
+                    ),
+                }
+                data = _external_done_payload(
+                    payload,
+                    question_type=None,
+                    groundedness=None,
+                    title=None,
+                    answer_mode=decision.action,
+                )
+                if _uses_external_session(req):
+                    title = await _add_conversation_turn(
+                        conv_mgr,
+                        conv.conversation_id,
+                        req.question,
+                        str(data.get("answer") or ""),
+                        sources=[],
+                        related_refs=[],
+                        retrieval_context=data.get("retrievalContext")
+                        or data.get("retrieval_context"),
+                        question_type=None,
+                        answer_mode=decision.action,
+                        tool_trace=bundle.tool_trace,
+                        response_payload=data,
+                    )
+                    data["title"] = title
+                yield {"event": "done", "data": json.dumps(data, ensure_ascii=False)}
+                return
 
+            summary, facts = _retrieval_summary(bundle)
             yield {
                 "event": "progress",
                 "data": json.dumps(
                     _progress_event(
                         stage="retrieving",
-                        status="running",
-                        title="检索规范条文",
-                        summary="正在检索规范条文...",
-                        started_at=started_at,
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-            result = await retriever.retrieve(
-                queries=analysis.expanded_queries,
-                original_query=analysis.original_question,
-                filters=filters,
-                intent_label=analysis.intent_label,
-                question_type=analysis.question_type.value if analysis.question_type else None,
-                guide_hint=analysis.guide_hint,
-                target_hint=analysis.target_hint,
-                requested_objects=analysis.requested_objects,
-                preferred_element_type=analysis.preferred_element_type,
-                prefetched_original_results=prefetch_results,
-            )
-            summary, facts = _retrieval_summary(result)
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="retrieving",
                         status="completed",
                         title="检索规范条文",
                         summary=summary,
@@ -577,43 +774,6 @@ async def query_stream(
                 ),
             }
 
-            summary, facts = _reference_summary(result)
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="references",
-                        status="completed",
-                        title="补齐引用",
-                        summary=summary,
-                        started_at=started_at,
-                        facts=facts,
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-
-            guide_status, summary, facts = _guide_summary(result)
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="guide",
-                        status=guide_status,
-                        title="检索指南参考",
-                        summary=summary,
-                        started_at=started_at,
-                        facts=facts,
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-
-            conv = await _get_conversation_state(
-                conv_mgr,
-                _conversation_id_from_request(req),
-            )
-            history = list(getattr(conv, "history", []) or []) if _uses_external_session(req) else []
             yield {
                 "event": "progress",
                 "data": json.dumps(
@@ -624,9 +784,10 @@ async def query_stream(
                         summary="正在基于检索证据组织回答...",
                         started_at=started_at,
                         facts={
-                            "evidence_count": len(result.chunks) + len(result.ref_chunks),
-                            "guide_count": len(result.guide_chunks),
-                            "example_count": len(result.guide_example_chunks),
+                            "evidence_count": len(bundle.chunks)
+                            + len(bundle.ref_chunks),
+                            "guide_count": len(bundle.guide_chunks),
+                            "example_count": len(bundle.guide_example_chunks),
                         },
                     ),
                     ensure_ascii=False,
@@ -635,23 +796,27 @@ async def query_stream(
 
             answer_parts: list[str] = []
             reasoning_parts: list[str] = []
+            history = (
+                list(getattr(conv, "history", []) or [])[
+                    -config.max_conversation_rounds :
+                ]
+                if _uses_external_session(req)
+                else []
+            )
             async for event_type, data in generate_answer_stream(
                 question=req.question,
-                chunks=result.chunks,
-                parent_chunks=result.parent_chunks,
-                scores=result.scores,
-                glossary_terms=analysis.matched_terms,
-                conversation_history=history[-config.max_conversation_rounds:],
+                chunks=bundle.chunks,
+                parent_chunks=bundle.parent_chunks,
+                scores=bundle.scores,
+                glossary_terms=bundle.glossary_hits,
+                conversation_history=history,
                 config=runtime_config,
-                ref_chunks=result.ref_chunks,
-                guide_chunks=result.guide_chunks,
-                guide_example_chunks=result.guide_example_chunks,
-                question_type=analysis.question_type,
-                engineering_context=analysis.engineering_context,
-                groundedness=result.groundedness,
-                resolved_refs=result.resolved_refs,
-                unresolved_refs=result.unresolved_refs,
-                intent_label=analysis.intent_label,
+                ref_chunks=bundle.ref_chunks,
+                guide_chunks=bundle.guide_chunks,
+                guide_example_chunks=bundle.guide_example_chunks,
+                groundedness=bundle.groundedness,
+                resolved_refs=bundle.resolved_refs,
+                unresolved_refs=bundle.unresolved_refs,
             ):
                 if event_type == "reasoning":
                     text = data.get("text") if isinstance(data, dict) else None
@@ -666,22 +831,23 @@ async def query_stream(
                     if not isinstance(answer_text, str):
                         answer_text = "".join(answer_parts)
                     # Citation 后处理：归一化格式变体、剔除越界编号、句内去重
-                    num_sources = len(data.get("sources", [])) if isinstance(data, dict) else 0
+                    num_sources = (
+                        len(data.get("sources", [])) if isinstance(data, dict) else 0
+                    )
                     normalized_answer = postprocess_citations(answer_text, num_sources)
                     title = None
                     thinking = "".join(reasoning_parts)
                     data = {
                         **data,
-                        "groundedness": result.groundedness,
+                        "groundedness": bundle.groundedness,
                         "normalized_answer": normalized_answer,
                     }
                     if thinking:
                         data["thinking"] = thinking
                     data = _external_done_payload(
                         data,
-                        question_type=analysis.question_type.value
-                        if analysis.question_type else data.get("question_type"),
-                        groundedness=result.groundedness,
+                        question_type=data.get("question_type"),
+                        groundedness=bundle.groundedness,
                         title=title,
                     )
                     if _uses_external_session(req):
@@ -700,10 +866,14 @@ async def query_stream(
                             answer_mode=data.get("answerMode"),
                             groundedness=data.get("groundedness"),
                             thinking=thinking or None,
+                            tool_trace=bundle.tool_trace,
                             response_payload=data,
                         )
                         data["title"] = title
-                yield {"event": event_type, "data": json.dumps(data, ensure_ascii=False)}
+                yield {
+                    "event": event_type,
+                    "data": json.dumps(data, ensure_ascii=False),
+                }
         except Exception:
             logger.exception("stream_pipeline_failed")
             yield {

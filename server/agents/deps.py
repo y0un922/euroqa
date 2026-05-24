@@ -20,3 +20,4 @@ class QADeps:
     glossary: dict[str, str]
     bundle: EvidenceBundle
     conversation_state: ConversationState | None = None
+    domain_filter: str | None = None
