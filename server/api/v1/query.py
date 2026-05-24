@@ -483,8 +483,8 @@ async def _run_agent_dispatch(
     retriever: object,
     glossary: dict[str, str],
     conv_mgr: object,
-) -> tuple[AgentDecision, EvidenceBundle, object]:
-    """Run the QA agent and return its decision, evidence bundle, and session."""
+) -> tuple[AgentDecision, EvidenceBundle, object, QADeps]:
+    """Run the QA agent and return its decision, evidence bundle, session, and deps."""
     conv = await _get_conversation_state(conv_mgr, _conversation_id_from_request(req))
     deps = _build_agent_deps(
         runtime_config=runtime_config,
@@ -495,7 +495,67 @@ async def _run_agent_dispatch(
     )
     agent = _get_or_build_agent(runtime_config)
     decision, bundle = await run_qa_agent(agent, req.question, deps, max_turns=5)
-    return decision, bundle, conv
+    return decision, bundle, conv, deps
+
+
+async def _ensure_retrieve_called_for_compose_rag(
+    *,
+    decision: AgentDecision,
+    bundle: EvidenceBundle,
+    deps: QADeps,
+    question: str,
+    conversation_id: str,
+) -> AgentDecision:
+    """Catch the 'compose_rag without retrieve' agent state and recover.
+
+    The agent prompt forbids returning compose_rag without first calling
+    retrieve, but LLMs can still skip the tool when conversation history
+    already contains a prior answer to the same question (history-shortcut
+    bug). When that happens the bundle is empty, generation produces a
+    fallback "no evidence" answer, and the user sees zero citations.
+
+    This guard runs after the agent returns and before dispatch:
+      * If decision != compose_rag -> no-op.
+      * If decision == compose_rag and bundle.tool_trace has no retrieve
+        entry -> force one retrieve call using the user's original question.
+      * If post-retry the bundle is still empty -> downgrade decision to
+        clarify with an explicit user-facing hint.
+    """
+    if decision.action != "compose_rag":
+        return decision
+
+    retrieve_called = any(
+        entry.get("tool") == "retrieve" for entry in bundle.tool_trace
+    )
+    if retrieve_called:
+        return decision
+
+    logger.warning(
+        "agent_compose_rag_without_retrieve",
+        conversation_id=conversation_id,
+        question=question,
+    )
+
+    from agents import RunContextWrapper
+    from server.agents.tools.retrieve import _retrieve_impl
+
+    try:
+        await _retrieve_impl(RunContextWrapper(deps), question)
+    except Exception:
+        logger.exception(
+            "agent_compose_rag_recovery_retrieve_failed",
+            conversation_id=conversation_id,
+        )
+
+    if bundle.is_empty:
+        return AgentDecision(
+            action="clarify",
+            direct_reply=(
+                "抱歉，本次未检索到与您问题相关的规范条文，"
+                "请补充规范号、构件类型或参数名称后重试。"
+            ),
+        )
+    return decision
 
 
 def _agent_stage_summary(
@@ -578,12 +638,19 @@ async def query(
     )
     token = set_current_recorder(recorder)
     try:
-        decision, bundle, conv = await _run_agent_dispatch(
+        decision, bundle, conv, deps = await _run_agent_dispatch(
             req=req,
             runtime_config=runtime_config,
             retriever=retriever,
             glossary=glossary,
             conv_mgr=conv_mgr,
+        )
+        decision = await _ensure_retrieve_called_for_compose_rag(
+            decision=decision,
+            bundle=bundle,
+            deps=deps,
+            question=req.question,
+            conversation_id=conv.conversation_id,
         )
         _record_agent_spot_check(recorder, decision, bundle)
 
@@ -685,12 +752,19 @@ async def query_stream(
                     ensure_ascii=False,
                 ),
             }
-            decision, bundle, conv = await _run_agent_dispatch(
+            decision, bundle, conv, deps = await _run_agent_dispatch(
                 req=req,
                 runtime_config=runtime_config,
                 retriever=retriever,
                 glossary=glossary,
                 conv_mgr=conv_mgr,
+            )
+            decision = await _ensure_retrieve_called_for_compose_rag(
+                decision=decision,
+                bundle=bundle,
+                deps=deps,
+                question=req.question,
+                conversation_id=conv.conversation_id,
             )
             _record_agent_spot_check(recorder, decision, bundle)
             summary, facts = _agent_stage_summary(decision, bundle)
