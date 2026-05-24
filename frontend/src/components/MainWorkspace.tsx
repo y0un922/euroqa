@@ -128,7 +128,8 @@ function RetrievalProgressPanel({ message }: { message: ChatTurn }) {
   }
 
   const resolveStatus = (event: { stage: string; status: string }) =>
-    event.stage === "generating" && message.status === "done"
+    (event.stage === "generating" || event.stage === "composing") &&
+    message.status === "done"
       ? "completed"
       : event.status;
 

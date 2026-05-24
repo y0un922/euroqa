@@ -134,7 +134,13 @@ export type QueryProgressStage =
   | "retrieving"
   | "references"
   | "guide"
-  | "generating";
+  | "generating"
+  | "agent_thinking"
+  | "composing"
+  | "chat"
+  | "clarify"
+  | "glossary_lookup"
+  | (string & {});
 
 export type QueryProgressStatus = "running" | "completed" | "skipped";
 

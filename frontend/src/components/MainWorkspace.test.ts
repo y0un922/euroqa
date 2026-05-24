@@ -141,6 +141,12 @@ test("MainWorkspace renders user-friendly retrieval progress summaries", () => {
       degraded: false,
       progressEvents: [
         {
+          stage: "agent_thinking",
+          status: "completed",
+          title: "Agent 分析问题",
+          summary: "Agent 正在理解问题并决定策略。"
+        },
+        {
           stage: "understanding",
           status: "completed",
           title: "理解问题",
@@ -175,6 +181,7 @@ test("MainWorkspace renders user-friendly retrieval progress summaries", () => {
     })
   );
 
+  assert.match(html, /Agent 分析问题/);
   assert.match(html, /理解问题/);
   assert.match(html, /检索规范条文/);
 });
