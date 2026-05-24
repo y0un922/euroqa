@@ -39,6 +39,10 @@ class ServerConfig(BaseSettings):
     query_expansion_llm_base_url: str = ""
     query_expansion_llm_model: str = ""
 
+    agent_llm_api_key: str = ""
+    agent_llm_base_url: str = ""
+    agent_llm_model: str = ""
+
     translation_llm_api_key: str = ""
     translation_llm_base_url: str = ""
     translation_llm_model: str = ""
@@ -85,6 +89,21 @@ class ServerConfig(BaseSettings):
     parsed_dir: str = "data/parsed"
     glossary_path: str = "data/glossary.json"
     pdf_dir: str = "data/pdfs"
+
+    @property
+    def resolved_agent_llm_api_key(self) -> str:
+        """Return the agent-loop LLM API key with main LLM fallback."""
+        return self.agent_llm_api_key or self.llm_api_key
+
+    @property
+    def resolved_agent_llm_base_url(self) -> str:
+        """Return the agent-loop LLM base URL with main LLM fallback."""
+        return self.agent_llm_base_url or self.llm_base_url
+
+    @property
+    def resolved_agent_llm_model(self) -> str:
+        """Return the agent-loop LLM model with main LLM fallback."""
+        return self.agent_llm_model or self.llm_model
 
     def with_llm_override(
         self,
