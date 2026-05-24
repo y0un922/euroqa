@@ -8,7 +8,7 @@ from agents import RunContextWrapper
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
-from server.agents.qa_agent import AgentDecision, run_qa_agent
+from server.agents.qa_agent import AgentDecision, _QA_AGENT_INSTRUCTIONS, run_qa_agent
 from server.agents.tools.retrieve import _retrieve_impl
 from server.config import ServerConfig
 from server.core.query_understanding import QueryAnalysis
@@ -81,6 +81,10 @@ async def test_chat_greeting():
     assert result.action == "chat"
     assert result.direct_reply
     assert bundle.is_empty
+
+
+def test_qa_agent_instructions_mention_json():
+    assert "json" in _QA_AGENT_INSTRUCTIONS.lower()
 
 
 @pytest.mark.asyncio
@@ -192,3 +196,35 @@ async def test_max_turns_without_evidence():
         == "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
     )
     assert bundle.is_empty
+
+
+@pytest.mark.asyncio
+async def test_compose_rag_without_retrieve_exposes_empty_bundle():
+    """Regression: bug state — agent returns compose_rag without calling retrieve.
+
+    This test asserts the *current* run_qa_agent behavior in the buggy case
+    (no auto-recovery at agent layer). The fix lives in the dispatch layer
+    (server/api/v1/query.py — see test_query_stream_recovers_*).
+    """
+    deps = _make_deps()
+    decision = AgentDecision(action="compose_rag")
+
+    with patch(
+        "server.agents.qa_agent.Runner.run",
+        return_value=await _fake_runner_result(decision),
+    ):
+        result, bundle = await run_qa_agent(
+            agent=object(),
+            question="混凝土分项系数是多少？",
+            deps=deps,
+        )
+
+    assert result.action == "compose_rag"
+    assert bundle.is_empty
+    assert not any(entry.get("tool") == "retrieve" for entry in bundle.tool_trace)
+
+
+def test_qa_agent_instructions_require_retrieve_before_compose():
+    """Prompt-hardening guard: enforce the new mandatory-retrieve language."""
+    assert "必须先调用 retrieve" in _QA_AGENT_INSTRUCTIONS
+    assert "硬性" in _QA_AGENT_INSTRUCTIONS
