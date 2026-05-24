@@ -85,7 +85,7 @@ _RRF_K = 60
 # 一次 question 平均有 ~21 个 missing refs，其中大部分（Table/Figure/
 # Expression/Section）走 ES term keyword lookup，单次 ~1ms，提高上限带来
 # 可测量的 recall 增益（详见 .trellis/tasks/05-24-cross-ref-resolution/）。
-_MAX_CROSS_REFS = 10
+_MAX_CROSS_REFS = 5
 
 # 交叉引用类别优先级（数字越小越靠前）。结构化元素（Expression/Table/Figure
 # /Section 编号）优先于纯文本的 Annex/EN 引用，因为前者更容易通过 ES 精确
