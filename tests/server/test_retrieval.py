@@ -530,6 +530,254 @@ class TestCrossRefConstraints:
         )
 
 
+class TestCrossRefExtractionAndResolution:
+    """Audit-driven coverage for the cross-ref extractor + resolver fixes.
+
+    See `.trellis/tasks/05-24-cross-ref-resolution/research/cross-ref-audit.md`
+    for the bugs these tests pin down.
+    """
+
+    def test_extract_internal_refs_rejects_lowercase_annex_false_positives(self, retriever):
+        """Annex suffix must be uppercase — "National Annex proposes …" etc.
+        must NOT produce fake refs like `Annex p`/`Annex m`/`Annex i`/`Annex c`.
+        """
+        chunk = _make_chunk(
+            "fp",
+            "National Annex proposes lower values. Annex may be referenced. "
+            "Annex is provided. Annex can be used. National annex c overrides.",
+        )
+        refs = retriever._extract_internal_refs([chunk])
+        for fp in ("Annex p", "Annex m", "Annex i", "Annex c"):
+            assert fp not in refs, f"unexpected FP extracted: {fp}"
+
+    def test_extract_internal_refs_normalises_trailing_punctuation(self, retriever):
+        """`Figure 3.8)` and `Figure 6.1.` should normalise to the canonical form
+        (no trailing `)` or `.`)."""
+        chunk = _make_chunk(
+            "trailing",
+            "see Figure 3.8) for layout, shown in Figure 6.1. The bracket form "
+            "(Table 4.7) also appears.",
+        )
+        refs = retriever._extract_internal_refs([chunk])
+        assert "Figure 3.8" in refs
+        assert "Figure 6.1" in refs
+        assert "Table 4.7" in refs
+        # Trailing-punct variants must not coexist with the canonical form.
+        for bad in ("Figure 3.8)", "Figure 6.1.", "Table 4.7)"):
+            assert bad not in refs
+
+    def test_extract_internal_refs_keeps_uppercase_annex(self, retriever):
+        chunk = _make_chunk(
+            "ok", "Refer to Annex A and Annex C2 for additional rules."
+        )
+        refs = retriever._extract_internal_refs([chunk])
+        assert "Annex A" in refs
+        assert "Annex C2" in refs
+
+    def test_refs_covered_by_chunks_uses_object_label_exact_match(self, retriever):
+        chunk = _make_chunk(
+            "tbl",
+            "Table 4.7 - shear coefficients.",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 4.7",
+        )
+        covered = retriever._refs_covered_by_chunks({"Table 4.7"}, [chunk])
+        assert covered == {"Table 4.7"}
+
+    def test_refs_covered_by_chunks_does_not_falsely_cover_figure_via_clause_digit(self, retriever):
+        """A chunk with `clause_ids=["6.10"]` must NOT be treated as covering
+        a reference to `Figure 6.10` (audit bug F5)."""
+        text_chunk = _make_chunk(
+            "clause",
+            "Expression (6.10) defines the design value.",
+            element_type=ElementType.TEXT,
+            section_path=["6.4.3"],
+            clause_ids=["6.10"],
+        )
+        covered = retriever._refs_covered_by_chunks({"Figure 6.10"}, [text_chunk])
+        assert covered == set()
+
+    def test_refs_covered_by_chunks_covers_clause_ref_via_clause_ids(self, retriever):
+        clause_chunk = _make_chunk(
+            "clause",
+            "Punching shear at column heads — see 6.4.3.",
+            section_path=["6.4.3"],
+            clause_ids=["6.4.3"],
+        )
+        covered = retriever._refs_covered_by_chunks({"6.4.3"}, [clause_chunk])
+        assert "6.4.3" in covered
+
+    def test_prioritize_cross_refs_orders_structured_refs_before_annex(self, retriever):
+        refs = {"Annex A", "Table 4.7", "Expression (6.10)", "Figure 3.8", "EN 1992-1-1"}
+        ordered = retriever._prioritize_cross_refs(refs)
+        # Expression must be first; Annex/EN-std must be last.
+        assert ordered[0] == "Expression (6.10)"
+        assert ordered[-2:] == ["Annex A", "EN 1992-1-1"] or set(ordered[-2:]) == {
+            "Annex A",
+            "EN 1992-1-1",
+        }
+        # Sanity: structured group is contiguous and before Annex.
+        annex_idx = ordered.index("Annex A")
+        for structured in ("Expression (6.10)", "Table 4.7", "Figure 3.8"):
+            assert ordered.index(structured) < annex_idx
+
+    @pytest.mark.asyncio
+    async def test_fetch_cross_ref_chunks_uses_exact_object_label_for_expression(self, retriever):
+        retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
+        retriever._en_sources_cache = {"1992-1-1"}
+        seen_bodies: list[dict] = []
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                assert index == "chunks"
+                seen_bodies.append(body)
+                return {"hits": {"hits": [{"_id": "expr-6-10"}]}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            assert chunk_ids == ["expr-6-10"]
+            return [
+                _make_chunk(
+                    "expr-6-10",
+                    "Expression (6.10) design value formula.",
+                    element_type=ElementType.FORMULA,
+                    object_type="expression",
+                    object_label="Expression (6.10)",
+                )
+            ]
+
+        bm25_calls: list[str] = []
+
+        async def _fake_bm25(query: str, top_k: int, filters: dict, **kwargs):
+            bm25_calls.append(query)
+            return []
+
+        retriever._get_es = _fake_get_es
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._bm25_search = _fake_bm25
+
+        ref_chunks = await retriever._fetch_cross_ref_chunks(
+            {"Expression (6.10)"},
+            existing_ids=set(),
+            filters={"source": "EN 1992-1-1"},
+        )
+
+        assert [c.chunk_id for c in ref_chunks] == ["expr-6-10"]
+        # Deterministic path issued exactly one ES search; BM25 was NOT called.
+        assert len(seen_bodies) == 1
+        body = seen_bodies[0]
+        filter_clauses = body["query"]["bool"]["filter"]
+        assert {"term": {"object_label": "Expression (6.10)"}} in filter_clauses
+        assert {"terms": {"element_type": ["formula"]}} in filter_clauses
+        assert bm25_calls == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_cross_ref_chunks_falls_back_to_bm25_on_miss(self, retriever):
+        retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
+        retriever._en_sources_cache = {"1992-1-1"}
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                return {"hits": {"hits": []}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        bm25_calls: list[str] = []
+
+        async def _fake_bm25(query: str, top_k: int, filters: dict, **kwargs):
+            bm25_calls.append(query)
+            return [{"chunk_id": "annex-a", "source": "EN 1992-1-1", "score": 1.0}]
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            return [
+                _make_chunk(
+                    "annex-a",
+                    "Annex A informative content",
+                    source="EN 1992-1-1",
+                )
+            ]
+
+        retriever._get_es = _fake_get_es
+        retriever._bm25_search = _fake_bm25
+        retriever._fetch_chunks = _fake_fetch_chunks
+
+        ref_chunks = await retriever._fetch_cross_ref_chunks(
+            {"Annex A"},
+            existing_ids=set(),
+            filters={"source": "EN 1992-1-1"},
+        )
+
+        assert [c.chunk_id for c in ref_chunks] == ["annex-a"]
+        # Annex isn't categorized as table/figure/expression/clause, so the
+        # exact-lookup path is skipped entirely and BM25 runs.
+        assert bm25_calls == ["Annex A"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_cross_ref_chunks_skips_absent_en_std(self, retriever):
+        retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
+        retriever._en_sources_cache = {"1992-1-1", "1990"}  # `EN 1997` is absent
+        bm25_calls: list[str] = []
+
+        async def _fake_bm25(query: str, top_k: int, filters: dict, **kwargs):
+            bm25_calls.append(query)
+            return []
+
+        async def _fake_get_es():
+            raise AssertionError("ES must not be called for absent EN-std")
+
+        retriever._bm25_search = _fake_bm25
+        retriever._get_es = _fake_get_es
+
+        ref_chunks = await retriever._fetch_cross_ref_chunks(
+            {"EN 1997"},
+            existing_ids=set(),
+            filters={"source": "EN 1992-1-1"},
+        )
+
+        assert ref_chunks == []
+        assert bm25_calls == []  # absent EN-std refs are skipped before lookup
+
+    @pytest.mark.asyncio
+    async def test_fetch_cross_ref_chunks_priority_attempts_expression_before_annex(self, retriever):
+        retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
+        retriever._en_sources_cache = {"1992-1-1"}
+        attempted: list[str] = []
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                ref = body["query"]["bool"]["filter"][0]["term"]["object_label"]
+                attempted.append(ref)
+                return {"hits": {"hits": []}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        async def _fake_bm25(query: str, top_k: int, filters: dict, **kwargs):
+            attempted.append(f"bm25:{query}")
+            return []
+
+        retriever._get_es = _fake_get_es
+        retriever._bm25_search = _fake_bm25
+
+        await retriever._fetch_cross_ref_chunks(
+            {"Annex A", "Table 4.7", "Expression (6.10)"},
+            existing_ids=set(),
+            filters={"source": "EN 1992-1-1"},
+        )
+
+        # Expression must be attempted before Table; Table before Annex.
+        idx = {name: pos for pos, name in enumerate(attempted) if not name.startswith("bm25:")}
+        assert idx["Expression (6.10)"] < idx["Table 4.7"]
+        bm25_idx = next(
+            pos for pos, name in enumerate(attempted) if name == "bm25:Annex A"
+        )
+        assert idx["Table 4.7"] < bm25_idx
+
+
 class TestReferenceClosure:
     @pytest.mark.asyncio
     async def test_metadata_probe_retrieve_resolves_direct_referenced_table_and_keeps_grounded(self):

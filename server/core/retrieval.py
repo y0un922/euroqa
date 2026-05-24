@@ -9,7 +9,12 @@ import structlog
 
 from shared.elasticsearch_client import build_async_elasticsearch
 from shared.model_clients import build_embedding_client, build_rerank_client
-from shared.reference_graph import build_object_id, classify_reference_label, normalize_reference_label
+from shared.reference_graph import (
+    build_object_id,
+    classify_reference_label,
+    extract_reference_labels,
+    normalize_reference_label,
+)
 from shared.spot_check import record_spot_check
 from shared.tokenizers import count_for_rerank
 from server.config import ServerConfig
@@ -21,12 +26,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
-# 匹配规范内部交叉引用：Table 3.1, Figure 5.7, Expression (3.14), Annex B 等
-_INTERNAL_REF_RE = re.compile(
-    r"\b(?:Table|Figure|Expression)\s*[\(\[]?\d+[\.\d]*[\)\]]?"
-    r"|\bAnnex\s+[A-Z]\d*",
-    re.IGNORECASE,
-)
+# 匹配源文档代号（EN 1990, EN 1992-1-1 等）用于标识引用的标准来源
 _SOURCE_DOC_RE = re.compile(
     r"(?<![A-Za-z0-9])en\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)"
     r"(?:[\s:_-]*([0-9]{4}))?(?![A-Za-z0-9])",
@@ -81,6 +81,25 @@ _DEFAULT_BM25_FIELDS = [
 ]
 _RRF_K = 60
 
+# 交叉引用补充检索最多发起的精确查询数。提升到 10 是因为：
+# 一次 question 平均有 ~21 个 missing refs，其中大部分（Table/Figure/
+# Expression/Section）走 ES term keyword lookup，单次 ~1ms，提高上限带来
+# 可测量的 recall 增益（详见 .trellis/tasks/05-24-cross-ref-resolution/）。
+_MAX_CROSS_REFS = 10
+
+# 交叉引用类别优先级（数字越小越靠前）。结构化元素（Expression/Table/Figure
+# /Section 编号）优先于纯文本的 Annex/EN 引用，因为前者更容易通过 ES 精确
+# 查询命中，且承载具体计算/参数信息。
+_CROSS_REF_PRIORITY = {
+    "expression": 0,
+    "table": 1,
+    "figure": 2,
+    "clause": 3,
+    "annex": 4,
+    "en_std": 5,
+    None: 6,
+}
+
 
 @dataclass
 class RetrievalResult:
@@ -124,6 +143,7 @@ class HybridRetriever:
         self._rerank_client = build_rerank_client(config)
         self._es: AsyncElasticsearch | None = None
         self._collection: Collection | None = None
+        self._en_sources_cache: set[str] | None = None
 
     # ------------------------------------------------------------------
     # 运行时延迟导入辅助
@@ -1128,43 +1148,228 @@ class HybridRetriever:
 
     @staticmethod
     def _extract_internal_refs(chunks: list[Chunk]) -> set[str]:
-        """从已检索 chunk 的内容中提取内部交叉引用（Table/Figure/Expression/Annex）。"""
+        """从已检索 chunk 的内容中提取内部交叉引用（Table/Figure/Expression/Annex/Clause/EN-std）。
+
+        使用 shared.reference_graph.extract_reference_labels（与 ingest 阶段一致），
+        自动剔除尾部标点（如 "Figure 3.8)" → "Figure 3.8"）以及大小写假阳性
+        （如 "National Annex proposes …"），并产出 canonical 形式。
+        """
         refs: set[str] = set()
         for chunk in chunks:
-            refs.update(_INTERNAL_REF_RE.findall(chunk.content))
-        return {r.strip() for r in refs}
+            for label in extract_reference_labels(chunk.content):
+                normalized = normalize_reference_label(label)
+                if normalized:
+                    refs.add(normalized)
+        return refs
 
     @staticmethod
     def _refs_covered_by_chunks(refs: set[str], chunks: list[Chunk]) -> set[str]:
-        """识别已被当前 chunk 覆盖的引用（即该 chunk 本身就是该 Table/Figure 的内容）。"""
+        """识别已被当前 chunk 覆盖的引用。
+
+        覆盖判定按优先级：
+        1. chunk.metadata.object_label 与 ref 完全相等（最强信号）。
+        2. table/formula/image 类型 chunk 内容包含 ref 的 canonical 字面（如
+           "Table 3.1"），仍以词边界为准而非裸子串。
+        3. clause 类（section 编号）ref 的 numeric token 与 chunk 的 clause_ids
+           完全相等，或与 section_path 中以词边界匹配。
+
+        之前的实现对编号做裸子串匹配（例如 "Figure 6.10" 的 "6.10" 会被
+        clause_ids=["6.10"] 误判为覆盖），导致需要补检的引用被静默吞掉。
+        """
         covered: set[str] = set()
+        if not refs:
+            return covered
+
+        # 预编译每个 ref 的边界匹配 regex（在 section_path 拼接文本上使用）
+        ref_token_patterns: dict[str, re.Pattern[str]] = {}
+        for ref in refs:
+            token = re.search(r"[A-Za-z]?\d+(?:\.\d+)*", ref)
+            if token is None:
+                continue
+            ref_token_patterns[ref] = re.compile(
+                rf"(?<![\w.]){re.escape(token.group(0))}(?![\w.])"
+            )
+
         for chunk in chunks:
-            # 表格/公式/图片类型的 chunk 本身就是被引用的内容
-            if chunk.metadata.element_type in ("table", "formula", "image"):
-                content_lower = chunk.content.lower()
+            object_label = chunk.metadata.object_label or ""
+            # 1) 精确 object_label 命中
+            if object_label:
                 for ref in refs:
-                    if ref.lower() in content_lower:
+                    if ref == object_label:
                         covered.add(ref)
-            # section_path 或 clause_ids 包含引用编号的也算覆盖
-            meta_text = " ".join(chunk.metadata.section_path + chunk.metadata.clause_ids).lower()
-            for ref in refs:
-                # 提取引用中的编号部分（如 "Table 3.1" → "3.1"）
-                num_match = re.search(r"[\d]+[\.\d]*", ref)
-                if num_match and num_match.group() in meta_text:
+
+            # 2) 结构化 chunk（table/formula/image）的内容里完整 ref 字面
+            if chunk.metadata.element_type in ("table", "formula", "image"):
+                content = chunk.content or ""
+                for ref in refs:
+                    if not ref:
+                        continue
+                    pattern = re.compile(
+                        rf"(?<!\w){re.escape(ref)}(?!\w)",
+                        re.IGNORECASE,
+                    )
+                    if pattern.search(content):
+                        covered.add(ref)
+
+            # 3) clause 类 ref：clause_ids 精确相等，或 section_path 内词边界匹配
+            clause_ids = {cid.strip() for cid in chunk.metadata.clause_ids if cid}
+            section_text = " ".join(chunk.metadata.section_path).lower()
+            for ref, pattern in ref_token_patterns.items():
+                if ref in covered:
+                    continue
+                category = classify_reference_label(ref)
+                # 仅当 ref 本身是 clause/section 编号时，才允许 clause_ids/
+                # section_path 的数字覆盖。Figure/Table/Expression 不走此通道，
+                # 避免编号巧合（如 "Figure 6.10" 被 clause_ids=["6.10"] 误覆盖）。
+                if category != "clause":
+                    continue
+                if ref in clause_ids:
+                    covered.add(ref)
+                    continue
+                if pattern.search(section_text):
                     covered.add(ref)
         return covered
+
+    @classmethod
+    def _categorize_cross_ref(cls, ref: str) -> str | None:
+        """Classify a normalized ref into a cross-ref category.
+
+        Extends `classify_reference_label` with an `en_std` bucket for
+        external standard references like `EN 1992-1-1`.
+        """
+        cat = classify_reference_label(ref)
+        if cat is not None:
+            return cat
+        if ref.upper().startswith("EN "):
+            return "en_std"
+        return None
+
+    @classmethod
+    def _prioritize_cross_refs(cls, refs: set[str]) -> list[str]:
+        """Order missing refs by category priority then alphabetically.
+
+        Replaces the previous `sorted(refs)` which alphabetically biased
+        `Annex …` ahead of `Expression/Table/Figure/Section`, starving the
+        `max_refs` budget for high-value structured refs.
+        """
+        return sorted(
+            refs,
+            key=lambda r: (
+                _CROSS_REF_PRIORITY.get(cls._categorize_cross_ref(r), _CROSS_REF_PRIORITY[None]),
+                r,
+            ),
+        )
+
+    async def _known_en_sources(self) -> set[str]:
+        """Lazy-load and cache the set of EN standard codes present as sources.
+
+        Used to skip lookups for refs that point to standards not in the
+        corpus (e.g., `EN 1997`, `EN 1996`), which currently waste lookup
+        slots returning noise from BM25.
+        """
+        if self._en_sources_cache is not None:
+            return self._en_sources_cache
+        es = await self._get_es()
+        body = {
+            "size": 0,
+            "aggs": {"sources": {"terms": {"field": "source", "size": 1000}}},
+        }
+        codes: set[str] = set()
+        try:
+            resp = await es.search(index=self.config.es_index, body=body)
+        except Exception:
+            # Do not cache on failure — let the next call retry. Returning an
+            # empty set here would, combined with the `not known` safeguard
+            # in `_en_std_ref_in_corpus`, permanently disable the EN-std skip
+            # optimisation after a single transient ES error.
+            logger.warning("known_en_sources_lookup_failed")
+            return codes
+        buckets = resp.get("aggregations", {}).get("sources", {}).get("buckets", [])
+        for bucket in buckets:
+            code, _ = self._parse_source_reference(str(bucket.get("key", "")))
+            if code:
+                codes.add(code)
+                # Also register the leading part (`1992-1-1` → `1992`) so
+                # a vague `EN 1992` ref doesn't get skipped when only
+                # `EN 1992-1-1` is indexed.
+                head = code.split("-", 1)[0]
+                if head:
+                    codes.add(head)
+        self._en_sources_cache = codes
+        return codes
+
+    async def _en_std_ref_in_corpus(self, ref: str) -> bool:
+        """Return True iff the EN-std ref's code matches at least one indexed source."""
+        code, _ = self._parse_source_reference(ref)
+        if not code:
+            return False
+        known = await self._known_en_sources()
+        if not known:
+            return True  # cache lookup failed — don't suppress
+        if code in known:
+            return True
+        head = code.split("-", 1)[0]
+        return head in known
+
+    async def _exact_object_label_lookup(
+        self,
+        ref: str,
+        category: str,
+        filter_clauses: list[dict],
+    ) -> Chunk | None:
+        """Issue a deterministic `object_label` keyword lookup for a ref.
+
+        Returns the first chunk whose `object_label` exactly equals `ref`
+        within the source scope, preferring structured element types when
+        appropriate. Falls back to `None` (caller will use BM25) on miss
+        or any internal error so the BM25 path remains the safety net.
+        """
+        try:
+            es = await self._get_es()
+        except Exception:
+            logger.warning("cross_ref_exact_lookup_es_unavailable", ref=ref)
+            return None
+        filters: list[dict] = [{"term": {"object_label": ref}}, *filter_clauses]
+        if category in ("table", "figure", "expression"):
+            element_types = {
+                "table": ["table"],
+                "figure": ["image"],
+                "expression": ["formula"],
+            }[category]
+            filters.append({"terms": {"element_type": element_types}})
+        body = {"size": 1, "query": {"bool": {"filter": filters}}}
+        try:
+            resp = await es.search(index=self.config.es_index, body=body)
+        except Exception:
+            logger.warning("cross_ref_exact_lookup_failed", ref=ref)
+            return None
+        hits = resp.get("hits", {}).get("hits", [])
+        if not hits:
+            return None
+        chunk_id = hits[0]["_id"]
+        fetched = await self._fetch_chunks([chunk_id])
+        return fetched[0] if fetched else None
 
     async def _fetch_cross_ref_chunks(
         self,
         refs: set[str],
         existing_ids: set[str],
         filters: dict | None = None,
-        max_refs: int = 5,
+        max_refs: int = _MAX_CROSS_REFS,
     ) -> list[Chunk]:
-        """针对未覆盖的交叉引用做定向 BM25 检索，每个引用取最佳匹配。
+        """针对未覆盖的交叉引用补充检索，每个引用取最佳匹配。
 
-        优先选择 TABLE/FORMULA/IMAGE 类型的 chunk（交叉引用通常指向这些元素），
-        只有在没有结构化元素匹配时才退回到 TEXT 类型。
+        策略（按优先级）：
+        1. **Deterministic `object_label` keyword 查询**（Table/Figure/
+           Expression/Clause-section）：ES 的 `object_label` 是 keyword 字段，
+           精确等值查询比 BM25 `multi_match` 更稳定，尤其是数字密集的
+           clause/expression 编号。
+        2. **BM25 兜底**：精确查询无命中时退回原有 `_bm25_search` 路径。
+        3. **EN-std 预过滤**：对不在 corpus 内的外部标准（如 EN 1996/1997）
+           直接跳过，避免浪费 max_refs 名额。
+
+        优先顺序：Expression > Table > Figure > Clause > Annex > EN-std，
+        并将 max_refs 从历史上的 5 提升到 10。
         """
         if not refs:
             return []
@@ -1172,50 +1377,70 @@ class HybridRetriever:
         filters = filters or {}
         ref_chunks: list[Chunk] = []
         seen = set(existing_ids)
+        filter_clauses = self._build_source_filter_clauses(filters)
 
-        # 识别引用类型前缀以确定优先 element_type
+        # 识别引用类型前缀以确定 BM25 兜底时优先选哪类 element_type
         _TABLE_PREFIX = re.compile(r"^table\b", re.IGNORECASE)
         _FIGURE_PREFIX = re.compile(r"^figure\b", re.IGNORECASE)
         _EXPR_PREFIX = re.compile(r"^expression\b", re.IGNORECASE)
 
-        for ref in sorted(refs)[:max_refs]:
+        ordered_refs = self._prioritize_cross_refs(refs)[:max_refs]
+
+        for ref in ordered_refs:
             try:
-                results = await self._bm25_search(ref, top_k=6, filters=filters)
-                if not results:
+                category = self._categorize_cross_ref(ref)
+
+                # Change E: skip EN-std refs that aren't in the corpus
+                if category == "en_std" and not await self._en_std_ref_in_corpus(ref):
                     continue
 
-                fetched_candidates: list[Chunk] = []
-                for r in results:
-                    cid = r["chunk_id"]
-                    if cid in seen:
-                        continue
-                    fetched = await self._fetch_chunks([cid])
-                    if fetched:
-                        fetched_candidates.append(fetched[0])
-                    if len(fetched_candidates) >= 3:
-                        break
+                # Change C: deterministic object_label lookup first
+                chosen: Chunk | None = None
+                if category in ("table", "figure", "expression", "clause"):
+                    candidate = await self._exact_object_label_lookup(
+                        ref, category, filter_clauses
+                    )
+                    if candidate is not None and candidate.chunk_id not in seen:
+                        chosen = candidate
 
-                if not fetched_candidates:
-                    continue
-
-                # 优先选择与引用类型匹配的结构化 chunk
-                preferred_types: set[str] = set()
-                if _TABLE_PREFIX.match(ref):
-                    preferred_types = {"table"}
-                elif _FIGURE_PREFIX.match(ref):
-                    preferred_types = {"image"}
-                elif _EXPR_PREFIX.match(ref):
-                    preferred_types = {"formula"}
-
-                chosen = None
-                if preferred_types:
-                    for c in fetched_candidates:
-                        if c.metadata.element_type in preferred_types:
-                            chosen = c
-                            break
+                # BM25 fallback (unchanged path)
                 if chosen is None:
-                    chosen = fetched_candidates[0]
+                    results = await self._bm25_search(ref, top_k=6, filters=filters)
+                    if not results:
+                        continue
 
+                    fetched_candidates: list[Chunk] = []
+                    for r in results:
+                        cid = r["chunk_id"]
+                        if cid in seen:
+                            continue
+                        fetched = await self._fetch_chunks([cid])
+                        if fetched:
+                            fetched_candidates.append(fetched[0])
+                        if len(fetched_candidates) >= 3:
+                            break
+
+                    if not fetched_candidates:
+                        continue
+
+                    preferred_types: set[str] = set()
+                    if _TABLE_PREFIX.match(ref):
+                        preferred_types = {"table"}
+                    elif _FIGURE_PREFIX.match(ref):
+                        preferred_types = {"image"}
+                    elif _EXPR_PREFIX.match(ref):
+                        preferred_types = {"formula"}
+
+                    if preferred_types:
+                        for c in fetched_candidates:
+                            if c.metadata.element_type in preferred_types:
+                                chosen = c
+                                break
+                    if chosen is None:
+                        chosen = fetched_candidates[0]
+
+                if chosen is None or chosen.chunk_id in seen:
+                    continue
                 seen.add(chosen.chunk_id)
                 ref_chunks.append(chosen)
             except Exception:

@@ -4,7 +4,10 @@ from __future__ import annotations
 import re
 
 _EN_REF_RE = re.compile(r"\bEN\s+\d{4}(?:-\d+(?:-\d+)?)?\b", re.IGNORECASE)
-_ANNEX_REF_RE = re.compile(r"\bAnnex\s+[A-Z]\d*\b", re.IGNORECASE)
+# Annex suffix must be uppercase (case-sensitive on the letter only) to avoid
+# false positives from phrases like "National Annex proposes …" where the
+# leading word matches case-insensitively but the suffix `p` is a regular word.
+_ANNEX_REF_RE = re.compile(r"\bAnnex\s+(?-i:[A-Z])\d*\b", re.IGNORECASE)
 _TABLE_REF_RE = re.compile(r"\bTable\s+[A-Z]?\d+(?:\.\d+)*\b", re.IGNORECASE)
 _FIGURE_REF_RE = re.compile(r"\bFigure\s+[A-Z]?\d+(?:\.\d+)*\b", re.IGNORECASE)
 _EXPR_REF_RE = re.compile(r"\bExpression\s*\(\s*\d+(?:\.\d+)*\s*\)", re.IGNORECASE)
