@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from rich.markup import escape
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, DataTable, Static
+from textual.widgets import Button, DataTable, Select, Static
 from textual.widget import Widget
 from textual import work
 
@@ -20,6 +22,33 @@ from tools.tui.utils import (
     trunc_id,
 )
 from server.config import ServerConfig
+
+RedisSessionSort = str
+
+REDIS_SESSION_SORT_OPTIONS: tuple[tuple[str, RedisSessionSort], ...] = (
+    ("Updated ↓", "updated_desc"),
+    ("Updated ↑", "updated_asc"),
+    ("Created ↓", "created_desc"),
+    ("Created ↑", "created_asc"),
+    ("Title A-Z", "title_asc"),
+    ("Messages ↓", "messages_desc"),
+)
+
+_REDIS_DISPLAY_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _format_redis_timestamp(value: object) -> str:
+    """Display Redis UTC timestamps in Asia/Shanghai local time."""
+    if not isinstance(value, str) or not value:
+        return str(value or "")
+    normalized = value.replace("Z", "+00:00")
+    try:
+        timestamp = datetime.fromisoformat(normalized)
+    except ValueError:
+        return value
+    if timestamp.tzinfo is None:
+        return value
+    return timestamp.astimezone(_REDIS_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _format_redis_messages(redis_key: str, raw_items: list[object]) -> str:
@@ -37,7 +66,7 @@ def _format_redis_messages(redis_key: str, raw_items: list[object]) -> str:
 
         role = str(payload.get("role") or "?")
         content = str(payload.get("content") or "")[:300]
-        ts = str(payload.get("timestamp") or "")[:19]
+        ts = _format_redis_timestamp(payload.get("timestamp"))
         role_color = "cyan" if role == "user" else "green"
         lines.append(
             f"[bold {role_color}]{escape(role)}[/] [dim]{escape(ts)}[/]\n"
@@ -58,6 +87,59 @@ def _format_backend_error(error: BackendError) -> str:
     return f"[bold red]✗[/] {escape(error.title)}: {escape(error.detail)}"
 
 
+def _parse_redis_payload(msg: object) -> dict[str, object] | None:
+    try:
+        payload = json.loads(msg) if isinstance(msg, str) else msg
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _format_full_redis_messages(raw_items: list[object]) -> str:
+    lines: list[str] = []
+    for index, msg in enumerate(raw_items, start=1):
+        payload = _parse_redis_payload(msg)
+        if payload is None:
+            lines.append(f"Message {index}")
+            lines.append(str(msg))
+            lines.append("")
+            continue
+        role = str(payload.get("role") or "?")
+        ts = _format_redis_timestamp(payload.get("timestamp"))
+        content = str(payload.get("content") or "")
+        lines.append(f"Message {index} | {role} | {ts}")
+        lines.append(content)
+        lines.append("")
+    return "\n".join(lines).rstrip() if lines else "No messages found under this key."
+
+
+def _sort_redis_sessions(
+    sessions: list[tuple[str, dict[str, object], int]],
+    sort_mode: RedisSessionSort,
+) -> list[tuple[str, dict[str, object], int]]:
+    if sort_mode == "updated_asc":
+        return sorted(sessions, key=lambda item: str(item[1].get("updatedAt", "")))
+    if sort_mode == "created_desc":
+        return sorted(
+            sessions,
+            key=lambda item: str(item[1].get("createdAt", "")),
+            reverse=True,
+        )
+    if sort_mode == "created_asc":
+        return sorted(sessions, key=lambda item: str(item[1].get("createdAt", "")))
+    if sort_mode == "title_asc":
+        return sorted(sessions, key=lambda item: str(item[1].get("title", "")).lower())
+    if sort_mode == "messages_desc":
+        return sorted(sessions, key=lambda item: item[2], reverse=True)
+    return sorted(
+        sessions,
+        key=lambda item: str(item[1].get("updatedAt", "")),
+        reverse=True,
+    )
+
+
 class RedisPane(Widget):
     DEFAULT_CSS = """
     RedisPane { height: 1fr; }
@@ -69,6 +151,8 @@ class RedisPane(Widget):
         self._redis = None
         self._error: BackendError | None = None
         self._session_rows: dict[str, dict[str, object]] = {}
+        self._sessions: list[tuple[str, dict[str, object], int]] = []
+        self._sort_mode: RedisSessionSort = "updated_desc"
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -76,6 +160,13 @@ class RedisPane(Widget):
             with Horizontal(classes="toolbar"):
                 yield Button("Refresh", id="redis-refresh", variant="primary")
                 yield Button("Delete Session", id="redis-delete", variant="error")
+                yield Select(
+                    REDIS_SESSION_SORT_OPTIONS,
+                    value=self._sort_mode,
+                    allow_blank=False,
+                    id="redis-sort",
+                    compact=True,
+                )
             yield FullRowDataTable(id="redis-table")
             yield Static("Select a session to view messages", classes="detail-panel-tall", id="redis-messages")
 
@@ -109,7 +200,7 @@ class RedisPane(Widget):
         stats.update(_format_backend_error(self._error))
 
     async def _load_sessions(self) -> None:
-        sessions: list[tuple[str, dict]] = []
+        sessions: list[tuple[str, dict[str, object], int]] = []
         async for key in self._redis.scan_iter(match="user:*:sessions"):
             all_entries = await self._redis.hgetall(key)
             for cid, raw_meta in all_entries.items():
@@ -117,25 +208,35 @@ class RedisPane(Widget):
                     meta = json.loads(raw_meta) if isinstance(raw_meta, str) else {}
                 except json.JSONDecodeError:
                     meta = {}
-                sessions.append((cid, meta))
+                if not isinstance(meta, dict):
+                    meta = {}
+                message_count = await self._redis.llen(f"context:{cid}")
+                sessions.append((cid, meta, message_count))
+
+        self._sessions = sessions
+        self._render_sessions()
+
+    def _render_sessions(self) -> None:
+        sessions = _sort_redis_sessions(self._sessions, self._sort_mode)
 
         table = self.query_one("#redis-table", DataTable)
         table.clear()
         self._session_rows.clear()
-        for cid, meta in sessions:
-            title = meta.get("title", "—")
+        for cid, meta, message_count in sessions:
+            title = str(meta.get("title", "—"))
             self._session_rows[cid] = {
                 "conversation_id": cid,
                 "title": title,
-                "createdAt": meta.get("createdAt", "—"),
-                "updatedAt": meta.get("updatedAt", "—"),
+                "createdAt": _format_redis_timestamp(meta.get("createdAt", "—")),
+                "updatedAt": _format_redis_timestamp(meta.get("updatedAt", "—")),
+                "message_count": message_count,
                 "raw_meta": json.dumps(meta, indent=2, ensure_ascii=False),
             }
             table.add_row(
                 trunc_id(cid),
                 trunc_id(title, head=36, tail=0) if len(title) > 37 else title,
-                meta.get("createdAt", "—")[:19],
-                meta.get("updatedAt", "—")[:19],
+                _format_redis_timestamp(meta.get("createdAt", "—")),
+                _format_redis_timestamp(meta.get("updatedAt", "—")),
                 key=cid,
             )
         stats = self.query_one("#redis-stats", Static)
@@ -143,6 +244,12 @@ class RedisPane(Widget):
             f"[bold green]✓[/] Redis: connected  "
             f"│  Sessions: [bold]{len(sessions):,}[/]"
         )
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "redis-sort" or event.value == Select.NULL:
+            return
+        self._sort_mode = str(event.value)
+        self._render_sessions()
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         cid = str(event.row_key.value)
@@ -154,7 +261,7 @@ class RedisPane(Widget):
         cid = str(event.row_key.value)
         await self._load_messages(cid)
 
-    def on_full_row_data_table_row_double_clicked(
+    async def on_full_row_data_table_row_double_clicked(
         self,
         event: FullRowDataTable.RowDoubleClicked,
     ) -> None:
@@ -165,10 +272,24 @@ class RedisPane(Widget):
         if not row:
             return
         event.stop()
+        redis_key = f"context:{cid}"
+        try:
+            raw_items = await self._redis.lrange(redis_key, 0, -1) if self._redis else []
+        except Exception as exc:
+            self.notify(
+                f"Error loading full messages: {exc}",
+                severity="error",
+                markup=False,
+            )
+            raw_items = []
+        full_row = {
+            **row,
+            "messages": _format_full_redis_messages(raw_items),
+        }
         self.app.push_screen(
             FullTextScreen(
                 "Redis session",
-                format_full_row("Redis session", row),
+                format_full_row("Redis session", full_row),
             )
         )
 

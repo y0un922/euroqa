@@ -1,12 +1,15 @@
 import json
+import asyncio
 
-import pytest
 from rich.console import Console
 
 from tools.tui.tab_redis import (
     _format_backend_error,
+    _format_full_redis_messages,
     _format_redis_error,
     _format_redis_messages,
+    _format_redis_timestamp,
+    _sort_redis_sessions,
 )
 from tools.tui.utils import BackendError, format_full_row
 
@@ -60,8 +63,43 @@ def test_format_full_row_keeps_complete_values() -> None:
     assert "…" not in text
 
 
-@pytest.mark.asyncio
-async def test_redis_load_messages_error_notification_disables_markup() -> None:
+def test_format_redis_timestamp_displays_as_shanghai_time() -> None:
+    assert _format_redis_timestamp("2026-05-25T03:54:29Z") == "2026-05-25 11:54:29"
+
+
+def test_format_full_redis_messages_keeps_complete_content() -> None:
+    content = "完整回答" * 200
+
+    text = _format_full_redis_messages(
+        [
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "timestamp": "2026-05-22T02:54:29Z",
+                    "content": content,
+                }
+            )
+        ]
+    )
+
+    assert content in text
+    assert "assistant" in text
+    assert "2026-05-22 10:54:29" in text
+
+
+def test_sort_redis_sessions_supports_updated_title_and_message_count() -> None:
+    sessions = [
+        ("b", {"title": "Beta", "updatedAt": "2026-05-20", "createdAt": "2026-05-18"}, 2),
+        ("a", {"title": "Alpha", "updatedAt": "2026-05-21", "createdAt": "2026-05-19"}, 5),
+    ]
+
+    assert [cid for cid, _, _ in _sort_redis_sessions(sessions, "updated_desc")] == ["a", "b"]
+    assert [cid for cid, _, _ in _sort_redis_sessions(sessions, "updated_asc")] == ["b", "a"]
+    assert [cid for cid, _, _ in _sort_redis_sessions(sessions, "title_asc")] == ["a", "b"]
+    assert [cid for cid, _, _ in _sort_redis_sessions(sessions, "messages_desc")] == ["a", "b"]
+
+
+def test_redis_load_messages_error_notification_disables_markup() -> None:
     class FailingRedis:
         async def lrange(self, *_args):
             raise ValueError("auto closing tag ('[/]') has nothing to close")
@@ -89,13 +127,33 @@ async def test_redis_load_messages_error_notification_disables_markup() -> None:
     from tools.tui.tab_redis import RedisPane
 
     pane = Pane()
-    await RedisPane._load_messages(pane, "cid[/]")
+    asyncio.run(RedisPane._load_messages(pane, "cid[/]"))
 
     assert pane.notifications[0][1]["markup"] is False
     assert r"\[/]" in pane.detail.content
 
 
-def test_redis_row_double_click_opens_full_session_text() -> None:
+def test_redis_row_double_click_opens_full_session_text_with_messages() -> None:
+    class Redis:
+        async def lrange(self, key, *_args):
+            assert key == "context:full-conversation-id"
+            return [
+                json.dumps(
+                    {
+                        "role": "user",
+                        "timestamp": "2026-05-22T02:00:00Z",
+                        "content": "full user question",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "role": "assistant",
+                        "timestamp": "2026-05-22T02:01:00Z",
+                        "content": "full assistant answer",
+                    }
+                ),
+            ]
+
     class App:
         def __init__(self) -> None:
             self.screens = []
@@ -115,10 +173,12 @@ def test_redis_row_double_click_opens_full_session_text() -> None:
 
     class Pane:
         def __init__(self) -> None:
+            self._redis = Redis()
             self._session_rows = {
                 "full-conversation-id": {
                     "conversation_id": "full-conversation-id",
                     "title": "A very long Redis history title",
+                    "message_count": 2,
                 }
             }
             self.app = App()
@@ -127,7 +187,10 @@ def test_redis_row_double_click_opens_full_session_text() -> None:
 
     pane = Pane()
     event = Event()
-    RedisPane.on_full_row_data_table_row_double_clicked(pane, event)
+    asyncio.run(RedisPane.on_full_row_data_table_row_double_clicked(pane, event))
 
     assert event.stopped is True
-    assert "full-conversation-id" in pane.app.screens[0]._content
+    content = pane.app.screens[0]._content
+    assert "full-conversation-id" in content
+    assert "full user question" in content
+    assert "full assistant answer" in content
