@@ -877,6 +877,130 @@ def _persist_parse_options(request: DocumentParseRequest, config) -> None:
 
 ---
 
+### Scenario: Agent Tool-Call Invariants and Dispatch-Layer Guards
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to `server/agents/qa_agent.py` decision schema, agent prompt, `EvidenceBundle` semantics, agent tools that mutate the bundle, or the agent dispatch path in `server/api/v1/query.py`.
+- Reason: structured agent decisions (`AgentDecision`) carry an `action` value that downstream code (generation, citation, answerMode mapping) interprets as a promise about tool side effects. When the agent emits `action="compose_rag"` but skips the `retrieve` tool, the bundle stays empty, the generator falls into `groundedness="not_grounded"`, and the user sees a misleading "no evidence" answer that hides a behavior bug. The conversation-history shortcut (LLM treating a prior assistant answer as a substitute for re-retrieving) is the dominant trigger.
+
+#### 2. Signatures
+
+- Agent decision: `AgentDecision(action: Literal["compose_rag","chat","clarify"], direct_reply: str | None)`.
+- Evidence bundle: `EvidenceBundle(chunks, parent_chunks, guide_chunks, guide_example_chunks, ref_chunks, scores, glossary_hits, groundedness, resolved_refs, unresolved_refs, tool_trace)`.
+- Retrieve tool: `@function_tool retrieve(ctx, query) -> str` (writes `bundle.add_retrieval(result)` and appends `{"tool": "retrieve", ...}` to `bundle.tool_trace`).
+- Dispatch guard: `_ensure_retrieve_called_for_compose_rag(*, decision, bundle, deps, question, conversation_id) -> AgentDecision`.
+- Agent runner: `run_qa_agent(agent, question, deps, max_turns=5) -> tuple[AgentDecision, EvidenceBundle]`.
+
+#### 3. Contracts
+
+- `action="compose_rag"` is a contract that the agent gathered evidence this turn. The dispatch layer must validate this contract before invoking generation.
+- The source of truth for "did the agent call a tool this turn" is `bundle.tool_trace`, not `bundle.is_empty`. `tool_trace` distinguishes "tool not called" (no entry) from "tool called and returned zero chunks" (entry with `chunk_count=0`). These two cases require different remediation.
+- If `decision.action == "compose_rag"` and no `retrieve` entry exists in `bundle.tool_trace`, the dispatch must force one `_retrieve_impl(RunContextWrapper(deps), question)` call before continuing.
+- If the recovery retrieval still yields `bundle.is_empty`, the dispatch must downgrade the decision to `AgentDecision(action="clarify", direct_reply=<explicit hint>)` rather than emit `answerMode="fallback"` with zero sources. The hint must instruct the user to supply a规范号, 构件类型, or 参数名称.
+- The guard must emit `structlog` warning `agent_compose_rag_without_retrieve` with `conversation_id` and `question` fields whenever it fires.
+- Both `/query` and `/query/stream` must call the same guard helper. Asymmetric patching of one path but not the other is forbidden.
+- Agent prompt rules that gate tool-call obligations must use硬性 / 必须 language at the top of the instructions, not 适用于 / 先调用 buried in section-level guidance. Soft language is structurally insufficient when the SDK's structured-output mode allows tool-free returns.
+- Agent prompt must explicitly forbid skipping `retrieve` because conversation history already contains a prior assistant answer to the same question. This is the most common trigger of the bug.
+- Do not set `ModelSettings(tool_choice="required")` as a remedy; it breaks the legitimate `chat` and `clarify` paths that must not call tools.
+
+#### 4. Validation & Error Matrix
+
+- `decision.action != "compose_rag"` -> guard is a no-op; return decision unchanged.
+- `decision.action == "compose_rag"` and `any(t["tool"] == "retrieve" for t in bundle.tool_trace)` -> guard is a no-op; trust the agent.
+- `decision.action == "compose_rag"` and no `retrieve` in `tool_trace` -> log warning, call `_retrieve_impl` once with the original `req.question`.
+- After recovery: `bundle.is_empty` is `True` -> downgrade to `clarify` with hint.
+- After recovery: `bundle.is_empty` is `False` -> keep `compose_rag`, let `groundedness` flow naturally to `cautious` or `standard`.
+- `_retrieve_impl` raises during recovery -> log `agent_compose_rag_recovery_retrieve_failed` and treat as still-empty (downgrade to clarify).
+- The dispatch helper `_run_agent_dispatch` must return `(decision, bundle, conv, deps)` (4-tuple) so both call sites can pass `deps` into the guard.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: turn-3 of a repeat-question session. Agent (with hardened prompt) calls `retrieve` even though history has the answer; bundle has 16 chunks; `answerMode="cautious"`; guard never fires.
+- Base: turn-1 of any session. Agent calls `retrieve` naturally; same path as Good.
+- Base: empty-retrieval case where agent calls `retrieve` and gets zero results legitimately; `bundle.tool_trace` has `chunk_count=0` entry; guard is no-op; `answerMode="fallback"` is the honest representation.
+- Bad: dispatch trusts `decision.action == "compose_rag"` and feeds `bundle.chunks=[]` into `generate_answer_stream`. User sees `answerMode="fallback"` with retrieval that actually would have returned 16 chunks. This is the bug class.
+- Bad: using `bundle.is_empty` instead of `tool_trace` to detect the skip. The agent might have called retrieve and gotten zero results, which is a legitimate state that does not need recovery — only the "no call at all" case does.
+- Bad: prompt that says "compose_rag 适用于明确的规范相关问题。先调用 retrieve 收集证据..." — soft language. The LLM treats it as recommendation, not requirement.
+
+#### 6. Tests Required
+
+- Unit test: `decision.action="compose_rag"` with empty `tool_trace` and a fake `_retrieve_impl` that populates the bundle -> guard returns `compose_rag`, bundle non-empty.
+- Unit test: `decision.action="compose_rag"` with empty `tool_trace` and a fake `_retrieve_impl` that returns zero chunks -> guard returns `AgentDecision(action="clarify", direct_reply=...)`.
+- Unit test: `decision.action="chat"` and `decision.action="compose_rag"` with `tool_trace` already containing `retrieve` -> guard is no-op, returns original decision identity.
+- Prompt assertion test: `_QA_AGENT_INSTRUCTIONS` contains the literal strings `"必须先调用 retrieve"` and `"硬性"` so prompt softening regressions fail in CI.
+- Regression test: agent run with `Runner.run` returning `compose_rag` and empty bundle exposes the buggy state without recovery (anchors the bug class for future readers).
+- End-to-end manual: same `sessionId` runs `Q1 (规范问题) → Q2 (你好) → Q3 (= Q1)`. Turn-3 `done` event must have `answerMode != "fallback"` and non-empty `retrievalContext.chunks`.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+# Dispatch trusts the agent's structural output without validating tool side effects.
+decision, bundle, conv = await _run_agent_dispatch(...)
+if decision.action == "compose_rag":
+    async for event in generate_answer_stream(chunks=bundle.chunks, ...):
+        ...
+```
+
+##### Correct
+
+```python
+# Validate the compose_rag contract before generation.
+decision, bundle, conv, deps = await _run_agent_dispatch(...)
+decision = await _ensure_retrieve_called_for_compose_rag(
+    decision=decision,
+    bundle=bundle,
+    deps=deps,
+    question=req.question,
+    conversation_id=conv.conversation_id,
+)
+if decision.action == "compose_rag":
+    async for event in generate_answer_stream(chunks=bundle.chunks, ...):
+        ...
+```
+
+##### Wrong
+
+```python
+# Soft prompt: LLM treats this as a hint, skips retrieve when history has prior answer.
+"""
+### action = "compose_rag"
+适用于明确的规范相关问题。先调用 retrieve 收集证据。
+"""
+```
+
+##### Correct
+
+```python
+# Hard prompt: explicit precondition + forbidden shortcut.
+"""
+## 硬性规则（违反将导致系统报错并被拦截）
+- 设置 action="compose_rag" 之前，本轮必须先调用 retrieve 工具至少一次
+- 不允许以"历史对话已有同样回答"为理由跳过 retrieve
+"""
+```
+
+##### Wrong
+
+```python
+# Conflating "tool not called" with "tool returned empty".
+if decision.action == "compose_rag" and bundle.is_empty:
+    await _retrieve_impl(...)  # double-retries the legitimate empty case
+```
+
+##### Correct
+
+```python
+# tool_trace tells you whether the tool was invoked at all.
+retrieve_called = any(t.get("tool") == "retrieve" for t in bundle.tool_trace)
+if decision.action == "compose_rag" and not retrieve_called:
+    await _retrieve_impl(...)
+```
+
+---
+
 ## Code Review Checklist
 
 <!-- What reviewers should check -->
