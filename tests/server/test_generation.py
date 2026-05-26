@@ -120,10 +120,21 @@ class TestBuildPrompt:
         assert "指南文档补充说明：" in prompt
         assert "指南算例补充说明：" in prompt
         assert "Bridge Designers Guide 2024" in prompt
+        assert "[Parent-1]" not in prompt
         assert "[Guide-1]" not in prompt
         assert "[GuideExample-1]" not in prompt
         assert "[Ref-2]" in prompt
         assert "[Ref-3]" in prompt
+        assert "[Ref-4]" in prompt
+
+    def test_parent_chunks_use_ref_labels(self, sample_text_chunk, sample_table_chunk):
+        prompt = build_prompt("test", [sample_text_chunk], [sample_table_chunk])
+
+        assert "补充上下文（章节级父片段）" not in prompt
+        assert "[Parent-1]" not in prompt
+        assert "[Ref-1]" in prompt
+        assert "[Ref-2]" in prompt
+        assert sample_table_chunk.content in prompt
 
 
 def test_count_tokens_uses_unified_tokenizer(monkeypatch):
@@ -1571,6 +1582,7 @@ class TestGenerateAnswerStream:
             == "guide-example-1"
         )
         assert [source["file"] for source in done_payload["sources"]] == [
+            "EN 1990:2002",
             "EN 1990:2002",
             "Bridge Designers Guide 2024",
             "Bridge Designers Guide 2024",

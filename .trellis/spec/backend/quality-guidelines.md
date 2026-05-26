@@ -94,6 +94,59 @@ source_title = _resolve_source_title(meta, doc_id.replace("_", " "))
 source_title = requested_file_name or display_source_name
 ```
 
+### Scenario: Answer Citation Labels
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to generation prompts, source ordering, answer citation post-processing, or Huake-facing `sources` payloads.
+- Reason: Huake frontend integrations only need to support `[Ref-N]`. Backend prompts must not expose alternate citation labels that the frontend may render as raw text.
+
+#### 2. Signatures
+
+- Prompt builder: `build_prompt(question, chunks, parent_chunks, ..., config=None) -> str`.
+- Source ordering helper: `_build_prioritized_source_chunks(chunks, parent_chunks, ref_chunks=None, guide_chunks=None, guide_example_chunks=None, ...) -> list[Chunk]`.
+- Source builder: `_build_sources_from_chunks(chunks, config=None, prioritized_chunks=None) -> list[Source]`.
+
+#### 3. Contracts
+
+- Every chunk that the model may cite must appear in the prompt as `[Ref-N]`.
+- `Parent-N`, `Guide-N`, `GuideExample-N`, and `CrossRef-N` must not be presented as citeable answer labels.
+- Parent chunks may be included as citeable evidence, but they must be folded into the same `[Ref-N]` sequence as main chunks.
+- `sources[N - 1]` must describe the prompt block labeled `[Ref-N]`.
+- `retrieval_context.parent_chunks` may still expose parent context for debugging/export; it is not an answer citation namespace.
+
+#### 4. Validation & Error Matrix
+
+- Parent chunks are available -> include them in the `[Ref-N]` evidence ordering and `sources`, not as `[Parent-N]`.
+- Guide/example chunks are already in `[Ref-N]` ordering -> supplemental sections should say they were already included, not duplicate them under alternate labels.
+- Model returns an out-of-range `[Ref-N]` -> post-processing strips the invalid citation.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: prompt contains `[Ref-1]` for the main chunk and `[Ref-2]` for its parent chunk.
+- Base: no parent chunks are present; only main/ref/guide chunks receive `[Ref-N]`.
+- Bad: prompt contains `[Parent-1]`, and the model copies `[Parent-1]` into the answer.
+
+#### 6. Tests Required
+
+- Prompt tests must assert parent chunks use `[Ref-N]` labels and no `[Parent-N]` labels appear.
+- Generation/stream tests must assert returned `sources` include parent chunks when parent chunks were citeable in the prompt.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+parts.append(_format_prompt_chunk_block(parent_chunk, f"[Parent-{index}]"))
+```
+
+##### Correct
+
+```python
+ordered_citable = _build_prioritized_source_chunks(chunks, parent_chunks, ...)
+parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]"))
+```
+
 ### Scenario: Indexed Source Title Repair Script
 
 #### 1. Scope / Trigger

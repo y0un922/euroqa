@@ -1079,20 +1079,6 @@ def build_prompt(
     for i, chunk in enumerate(ordered_citable, 1):
         parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]", config))
 
-    deduped_parents: list[Chunk] = []
-    if parent_chunks:
-        seen_parent_ids: set[str] = set()
-        for pc in parent_chunks:
-            if pc.chunk_id not in seen_parent_ids:
-                seen_parent_ids.add(pc.chunk_id)
-                deduped_parents.append(pc)
-    if deduped_parents:
-        parts.append("补充上下文（章节级父片段）：\n")
-        for index, parent_chunk in enumerate(deduped_parents, 1):
-            parts.append(
-                _format_prompt_chunk_block(parent_chunk, f"[Parent-{index}]", config)
-            )
-
     if ref_chunks:
         parts.append("交叉引用补充：\n")
         for index, ref_chunk in enumerate(ref_chunks, 1):
@@ -1103,10 +1089,6 @@ def build_prompt(
     parts.append("证据元数据：\n")
     for i, chunk in enumerate(ordered_citable, 1):
         parts.append(f"{_format_prompt_metadata_line(chunk, f'[Ref-{i}]', config)}\n")
-    for index, parent_chunk in enumerate(deduped_parents, 1):
-        parts.append(
-            f"{_format_prompt_metadata_line(parent_chunk, f'[Parent-{index}]', config)}\n"
-        )
     citable_ids = {chunk.chunk_id for chunk in ordered_citable}
     if guide_chunks:
         parts.append("指南文档补充说明：\n")
@@ -1158,11 +1140,12 @@ def _build_prioritized_source_chunks(
     intent_label: str | None = None,
 ) -> list[Chunk]:
     """Build source ordering for prompt and source metadata."""
-    del parent_chunks, generation_mode, question, intent_label
+    del generation_mode, question, intent_label
     seen_ids: set[str] = set()
     ordered: list[Chunk] = []
     for chunk in (
         list(chunks)
+        + list(parent_chunks)
         + list(ref_chunks or [])
         + list(guide_chunks or [])
         + list(guide_example_chunks or [])
@@ -1584,9 +1567,11 @@ async def generate_answer_stream(
         )
 
         # 从检索结果直接构建结构化元数据，不依赖 LLM 输出
-        # 主 chunk、交叉引用和 guide/example chunk 统一编号，与 prompt 中的 [Ref-N] 一一对应。
+        # 主 chunk、父片段、交叉引用和 guide/example chunk 统一编号，
+        # 与 prompt 中的 [Ref-N] 一一对应。
         all_citable = (
             list(chunks)
+            + list(parent_chunks)
             + list(ref_chunks or [])
             + list(guide_chunks or [])
             + list(guide_example_chunks or [])
@@ -1759,6 +1744,7 @@ async def generate_answer(
         response = parse_llm_response(raw)
         all_citable = (
             list(chunks)
+            + list(parent_chunks)
             + list(ref_chunks or [])
             + list(guide_chunks or [])
             + list(guide_example_chunks or [])
