@@ -208,6 +208,87 @@ test("buildReferenceRecords falls back to file match when source document_id is 
   assert.equal(references[0]?.documentId, "EN1992-1-1_2004(1).pdf");
 });
 
+test("buildReferenceRecords uses display title when source file is an opaque doc id", () => {
+  const references = buildReferenceRecords(
+    [
+      {
+        file: "ae71c790b26bdcc126b3be00be4f9825",
+        document_id: "ae71c790b26bdcc126b3be00be4f9825",
+        display_title: "Structural fire design",
+        title: "Structural fire design",
+        section: "Detailing",
+        page: "199",
+        clause: "10.5 Laps",
+        original_text: "",
+        highlight_text: "",
+        locator_text: "",
+        translation: ""
+      }
+    ],
+    [],
+    "high",
+    []
+  );
+
+  assert.equal(references[0]?.displayTitle, "Structural fire design");
+});
+
+test("buildReferenceRecords accepts camelCase display title aliases for opaque doc ids", () => {
+  const references = buildReferenceRecords(
+    [
+      {
+        file: "ae71c790b26bdcc126b3be00be4f9825",
+        document_id: "ae71c790b26bdcc126b3be00be4f9825",
+        displayTitle: "DG_EN1992-1-1, -1-2 混凝土设计指南.pdf",
+        title: "ae71c790b26bdcc126b3be00be4f9825",
+        section: "Detailing",
+        page: "199",
+        clause: "10.5 Laps",
+        original_text: "",
+        highlight_text: "",
+        locator_text: "",
+        translation: ""
+      }
+    ],
+    [],
+    "high",
+    []
+  );
+
+  assert.equal(
+    references[0]?.displayTitle,
+    "DG_EN1992-1-1, -1-2 混凝土设计指南.pdf"
+  );
+});
+
+test("buildReferenceRecords accepts source title aliases for opaque doc ids", () => {
+  const references = buildReferenceRecords(
+    [
+      {
+        file: "ae71c790b26bdcc126b3be00be4f9825",
+        document_id: "ae71c790b26bdcc126b3be00be4f9825",
+        source_title: "DG_EN1992-1-1, -1-2 混凝土设计指南.pdf",
+        title: "ae71c790b26bdcc126b3be00be4f9825",
+        section: "Detailing",
+        page: "199",
+        clause: "10.5 Laps",
+        original_text: "",
+        highlight_text: "",
+        locator_text: "",
+        translation: ""
+      }
+    ],
+    [],
+    "high",
+    []
+  );
+
+  assert.equal(
+    references[0]?.displayTitle,
+    "DG_EN1992-1-1, -1-2 混凝土设计指南.pdf"
+  );
+});
+
 test("buildReferenceRecords displays the source file instead of parsed titles", () => {
   const references = buildReferenceRecords(
     [

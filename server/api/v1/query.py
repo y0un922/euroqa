@@ -186,6 +186,7 @@ def _camelize_source_payload(source: dict) -> dict:
     """Add interface-document camelCase aliases while preserving old keys."""
     aliases = {
         "document_id": "docId",
+        "display_title": "displayTitle",
         "element_type": "elementType",
         "original_text": "originalText",
         "locator_text": "locatorText",

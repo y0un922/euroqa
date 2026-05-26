@@ -36,6 +36,9 @@ export type Source = {
   file: string;
   document_id?: string;
   display_title?: string;
+  displayTitle?: string;
+  source_title?: string;
+  sourceTitle?: string;
   element_type?: "text" | "table" | "formula" | "image";
   docId?: string;
   elementType?: "text" | "table" | "figure" | "formula";

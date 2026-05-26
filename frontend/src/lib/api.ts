@@ -69,10 +69,22 @@ function resolveSourceDisplayTitle(
   source: Source,
   document: DocumentInfo | null
 ): string {
+  const sourceFile = source.file?.trim();
+  const explicitDisplayTitle =
+    source.display_title?.trim() ||
+    source.displayTitle?.trim() ||
+    source.source_title?.trim() ||
+    source.sourceTitle?.trim();
+  if (sourceFile && !isOpaqueDocumentId(sourceFile)) {
+    return sourceFile;
+  }
+
   return (
-    source.file?.trim() ||
+    explicitDisplayTitle ||
+    source.title?.trim() ||
     document?.name?.trim() ||
     document?.title?.trim() ||
+    sourceFile ||
     source.document_id?.trim() ||
     source.docId?.trim() ||
     "未命名文档"
