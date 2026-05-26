@@ -1,4 +1,5 @@
 """Generation layer: prompt assembly + LLM call + structured output parsing."""
+
 from __future__ import annotations
 
 import json
@@ -48,11 +49,11 @@ def _count_tokens(text: str, config: ServerConfig | None = None) -> tuple[int, b
 
 # 匹配各种 [Ref-N] 变体：空格、中文括号、圆括号、大小写
 _CITATION_VARIANTS_RE = re.compile(
-    r"[\[【(]"          # 开括号: [ 【 (
-    r"[Rr]ef"           # Ref / ref
-    r"[\s\-]+"          # 分隔符: 空格或连字符
-    r"(\d+)"            # 捕获编号
-    r"[\]】)]"          # 闭括号: ] 】 )
+    r"[\[【(]"  # 开括号: [ 【 (
+    r"[Rr]ef"  # Ref / ref
+    r"[\s\-]+"  # 分隔符: 空格或连字符
+    r"(\d+)"  # 捕获编号
+    r"[\]】)]"  # 闭括号: ] 】 )
 )
 
 # 标准格式的 [Ref-N]
@@ -96,7 +97,7 @@ def postprocess_citations(answer: str, num_sources: int) -> str:
         parts: list[str] = []
         last_end = 0
         for m in _CANONICAL_REF_RE.finditer(sentence):
-            parts.append(sentence[last_end:m.start()])
+            parts.append(sentence[last_end : m.start()])
             ref_tag = m.group(0)
             if ref_tag not in seen:
                 seen.add(ref_tag)
@@ -202,6 +203,56 @@ def _resolve_document_id(chunk: Chunk | Source) -> str:
     return _build_document_id(meta.source)
 
 
+@lru_cache(maxsize=512)
+def _load_parse_option_file_name(parsed_dir: str, document_id: str) -> str:
+    """Load the client-provided filename from per-document parse options."""
+    base_dir = Path(parsed_dir)
+    for options_name in ("parse_options.json", "option.json"):
+        options_path = base_dir / document_id / options_name
+        if not options_path.is_file():
+            continue
+        try:
+            payload = json.loads(options_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning(
+                "parse_options_display_title_load_failed",
+                path=str(options_path),
+            )
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for key in ("file_name", "filename", "fileName"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def _resolve_chunk_display_title(
+    chunk: Chunk,
+    config: ServerConfig | None = None,
+    document_id: str | None = None,
+) -> str:
+    """Resolve the readable document title while preserving source identity."""
+    meta = chunk.metadata
+    resolved_document_id = document_id or _resolve_document_id(chunk)
+    if config is not None:
+        parse_file_name = _load_parse_option_file_name(
+            str(Path(config.parsed_dir)),
+            resolved_document_id,
+        )
+        if parse_file_name:
+            return parse_file_name
+    source_title = meta.source_title.strip()
+    source_title_suffix = Path(source_title).suffix.lower()
+    return (
+        meta.display_title.strip()
+        or (source_title if source_title_suffix == ".pdf" else "")
+        or meta.source.strip()
+        or resolved_document_id
+    )
+
+
 def _build_locator_text(content: str, max_length: int = 240) -> str:
     """Build a shorter normalized text snippet suitable for PDF search."""
     normalized = re.sub(r"\[\->\s*[^\]]*\]", " ", content)
@@ -225,7 +276,9 @@ def _build_highlight_text(content: str, page_numbers: list[int]) -> str:
     del page_numbers
 
     normalized = re.sub(r"\[\->\s*[^\]]*\]", "", content)
-    normalized = re.sub(r"</?(?:table|thead|tbody|tr|td|th|br)\b[^>]*>", " ", normalized)
+    normalized = re.sub(
+        r"</?(?:table|thead|tbody|tr|td|th|br)\b[^>]*>", " ", normalized
+    )
     # 剥离 LaTeX 公式（$...$, $$...$$）
     normalized = re.sub(r"\$\$.*?\$\$", " ", normalized, flags=re.DOTALL)
     normalized = re.sub(r"\$[^$\n]+?\$", " ", normalized)
@@ -272,7 +325,9 @@ def _load_content_list_payload(content_list_path: str) -> list[dict[str, Any]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        logger.warning("content_list_load_failed", path=content_list_path, exc_info=True)
+        logger.warning(
+            "content_list_load_failed", path=content_list_path, exc_info=True
+        )
         return []
     return payload if isinstance(payload, list) else []
 
@@ -286,7 +341,9 @@ def _extract_content_list_caption(entry: dict[str, Any]) -> str:
     """Normalize content_list table captions into a single string."""
     caption = entry.get("table_caption", [])
     if isinstance(caption, list):
-        return " ".join(str(part).strip() for part in caption if str(part).strip()).strip()
+        return " ".join(
+            str(part).strip() for part in caption if str(part).strip()
+        ).strip()
     if isinstance(caption, str):
         return caption.strip()
     return ""
@@ -305,7 +362,9 @@ def _resolve_table_source_geometry(
 
     chunk_caption = _extract_table_caption(chunk.content)
     chunk_table_html = _extract_table_html(chunk.content)
-    normalized_chunk_html = _normalize_table_html(chunk_table_html) if chunk_table_html else ""
+    normalized_chunk_html = (
+        _normalize_table_html(chunk_table_html) if chunk_table_html else ""
+    )
     candidate_page_indexes = set(chunk.metadata.page_file_index)
 
     best_bbox: list[float] = []
@@ -339,7 +398,10 @@ def _resolve_table_source_geometry(
             normalized_entry_html = _normalize_table_html(entry_table_html)
             if normalized_entry_html == normalized_chunk_html:
                 score += 10
-            elif normalized_entry_html and normalized_entry_html in _normalize_table_html(chunk.content):
+            elif (
+                normalized_entry_html
+                and normalized_entry_html in _normalize_table_html(chunk.content)
+            ):
                 score += 5
 
         if score <= best_score:
@@ -359,7 +421,12 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
     normalized_sources: list[Source] = []
     for source in sources:
         document_id = _resolve_document_id(source)
-        display_title = source.file.strip() or document_id
+        display_title = (
+            source.display_title.strip()
+            or source.title.strip()
+            or source.file.strip()
+            or document_id
+        )
         highlight_text = source.highlight_text.strip() or _build_highlight_text(
             source.original_text,
             [int(source.page)] if str(source.page).strip().isdigit() else [],
@@ -383,14 +450,17 @@ def _normalize_sources(sources: list[Source]) -> list[Source]:
 
 
 def _build_retrieval_context_entry(
-    chunk: Chunk, score: float | None = None
+    chunk: Chunk,
+    score: float | None = None,
+    config: ServerConfig | None = None,
 ) -> dict[str, Any]:
     """Build a frontend-exportable retrieval snapshot item from a chunk."""
     meta = chunk.metadata
-    display_title = meta.source
+    document_id = _resolve_document_id(chunk)
+    display_title = _resolve_chunk_display_title(chunk, config, document_id)
     entry: dict[str, Any] = {
         "chunk_id": chunk.chunk_id,
-        "document_id": _resolve_document_id(chunk),
+        "document_id": document_id,
         "file": meta.source,
         "title": display_title,
         "display_title": display_title,
@@ -413,26 +483,31 @@ def _build_retrieval_context(
     scores: list[float] | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
+    config: ServerConfig | None = None,
 ) -> RetrievalContext:
     """Build the export-ready retrieval context snapshot for one answer turn."""
     chunk_items = [
         _build_retrieval_context_entry(
             chunk,
             score=scores[index] if scores and index < len(scores) else None,
+            config=config,
         )
         for index, chunk in enumerate(chunks)
     ]
     parent_chunk_items = [
-        _build_retrieval_context_entry(chunk) for chunk in parent_chunks
+        _build_retrieval_context_entry(chunk, config=config) for chunk in parent_chunks
     ]
     guide_chunk_items = [
-        _build_retrieval_context_entry(chunk) for chunk in (guide_chunks or [])
+        _build_retrieval_context_entry(chunk, config=config)
+        for chunk in (guide_chunks or [])
     ]
     guide_example_chunk_items = [
-        _build_retrieval_context_entry(chunk) for chunk in (guide_example_chunks or [])
+        _build_retrieval_context_entry(chunk, config=config)
+        for chunk in (guide_example_chunks or [])
     ]
     ref_chunk_items = [
-        _build_retrieval_context_entry(chunk) for chunk in (ref_chunks or [])
+        _build_retrieval_context_entry(chunk, config=config)
+        for chunk in (ref_chunks or [])
     ]
     return RetrievalContext(
         chunks=chunk_items,
@@ -453,6 +528,7 @@ def _parse_source_payload(payload: object) -> Source | None:
     return Source(
         file=str(payload.get("file", "")),
         document_id=str(payload.get("document_id", "")),
+        display_title=str(payload.get("display_title", "")),
         element_type=payload.get("element_type", ElementType.TEXT),
         bbox=payload.get("bbox", []),
         title=str(payload.get("title", "")),
@@ -704,7 +780,9 @@ def _normalize_engineering_context(
     return None
 
 
-def _build_question_type_guidance(question_type: str | QuestionType | None) -> list[str]:
+def _build_question_type_guidance(
+    question_type: str | QuestionType | None,
+) -> list[str]:
     qt = _normalize_question_type(question_type) or "rule"
     if qt == "calculation":
         return [
@@ -783,21 +861,31 @@ def _build_evidence_organizer_system_prompt(
         "模式补充：",
     ]
     if groundedness == "not_grounded":
-        lines.append("当前检索证据与问题相关性不足。必须明确说明现有证据不足，不要输出猜测性结论。")
-        lines.append("如果能从证据中确认很少量事实，只能作为有限事实列出，并说明缺少哪类依据。")
+        lines.append(
+            "当前检索证据与问题相关性不足。必须明确说明现有证据不足，不要输出猜测性结论。"
+        )
+        lines.append(
+            "如果能从证据中确认很少量事实，只能作为有限事实列出，并说明缺少哪类依据。"
+        )
     elif groundedness == "grounded":
-        lines.append("当前检索证据相关性较强。可以直接给出结论，但所有关键结论仍必须绑定证据位置。")
+        lines.append(
+            "当前检索证据相关性较强。可以直接给出结论，但所有关键结论仍必须绑定证据位置。"
+        )
     else:
-        lines.append("当前检索证据只能支持部分回答。先写可由证据确认的内容，再说明仍需补充的信息。")
+        lines.append(
+            "当前检索证据只能支持部分回答。先写可由证据确认的内容，再说明仍需补充的信息。"
+        )
 
-    lines.extend([
-        "",
-        * _build_question_type_guidance(question_type),
-        "",
-        _build_engineering_context_guidance(engineering_context),
-        "",
-        "输出风格要求：使用中文，语言清晰、专业、简洁；不要大段照抄原文；不要输出与问题无关的背景知识。",
-    ])
+    lines.extend(
+        [
+            "",
+            *_build_question_type_guidance(question_type),
+            "",
+            _build_engineering_context_guidance(engineering_context),
+            "",
+            "输出风格要求：使用中文，语言清晰、专业、简洁；不要大段照抄原文；不要输出与问题无关的背景知识。",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -827,7 +915,7 @@ def _build_json_system_prompt(
             question_type=question_type,
             engineering_context=engineering_context,
         )
-        + "\n\n输出格式：严格 JSON，包含 answer/sources/related_refs/confidence。"
+        + "\n\n输出格式：严格 json，包含 answer/sources/related_refs/confidence。"
     )
 
 
@@ -857,7 +945,7 @@ _SOURCE_TRANSLATION_SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eu
    - 条列内容优先转换为项目列表或有序列表
    - 普通说明保持自然段
 5. 不要输出 HTML 标签，不要输出 Markdown 代码块围栏。
-6. 只输出严格 JSON，格式如下：
+6. 只输出严格 json，格式如下：
 {
   "translations": [
     {"index": 0, "translation": "中文解释"}
@@ -883,13 +971,17 @@ def _build_stream_completion_kwargs(config: ServerConfig) -> dict[str, Any]:
     return kwargs
 
 
-def _format_prompt_chunk_block(chunk: Chunk, label: str) -> str:
+def _format_prompt_chunk_block(
+    chunk: Chunk,
+    label: str,
+    config: ServerConfig | None = None,
+) -> str:
     """Format one chunk as a prompt evidence block."""
     meta = chunk.metadata
     page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
     section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
     clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
-    display_name = meta.source
+    display_name = _resolve_chunk_display_title(chunk, config)
     source_name = meta.source
     return (
         f"{label}\n"
@@ -902,13 +994,17 @@ def _format_prompt_chunk_block(chunk: Chunk, label: str) -> str:
     )
 
 
-def _format_prompt_metadata_line(chunk: Chunk, label: str) -> str:
+def _format_prompt_metadata_line(
+    chunk: Chunk,
+    label: str,
+    config: ServerConfig | None = None,
+) -> str:
     """Format one chunk as a compact metadata row."""
     meta = chunk.metadata
     section_str = " > ".join(meta.section_path) if meta.section_path else "未提供"
     clause_str = ", ".join(meta.clause_ids[:3]) if meta.clause_ids else "未提供"
     page_str = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "未提供"
-    display_name = meta.source
+    display_name = _resolve_chunk_display_title(chunk, config)
     return (
         f"- {label} 文档名: {display_name}; 来源ID: {meta.source}; "
         f"条款/章节: {clause_str} / {section_str}; "
@@ -929,6 +1025,7 @@ def build_prompt(
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
     intent_label: str | None = None,
+    config: ServerConfig | None = None,
 ) -> str:
     """将检索结果组装为发送给 LLM 的用户提示词。
 
@@ -954,7 +1051,9 @@ def build_prompt(
     if conversation_history:
         parts.append("历史对话摘要：\n")
         for history in conversation_history[-2:]:
-            parts.append(f"- Q: {history['question']}\n  A: {history['answer'][:500]}\n")
+            parts.append(
+                f"- Q: {history['question']}\n  A: {history['answer'][:500]}\n"
+            )
 
     parts.append(f"用户问题：\n{question}\n")
 
@@ -978,7 +1077,7 @@ def build_prompt(
     )
     parts.append("已检索到的可引用证据片段：\n")
     for i, chunk in enumerate(ordered_citable, 1):
-        parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]"))
+        parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]", config))
 
     deduped_parents: list[Chunk] = []
     if parent_chunks:
@@ -990,25 +1089,37 @@ def build_prompt(
     if deduped_parents:
         parts.append("补充上下文（章节级父片段）：\n")
         for index, parent_chunk in enumerate(deduped_parents, 1):
-            parts.append(_format_prompt_chunk_block(parent_chunk, f"[Parent-{index}]"))
+            parts.append(
+                _format_prompt_chunk_block(parent_chunk, f"[Parent-{index}]", config)
+            )
 
     if ref_chunks:
         parts.append("交叉引用补充：\n")
         for index, ref_chunk in enumerate(ref_chunks, 1):
-            parts.append(_format_prompt_chunk_block(ref_chunk, f"[CrossRef-{index}]"))
+            parts.append(
+                _format_prompt_chunk_block(ref_chunk, f"[CrossRef-{index}]", config)
+            )
 
     parts.append("证据元数据：\n")
     for i, chunk in enumerate(ordered_citable, 1):
-        parts.append(f"{_format_prompt_metadata_line(chunk, f'[Ref-{i}]')}\n")
+        parts.append(f"{_format_prompt_metadata_line(chunk, f'[Ref-{i}]', config)}\n")
     for index, parent_chunk in enumerate(deduped_parents, 1):
-        parts.append(f"{_format_prompt_metadata_line(parent_chunk, f'[Parent-{index}]')}\n")
+        parts.append(
+            f"{_format_prompt_metadata_line(parent_chunk, f'[Parent-{index}]', config)}\n"
+        )
     citable_ids = {chunk.chunk_id for chunk in ordered_citable}
     if guide_chunks:
         parts.append("指南文档补充说明：\n")
         appended = False
         for index, guide_chunk in enumerate(guide_chunks, 1):
             if guide_chunk.chunk_id not in citable_ids:
-                parts.append(_format_prompt_chunk_block(guide_chunk, f"[GuideContext-{index}]"))
+                parts.append(
+                    _format_prompt_chunk_block(
+                        guide_chunk,
+                        f"[GuideContext-{index}]",
+                        config,
+                    )
+                )
                 appended = True
         if not appended:
             parts.append("（相关指南已纳入上方 [Ref-N] 可引用证据）\n")
@@ -1020,10 +1131,13 @@ def build_prompt(
         appended = False
         for index, guide_example_chunk in enumerate(guide_example_chunks, 1):
             if guide_example_chunk.chunk_id not in citable_ids:
-                parts.append(_format_prompt_chunk_block(
-                    guide_example_chunk,
-                    f"[GuideExampleContext-{index}]",
-                ))
+                parts.append(
+                    _format_prompt_chunk_block(
+                        guide_example_chunk,
+                        f"[GuideExampleContext-{index}]",
+                        config,
+                    )
+                )
                 appended = True
         if not appended:
             parts.append("（相关算例已纳入上方 [Ref-N] 可引用证据）\n")
@@ -1081,7 +1195,7 @@ def _build_sources_from_chunks(
     for chunk in ordered_chunks:
         meta = chunk.metadata
         document_id = _resolve_document_id(chunk)
-        display_title = meta.source
+        display_title = _resolve_chunk_display_title(chunk, cfg, document_id)
         # Primary: use bbox from pipeline metadata
         bbox = list(meta.bbox) if meta.bbox else []
         resolved_page = str(meta.bbox_page_idx + 1) if meta.bbox_page_idx >= 0 else ""
@@ -1103,9 +1217,12 @@ def _build_sources_from_chunks(
                 bbox=bbox,
                 title=display_title,
                 section=" > ".join(meta.section_path),
-                page=resolved_page or (
-                    str(meta.page_file_index[0] + 1) if meta.page_file_index
-                    else str(meta.page_numbers[0]) if meta.page_numbers
+                page=resolved_page
+                or (
+                    str(meta.page_file_index[0] + 1)
+                    if meta.page_file_index
+                    else str(meta.page_numbers[0])
+                    if meta.page_numbers
                     else ""
                 ),
                 clause=", ".join(meta.clause_ids[:2]) if meta.clause_ids else "",
@@ -1147,7 +1264,7 @@ def _build_source_translation_prompt(
     return (
         "请把以下 Eurocode 来源原文翻译成可直接展示的中文解释。"
         "如果内容中存在表格、条列或层级结构，请优先转成适合前端渲染的 Markdown。"
-        "返回严格 JSON，不要输出额外文字。\n"
+        "返回严格 json，不要输出额外文字。\n"
         f"{json.dumps(payload, ensure_ascii=False)}"
     )
 
@@ -1219,7 +1336,9 @@ async def _fill_missing_source_translations(
 
     translation_map: dict[int, str] = {}
     try:
-        translation_map = await _translate_source_batch(sources, pending_indexes, config)
+        translation_map = await _translate_source_batch(
+            sources, pending_indexes, config
+        )
     except json.JSONDecodeError:
         logger.warning(
             "source_translation_fill_batch_parse_failed_retrying_individually",
@@ -1389,6 +1508,7 @@ async def generate_answer_stream(
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
         intent_label=intent_label,
+        config=cfg,
     )
     system_prompt = _build_stream_mode_system_prompt(
         generation_mode,
@@ -1437,6 +1557,9 @@ async def generate_answer_stream(
         total_content_len = 0
         finish_reason = None
         async for token in stream:
+            if not getattr(token, "choices", None):
+                continue
+
             delta = token.choices[0].delta
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
@@ -1455,7 +1578,9 @@ async def generate_answer_stream(
 
         logger.info(
             "llm_stream_end chunks=%d content_chars=%d finish_reason=%s",
-            chunk_count, total_content_len, finish_reason,
+            chunk_count,
+            total_content_len,
+            finish_reason,
         )
 
         # 从检索结果直接构建结构化元数据，不依赖 LLM 输出
@@ -1498,15 +1623,21 @@ async def generate_answer_stream(
             scores=scores,
             resolved_refs=resolved_refs,
             unresolved_refs=unresolved_refs,
+            config=cfg,
         )
-        yield ("done", {
-            "sources": [s.model_dump() for s in sources],
-            "related_refs": related_refs,
-            "confidence": confidence.value,
-            "retrieval_context": retrieval_context.model_dump(),
-            "question_type": qt_normalized,
-            "engineering_context": ctx_normalized.model_dump() if ctx_normalized else None,
-        })
+        yield (
+            "done",
+            {
+                "sources": [s.model_dump() for s in sources],
+                "related_refs": related_refs,
+                "confidence": confidence.value,
+                "retrieval_context": retrieval_context.model_dump(),
+                "question_type": qt_normalized,
+                "engineering_context": ctx_normalized.model_dump()
+                if ctx_normalized
+                else None,
+            },
+        )
     except Exception:
         logger.exception("llm_stream_failed")
         yield ("error", {"message": "LLM 服务暂时不可用"})
@@ -1559,12 +1690,17 @@ async def generate_answer(
         scores=scores,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
+        config=cfg,
     )
     qt_normalized = _normalize_question_type(question_type)
     ctx_normalized = _normalize_engineering_context(engineering_context)
     generation_mode = decide_generation_mode(groundedness)
     prompt = build_prompt(
-        question, chunks, parent_chunks, glossary_terms, conversation_history,
+        question,
+        chunks,
+        parent_chunks,
+        glossary_terms,
+        conversation_history,
         ref_chunks=ref_chunks,
         guide_chunks=guide_chunks,
         guide_example_chunks=guide_example_chunks,
@@ -1572,6 +1708,7 @@ async def generate_answer(
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
         intent_label=intent_label,
+        config=cfg,
     )
 
     client = AsyncOpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url)

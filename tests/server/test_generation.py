@@ -1,4 +1,5 @@
 """Test generation layer (mock LLM)."""
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,12 +9,15 @@ import pytest
 
 from server.config import ServerConfig
 from server.core.generation import (
-    build_open_system_prompt,
+    _SOURCE_TRANSLATION_SYSTEM_PROMPT,
+    _build_json_system_prompt,
+    _build_retrieval_context,
     _build_sources_from_chunks,
     _build_source_translation_prompt,
     _call_source_translation_llm,
     _count_tokens,
     _fill_missing_source_translations,
+    build_open_system_prompt,
     build_prompt,
     decide_generation_mode,
     generate_answer,
@@ -25,13 +29,47 @@ from server.models.schemas import Chunk, ChunkMetadata, Confidence, ElementType
 
 class TestBuildPrompt:
     def test_includes_question(self, sample_text_chunk, sample_table_chunk):
-        prompt = build_prompt("巴黎地铁寿命", [sample_text_chunk, sample_table_chunk], [])
+        prompt = build_prompt(
+            "巴黎地铁寿命", [sample_text_chunk, sample_table_chunk], []
+        )
         assert "巴黎地铁寿命" in prompt
 
     def test_includes_source_info(self, sample_text_chunk, sample_table_chunk):
         prompt = build_prompt("test", [sample_text_chunk], [])
         assert "EN 1990:2002" in prompt
         assert "2.3" in prompt or "Section 2" in prompt
+
+    def test_prompt_uses_uploaded_file_name_from_parse_options(
+        self, sample_text_chunk, tmp_path: Path
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "document_id": "huake-doc-123",
+                        "source": "huake-doc-123",
+                        "source_title": "CEN members are not a filename",
+                    }
+                )
+            }
+        )
+        parsed_doc = tmp_path / "parsed" / "huake-doc-123"
+        parsed_doc.mkdir(parents=True)
+        (parsed_doc / "parse_options.json").write_text(
+            json.dumps({"file_name": "Eurocode 2 Concrete.pdf"}),
+            encoding="utf-8",
+        )
+
+        prompt = build_prompt(
+            "test",
+            [chunk],
+            [],
+            config=ServerConfig(parsed_dir=str(tmp_path / "parsed")),
+        )
+
+        assert "文档名: Eurocode 2 Concrete.pdf" in prompt
+        assert "来源ID: huake-doc-123" in prompt
+        assert "CEN members are not a filename" not in prompt
 
     def test_includes_glossary(self, sample_text_chunk):
         glossary = {"设计使用年限": "design working life"}
@@ -146,6 +184,7 @@ class TestAnswerPrompts:
 
     def test_engineering_context_injected_in_all_templates(self):
         from server.models.schemas import EngineeringContext
+
         ctx = EngineeringContext(country="Germany", structure_type="bridge")
         for qt in ["parameter", "rule", "calculation", "mechanism"]:
             prompt = build_open_system_prompt(question_type=qt, engineering_context=ctx)
@@ -153,6 +192,7 @@ class TestAnswerPrompts:
 
     def test_engineering_context_missing_fields_use_generic_wording(self):
         from server.models.schemas import EngineeringContext
+
         ctx = EngineeringContext(country="Germany")
         prompt = build_open_system_prompt(question_type="rule", engineering_context=ctx)
         assert "Germany" in prompt
@@ -172,17 +212,34 @@ class TestAnswerPrompts:
         prompt = build_open_system_prompt(question_type=qt)
         assert "使用中文提问的工程师" in prompt
 
+    def test_json_system_prompt_mentions_json(self):
+        prompt = _build_json_system_prompt("partial")
+        assert "json" in prompt.lower()
+
+    def test_source_translation_system_prompt_mentions_json(self):
+        assert "json" in _SOURCE_TRANSLATION_SYSTEM_PROMPT.lower()
+
 
 class TestParseLlmResponse:
     def test_parse_valid_json(self):
-        raw = json.dumps({
-            "answer": "100年",
-            "sources": [{"file": "EN 1990", "title": "Basis", "section": "2.3",
-                         "page": 28, "clause": "Table 2.1", "original_text": "bridges",
-                         "translation": "桥梁"}],
-            "related_refs": ["Annex A"],
-            "confidence": "high"
-        })
+        raw = json.dumps(
+            {
+                "answer": "100年",
+                "sources": [
+                    {
+                        "file": "EN 1990",
+                        "title": "Basis",
+                        "section": "2.3",
+                        "page": 28,
+                        "clause": "Table 2.1",
+                        "original_text": "bridges",
+                        "translation": "桥梁",
+                    }
+                ],
+                "related_refs": ["Annex A"],
+                "confidence": "high",
+            }
+        )
         result = parse_llm_response(raw)
         assert result.answer == "100年"
         assert result.confidence == Confidence.HIGH
@@ -227,8 +284,13 @@ class TestSourceTranslationFill:
         assert len(sources[0].locator_text) <= 240
         assert "2.3 Design working life" in sources[0].locator_text
         assert "The design working life should be specified." in sources[0].locator_text
-        assert "The design working life should be specified." in sources[0].highlight_text
-        assert "NOTE Indicative categories are given in Table 2.1." in sources[0].highlight_text
+        assert (
+            "The design working life should be specified." in sources[0].highlight_text
+        )
+        assert (
+            "NOTE Indicative categories are given in Table 2.1."
+            in sources[0].highlight_text
+        )
 
     def test_build_sources_from_chunks_preserves_uploaded_doc_id_with_repeated_underscores(
         self, sample_text_chunk
@@ -261,9 +323,7 @@ class TestSourceTranslationFill:
         assert sources[0].document_id == "EN1992-1-1_2004(1).pdf"
         assert sources[0].file == "EN1992-1-1_2004(1).pdf"
 
-    def test_build_sources_from_chunks_prefers_external_doc_id(
-        self, sample_text_chunk
-    ):
+    def test_build_sources_from_chunks_prefers_external_doc_id(self, sample_text_chunk):
         chunk = sample_text_chunk.model_copy(
             update={
                 "metadata": sample_text_chunk.metadata.model_copy(
@@ -279,6 +339,69 @@ class TestSourceTranslationFill:
 
         assert sources[0].document_id == "huake-doc-123"
         assert sources[0].file == "Original File Name.pdf"
+
+    def test_build_sources_from_chunks_uses_uploaded_file_name_display_title(
+        self, sample_text_chunk, tmp_path: Path
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "document_id": "huake-doc-123",
+                        "source": "huake-doc-123",
+                        "source_title": "CEN members are not a filename",
+                    }
+                )
+            }
+        )
+        parsed_doc = tmp_path / "parsed" / "huake-doc-123"
+        parsed_doc.mkdir(parents=True)
+        (parsed_doc / "parse_options.json").write_text(
+            json.dumps({"file_name": "Eurocode 2 Concrete.pdf"}),
+            encoding="utf-8",
+        )
+
+        sources = _build_sources_from_chunks(
+            [chunk],
+            config=ServerConfig(parsed_dir=str(tmp_path / "parsed")),
+        )
+
+        assert sources[0].document_id == "huake-doc-123"
+        assert sources[0].file == "huake-doc-123"
+        assert sources[0].display_title == "Eurocode 2 Concrete.pdf"
+        assert sources[0].title == "Eurocode 2 Concrete.pdf"
+
+    def test_retrieval_context_uses_uploaded_file_name_display_title(
+        self, sample_text_chunk, tmp_path: Path
+    ):
+        chunk = sample_text_chunk.model_copy(
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "document_id": "huake-doc-123",
+                        "source": "huake-doc-123",
+                        "source_title": "CEN members are not a filename",
+                    }
+                )
+            }
+        )
+        parsed_doc = tmp_path / "parsed" / "huake-doc-123"
+        parsed_doc.mkdir(parents=True)
+        (parsed_doc / "parse_options.json").write_text(
+            json.dumps({"file_name": "Eurocode 2 Concrete.pdf"}),
+            encoding="utf-8",
+        )
+
+        context = _build_retrieval_context(
+            [chunk],
+            [],
+            config=ServerConfig(parsed_dir=str(tmp_path / "parsed")),
+        )
+
+        assert context.chunks[0]["document_id"] == "huake-doc-123"
+        assert context.chunks[0]["file"] == "huake-doc-123"
+        assert context.chunks[0]["display_title"] == "Eurocode 2 Concrete.pdf"
+        assert context.chunks[0]["title"] == "Eurocode 2 Concrete.pdf"
 
     def test_build_sources_from_chunks_keeps_full_highlight_text_without_truncation(
         self, sample_text_chunk
@@ -409,7 +532,9 @@ class TestSourceTranslationFill:
 
         assert sources[0].element_type == "table"
         assert sources[0].bbox == [186.0, 591.0, 858.0, 768.0]
-        assert sources[0].highlight_text.startswith("Table 2.1 - Indicative design working life")
+        assert sources[0].highlight_text.startswith(
+            "Table 2.1 - Indicative design working life"
+        )
 
     @pytest.mark.asyncio
     async def test_fill_missing_source_translations_uses_llm_result(
@@ -506,15 +631,27 @@ class TestGenerateAnswer:
         self, sample_text_chunk, sample_table_chunk
     ):
         seen_user_prompts: list[str] = []
-        raw = json.dumps({"answer": "当前可确认。", "sources": [], "related_refs": [], "confidence": "medium"})
+        raw = json.dumps(
+            {
+                "answer": "当前可确认。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
 
         class _FakeClient:
             def __init__(self, *args, **kwargs):
-                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
 
             async def _create(self, **kwargs):
                 seen_user_prompts.append(kwargs["messages"][1]["content"])
-                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=raw))], usage=None)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))],
+                    usage=None,
+                )
 
         with patch("server.core.generation.AsyncOpenAI", _FakeClient):
             await generate_answer(
@@ -614,8 +751,14 @@ class TestGenerateAnswer:
         assert result.retrieval_context.parent_chunks[0]["chunk_id"] == "chunk_t_2_1"
         assert result.retrieval_context.ref_chunks[0]["chunk_id"] == "chunk_t_2_1"
         assert result.retrieval_context.guide_chunks[0]["chunk_id"] == "guide-1"
-        assert result.retrieval_context.guide_chunks[0]["file"] == "Bridge Designers Guide 2024"
-        assert result.retrieval_context.guide_example_chunks[0]["chunk_id"] == "guide-example-1"
+        assert (
+            result.retrieval_context.guide_chunks[0]["file"]
+            == "Bridge Designers Guide 2024"
+        )
+        assert (
+            result.retrieval_context.guide_example_chunks[0]["chunk_id"]
+            == "guide-example-1"
+        )
         assert result.retrieval_context.resolved_refs == ["Table 2.1"]
         assert result.retrieval_context.unresolved_refs == ["Annex A"]
 
@@ -718,9 +861,9 @@ class TestGenerateAnswer:
             sample_text_chunk.chunk_id
         ]
         assert result.retrieval_context.chunks[0]["score"] == 0.91
-        assert [item["chunk_id"] for item in result.retrieval_context.parent_chunks] == [
-            sample_table_chunk.chunk_id
-        ]
+        assert [
+            item["chunk_id"] for item in result.retrieval_context.parent_chunks
+        ] == [sample_table_chunk.chunk_id]
         assert [item["chunk_id"] for item in result.retrieval_context.ref_chunks] == [
             sample_table_chunk.chunk_id
         ]
@@ -742,7 +885,9 @@ class TestGenerateAnswer:
                     yield SimpleNamespace(
                         choices=[
                             SimpleNamespace(
-                                delta=SimpleNamespace(content="回答", reasoning_content=None),
+                                delta=SimpleNamespace(
+                                    content="回答", reasoning_content=None
+                                ),
                                 finish_reason=None,
                             )
                         ]
@@ -750,7 +895,9 @@ class TestGenerateAnswer:
                     yield SimpleNamespace(
                         choices=[
                             SimpleNamespace(
-                                delta=SimpleNamespace(content=None, reasoning_content=None),
+                                delta=SimpleNamespace(
+                                    content=None, reasoning_content=None
+                                ),
                                 finish_reason="stop",
                             )
                         ]
@@ -872,11 +1019,16 @@ class TestGenerateAnswer:
             )
         )
 
-        with patch("server.core.generation.AsyncOpenAI", _FakeClient), patch(
-            "server.core.generation._call_source_translation_llm",
-            mock_translation,
+        with (
+            patch("server.core.generation.AsyncOpenAI", _FakeClient),
+            patch(
+                "server.core.generation._call_source_translation_llm",
+                mock_translation,
+            ),
         ):
-            result = await generate_answer("设计使用年限怎么确定？", [sample_text_chunk], [])
+            result = await generate_answer(
+                "设计使用年限怎么确定？", [sample_text_chunk], []
+            )
 
         assert result.sources[0].translation == ""
         assert result.sources[0].document_id == "EN1990_2002"
@@ -920,7 +1072,9 @@ class TestGenerateAnswer:
                 )
 
         with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            result = await generate_answer("设计使用年限怎么确定？", [sample_text_chunk], [])
+            result = await generate_answer(
+                "设计使用年限怎么确定？", [sample_text_chunk], []
+            )
 
         assert len(result.sources) == 1
         assert result.sources[0].translation == ""
@@ -962,7 +1116,9 @@ class TestGenerateAnswer:
                 )
 
         with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            result = await generate_answer("设计使用年限怎么确定？", [sample_text_chunk], [])
+            result = await generate_answer(
+                "设计使用年限怎么确定？", [sample_text_chunk], []
+            )
 
         assert len(result.sources) == 1
         assert result.sources[0].translation == ""
@@ -1002,7 +1158,9 @@ class TestGenerateAnswer:
                 )
 
         with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            result = await generate_answer("设计使用年限怎么确定？", [sample_text_chunk], [])
+            result = await generate_answer(
+                "设计使用年限怎么确定？", [sample_text_chunk], []
+            )
 
         expected = _build_sources_from_chunks([sample_text_chunk])
         assert [source.model_dump() for source in result.sources] == [
@@ -1034,7 +1192,9 @@ class TestGenerateAnswer:
                 )
 
         with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            result = await generate_answer("设计使用年限怎么确定？", [sample_text_chunk], [])
+            result = await generate_answer(
+                "设计使用年限怎么确定？", [sample_text_chunk], []
+            )
 
         expected = _build_sources_from_chunks([sample_text_chunk])
         assert [source.model_dump() for source in result.sources] == [
@@ -1065,7 +1225,9 @@ class TestGenerateAnswer:
                 )
 
         with patch("server.core.generation.AsyncOpenAI", _FakeClient):
-            result = await generate_answer("设计使用年限怎么确定？", [sample_text_chunk], [])
+            result = await generate_answer(
+                "设计使用年限怎么确定？", [sample_text_chunk], []
+            )
 
         expected = _build_sources_from_chunks([sample_text_chunk])
         assert [source.model_dump() for source in result.sources] == [
@@ -1086,14 +1248,16 @@ class TestBuildSourcesBbox:
     def test_prefers_physical_page_index_when_no_bbox(self, sample_text_chunk):
         """page_file_index（物理页码）应优先于 page_numbers（逻辑页码）。"""
         no_bbox_chunk = sample_text_chunk.model_copy(
-            update={"metadata": sample_text_chunk.metadata.model_copy(
-                update={
-                    "bbox": [],
-                    "bbox_page_idx": -1,
-                    "page_numbers": [30],
-                    "page_file_index": [27],
-                }
-            )}
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "bbox": [],
+                        "bbox_page_idx": -1,
+                        "page_numbers": [30],
+                        "page_file_index": [27],
+                    }
+                )
+            }
         )
         sources = _build_sources_from_chunks([no_bbox_chunk])
         assert sources[0].bbox == []
@@ -1102,14 +1266,16 @@ class TestBuildSourcesBbox:
     def test_falls_back_to_page_numbers_when_no_physical_page(self, sample_text_chunk):
         """page_file_index 为空时退回 page_numbers。"""
         no_bbox_chunk = sample_text_chunk.model_copy(
-            update={"metadata": sample_text_chunk.metadata.model_copy(
-                update={
-                    "bbox": [],
-                    "bbox_page_idx": -1,
-                    "page_numbers": [30],
-                    "page_file_index": [],
-                }
-            )}
+            update={
+                "metadata": sample_text_chunk.metadata.model_copy(
+                    update={
+                        "bbox": [],
+                        "bbox_page_idx": -1,
+                        "page_numbers": [30],
+                        "page_file_index": [],
+                    }
+                )
+            }
         )
         sources = _build_sources_from_chunks([no_bbox_chunk])
         assert sources[0].bbox == []
@@ -1118,18 +1284,29 @@ class TestBuildSourcesBbox:
 
 class TestGenerateAnswerStream:
     @pytest.mark.asyncio
-    async def test_generate_answer_stream_uses_open_prompt_by_default(self, sample_text_chunk):
+    async def test_generate_answer_stream_uses_open_prompt_by_default(
+        self, sample_text_chunk
+    ):
         seen_system_prompts: list[str] = []
 
         class _FakeStreamClient:
             def __init__(self, *args, **kwargs):
-                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
 
             async def _create(self, **kwargs):
                 seen_system_prompts.append(kwargs["messages"][0]["content"])
 
                 async def _stream():
-                    yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="结论：开放式回答。"), finish_reason="stop")])
+                    yield SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="结论：开放式回答。"),
+                                finish_reason="stop",
+                            )
+                        ]
+                    )
 
                 return _stream()
 
@@ -1147,6 +1324,7 @@ class TestGenerateAnswerStream:
         assert "回答整理助手" in seen_system_prompts[0]
         assert "直接结论" in seen_system_prompts[0]
         assert events[-1][0] == "done"
+
     @pytest.mark.asyncio
     async def test_generate_answer_stream_emits_reasoning_event(
         self, sample_text_chunk
@@ -1172,7 +1350,8 @@ class TestGenerateAnswerStream:
                         choices=[
                             SimpleNamespace(
                                 delta=SimpleNamespace(
-                                    reasoning_content=None, content="结论：应按规范指定。"
+                                    reasoning_content=None,
+                                    content="结论：应按规范指定。",
                                 )
                             )
                         ]
@@ -1194,9 +1373,12 @@ class TestGenerateAnswerStream:
         )
 
         events: list[tuple[str, dict]] = []
-        with patch("server.core.generation.AsyncOpenAI", _FakeStreamClient), patch(
-            "server.core.generation._call_source_translation_llm",
-            mock_translation,
+        with (
+            patch("server.core.generation.AsyncOpenAI", _FakeStreamClient),
+            patch(
+                "server.core.generation._call_source_translation_llm",
+                mock_translation,
+            ),
         ):
             async for event_type, data in generate_answer_stream(
                 "设计使用年限怎么确定？",
@@ -1208,6 +1390,42 @@ class TestGenerateAnswerStream:
 
         assert events[0] == ("reasoning", {"text": "先定位条款。"})
         assert events[1] == ("chunk", {"text": "结论：应按规范指定。", "done": False})
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_stream_ignores_usage_only_chunk(
+        self, sample_text_chunk
+    ):
+        class _FakeStreamClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                async def _stream():
+                    yield SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="结论：应按规范指定。")
+                            )
+                        ]
+                    )
+                    yield SimpleNamespace(choices=[], usage=SimpleNamespace())
+
+                return _stream()
+
+        events: list[tuple[str, dict]] = []
+        with patch("server.core.generation.AsyncOpenAI", _FakeStreamClient):
+            async for event_type, data in generate_answer_stream(
+                "设计使用年限怎么确定？",
+                [sample_text_chunk],
+                [],
+                scores=[0.9],
+            ):
+                events.append((event_type, data))
+
+        assert ("chunk", {"text": "结论：应按规范指定。", "done": False}) in events
+        assert events[-1][0] == "done"
 
     @pytest.mark.asyncio
     async def test_generate_answer_stream_done_payload_keeps_translation_empty(
@@ -1223,9 +1441,7 @@ class TestGenerateAnswerStream:
                 async def _stream():
                     yield SimpleNamespace(
                         choices=[
-                            SimpleNamespace(
-                                delta=SimpleNamespace(content="结论：")
-                            )
+                            SimpleNamespace(delta=SimpleNamespace(content="结论："))
                         ]
                     )
                     yield SimpleNamespace(
@@ -1252,9 +1468,12 @@ class TestGenerateAnswerStream:
         )
 
         events: list[tuple[str, dict]] = []
-        with patch("server.core.generation.AsyncOpenAI", _FakeStreamClient), patch(
-            "server.core.generation._call_source_translation_llm",
-            mock_translation,
+        with (
+            patch("server.core.generation.AsyncOpenAI", _FakeStreamClient),
+            patch(
+                "server.core.generation._call_source_translation_llm",
+                mock_translation,
+            ),
         ):
             async for event_type, data in generate_answer_stream(
                 "设计使用年限怎么确定？",
@@ -1304,6 +1523,7 @@ class TestGenerateAnswerStream:
                 ),
             }
         )
+
         class _FakeStreamClient:
             def __init__(self, *args, **kwargs):
                 self.chat = SimpleNamespace(
@@ -1338,9 +1558,18 @@ class TestGenerateAnswerStream:
         assert done_event == "done"
         assert done_payload["retrieval_context"]["chunks"][0]["chunk_id"] == "chunk_023"
         assert done_payload["retrieval_context"]["chunks"][0]["score"] == 0.91
-        assert done_payload["retrieval_context"]["parent_chunks"][0]["chunk_id"] == "chunk_t_2_1"
-        assert done_payload["retrieval_context"]["guide_chunks"][0]["chunk_id"] == "guide-1"
-        assert done_payload["retrieval_context"]["guide_example_chunks"][0]["chunk_id"] == "guide-example-1"
+        assert (
+            done_payload["retrieval_context"]["parent_chunks"][0]["chunk_id"]
+            == "chunk_t_2_1"
+        )
+        assert (
+            done_payload["retrieval_context"]["guide_chunks"][0]["chunk_id"]
+            == "guide-1"
+        )
+        assert (
+            done_payload["retrieval_context"]["guide_example_chunks"][0]["chunk_id"]
+            == "guide-example-1"
+        )
         assert [source["file"] for source in done_payload["sources"]] == [
             "EN 1990:2002",
             "Bridge Designers Guide 2024",
@@ -1378,7 +1607,9 @@ class TestGenerateAnswerStream:
 
             async def _create(self, **kwargs):
                 return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content=answer_raw))]
+                    choices=[
+                        SimpleNamespace(message=SimpleNamespace(content=answer_raw))
+                    ]
                 )
 
         class _FakeStreamClient:
@@ -1390,7 +1621,11 @@ class TestGenerateAnswerStream:
             async def _create(self, **kwargs):
                 async def _stream():
                     yield SimpleNamespace(
-                        choices=[SimpleNamespace(delta=SimpleNamespace(content="结论：应按规范指定。"))]
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="结论：应按规范指定。")
+                            )
+                        ]
                     )
 
                 return _stream()
@@ -1414,6 +1649,6 @@ class TestGenerateAnswerStream:
 
         done_event, done_payload = stream_events[-1]
         assert done_event == "done"
-        assert [source.model_dump() for source in answer_result.sources] == done_payload[
-            "sources"
-        ]
+        assert [
+            source.model_dump() for source in answer_result.sources
+        ] == done_payload["sources"]

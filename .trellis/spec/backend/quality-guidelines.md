@@ -94,6 +94,61 @@ source_title = _resolve_source_title(meta, doc_id.replace("_", " "))
 source_title = requested_file_name or display_source_name
 ```
 
+### Scenario: Indexed Source Title Repair Script
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to the server-side script that repairs already-indexed document display titles from `{parsed_dir}/{doc_id}/parse_options.json`.
+- Reason: production deployments may contain chunks indexed before the Huake filename contract was enforced. Repair must preserve stable source identity while making prompt and source display fields readable.
+
+#### 2. Signatures
+
+- Command: `python scripts/fix_source_titles_from_parse_options.py [--apply] [--parsed-dir PATH] [--es-url URL] [--es-index NAME] [--milvus-host HOST] [--milvus-port PORT] [--milvus-collection NAME]`.
+- Environment fallbacks: `PARSED_DIR`, `ES_URL`, `ES_INDEX`, `MILVUS_HOST`, `MILVUS_PORT`, `MILVUS_COLLECTION`.
+- Input sidecar: `{parsed_dir}/{doc_id}/parse_options.json` with `file_name` (also tolerates `filename` / `fileName` for repair compatibility).
+
+#### 3. Contracts
+
+- Default mode is dry-run. The script must not mutate Elasticsearch or Milvus unless `--apply` is present.
+- Elasticsearch repair updates `source_title` and `display_title` for documents whose `source` equals the stable `doc_id` or the configured legacy source alias.
+- Milvus repair must inspect the collection schema before writing. If `source_title` or `display_title` scalar fields exist, update them; if the deployed schema only contains `chunk_id`, `embedding`, `source`, and `element_type`, report that no display-title field exists and leave Milvus source identity unchanged.
+- The script must never replace `source` with the filename. `source` remains the backend document id used by retrieval filters, delete, rebuild, and file endpoints.
+
+#### 4. Validation & Error Matrix
+
+- No parse options with filename -> exit non-zero with a clear message.
+- Invalid sidecar JSON -> skip that document and report the path.
+- Elasticsearch document count is zero for a target -> report zero chunks and continue.
+- Milvus collection missing -> report and continue unless the caller chose to run only Milvus checks.
+- Milvus schema has no display fields -> verify source presence and do not attempt an upsert.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: `doc_id="huake-doc-123"`, `file_name="Eurocode 2 Concrete.pdf"`; ES chunks keep `source="huake-doc-123"` and get `source_title/display_title="Eurocode 2 Concrete.pdf"`.
+- Base: current Milvus schema has no display fields; script reports `found` for `source` and performs no Milvus mutation.
+- Bad: changing Milvus or ES `source` from `huake-doc-123` to `Eurocode 2 Concrete.pdf`, breaking document filters and delete paths.
+
+#### 6. Tests Required
+
+- Generation tests must assert prompt `文档名`, `sources[].display_title/title`, and retrieval context display fields prefer uploaded filename.
+- Script help must remain runnable without external services.
+- Dry-run target loading should be testable without Elasticsearch or Milvus by using `--skip-es --skip-milvus`.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+ctx._source.source = params.file_name
+```
+
+##### Correct
+
+```python
+ctx._source.source_title = params.file_name
+ctx._source.display_title = params.file_name
+```
+
 ### Scenario: Deterministic Query-Understanding Stabilizers
 
 #### 1. Scope / Trigger
