@@ -13,6 +13,11 @@ function buildUnmatchedBadge(label: string): string {
     return "?";
   }
 
+  const parentMatch = label.match(/^Parent-(\d+)$/i);
+  if (parentMatch) {
+    return `P${parentMatch[1]}`;
+  }
+
   // 兜底：尝试从自由文本中提取条款号
   const segments = label
     .split("·")

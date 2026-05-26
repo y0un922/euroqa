@@ -4,14 +4,17 @@ export const REFERENCE_LINK_PREFIX = "reference://";
 export const UNMATCHED_CITATION_PREFIX = "citation://";
 
 /**
- * 匹配 LLM 输出中的 [Ref-N] 引用标记。
- * 全局匹配，每次调用前自动重置 lastIndex。
+ * 匹配 LLM 输出中的引用标记组，支持：
+ * [Ref-N]、[Ref-N, Ref-M]、[Ref-N, Parent-M]、[Parent-N]。
  */
-const REF_CITATION_PATTERN = /\[Ref-(\d+)\]/gi;
+const CITATION_GROUP_PATTERN =
+  /\[\s*((?:Ref|Parent)-\d+(?:\s*,\s*(?:Ref|Parent)-\d+)*)\s*\]/gi;
+const CITATION_TOKEN_PATTERN = /^(Ref|Parent)-(\d+)$/i;
 
 /**
- * 将 Markdown 中的 [Ref-N] 标记转换为可点击的引用链接。
- * N 直接对应 references 数组的 1-based 索引。
+ * 将 Markdown 中的引用标记转换为可点击的引用链接。
+ * Ref-N 直接对应 references 数组的 1-based 索引；Parent-N 暂无独立证据面板，
+ * 先作为 unmatched citation 渲染，避免原始标记裸露在回答中。
  */
 export function linkifyReferenceCitations(
   markdown: string,
@@ -21,17 +24,37 @@ export function linkifyReferenceCitations(
     return markdown;
   }
 
-  return markdown.replace(REF_CITATION_PATTERN, (full, indexStr) => {
-    const index = Number(indexStr);
-    const reference = references[index - 1];
+  return markdown.replace(CITATION_GROUP_PATTERN, (full, group) => {
+    const linkedTokens = String(group)
+      .split(",")
+      .map((rawToken) => rawToken.trim())
+      .filter(Boolean)
+      .map((token) => {
+        const match = token.match(CITATION_TOKEN_PATTERN);
+        if (!match) {
+          return token;
+        }
 
-    if (!reference) {
-      // LLM 引用了不存在的编号，标记为 unmatched
-      const label = `Ref-${indexStr}`;
-      return `[${label}](${UNMATCHED_CITATION_PREFIX}${encodeURIComponent(label)})`;
-    }
+        const kind = match[1]?.toLowerCase();
+        const indexStr = match[2] ?? "";
+        const label = `${kind === "parent" ? "Parent" : "Ref"}-${indexStr}`;
 
-    return `[[Ref-${indexStr}]](${REFERENCE_LINK_PREFIX}${reference.id})`;
+        if (kind === "parent") {
+          return `[${label}](${UNMATCHED_CITATION_PREFIX}${encodeURIComponent(label)})`;
+        }
+
+        const index = Number(indexStr);
+        const reference = references[index - 1];
+
+        if (!reference) {
+          // LLM 引用了不存在的编号，标记为 unmatched
+          return `[${label}](${UNMATCHED_CITATION_PREFIX}${encodeURIComponent(label)})`;
+        }
+
+        return `[[${label}]](${REFERENCE_LINK_PREFIX}${reference.id})`;
+      });
+
+    return linkedTokens.length > 0 ? linkedTokens.join(", ") : full;
   });
 }
 

@@ -77,6 +77,21 @@ test("buildInlineReferenceAnchor shows ? badge for unmatched Ref-N citations", (
   });
 });
 
+test("buildInlineReferenceAnchor shows parent badges for parent context citations", () => {
+  const anchor = buildInlineReferenceAnchor(
+    "Parent-3",
+    null,
+    references
+  );
+
+  assert.deepEqual(anchor, {
+    badge: "P3",
+    tone: "unmatched",
+    tooltip: "未命中引用 · Parent-3",
+    ariaLabel: "未命中引用：Parent-3"
+  });
+});
+
 test("buildInlineReferenceAnchor extracts clause from legacy freeform labels", () => {
   const anchor = buildInlineReferenceAnchor(
     "EN 1990:2002 · A1.2.1(4)",

@@ -70,6 +70,33 @@ test("linkifyReferenceCitations maps multiple references correctly", () => {
   );
 });
 
+test("linkifyReferenceCitations expands grouped ref markers", () => {
+  const markdown = "搭接长度取值见 [Ref-1, Ref-2]。";
+  const result = linkifyReferenceCitations(markdown, references);
+
+  assert.equal(
+    result,
+    "搭接长度取值见 [[Ref-1]](reference://m1-ref-1), [[Ref-2]](reference://m1-ref-2)。"
+  );
+});
+
+test("linkifyReferenceCitations renders parent markers as unmatched citations", () => {
+  const markdown = "国家附录差异需结合 [Ref-1, Parent-3] 判断。";
+  const result = linkifyReferenceCitations(markdown, references);
+
+  assert.equal(
+    result,
+    "国家附录差异需结合 [[Ref-1]](reference://m1-ref-1), [Parent-3](citation://Parent-3) 判断。"
+  );
+});
+
+test("linkifyReferenceCitations renders standalone parent markers", () => {
+  const markdown = "适用范围见 [Parent-2]。";
+  const result = linkifyReferenceCitations(markdown, references);
+
+  assert.equal(result, "适用范围见 [Parent-2](citation://Parent-2)。");
+});
+
 test("linkifyReferenceCitations normalizes uppercase ref markers", () => {
   const markdown = "DG 证据也通过 [REF-2] 统一引用。";
   const result = linkifyReferenceCitations(markdown, references);

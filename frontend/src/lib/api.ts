@@ -40,6 +40,11 @@ import { clearToken, dispatchAuthExpired, getToken } from "./auth";
 const normalize = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
+function isOpaqueDocumentId(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[a-f0-9]{24,}$/i.test(trimmed) || /^[a-f0-9-]{32,}$/i.test(trimmed);
+}
+
 function findDocumentById(
   documentId: string,
   documents: DocumentInfo[]
