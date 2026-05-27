@@ -12,7 +12,7 @@ Group=root251
 WorkingDirectory=/home/root251/euroqa
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/home/root251/.local/bin:/home/root251/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/env uv run uvicorn server.main:app --host 0.0.0.0 --port 8080
+ExecStart=/usr/bin/env uv run uvicorn server.main:app --host 0.0.0.0 --port 8080 --workers 4
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=120

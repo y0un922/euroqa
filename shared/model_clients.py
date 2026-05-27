@@ -55,8 +55,11 @@ class EmbeddingClient:
     api_key: str = ""
     request_timeout_seconds: float = 120.0
     batch_size: int = 8
+    max_connections: int = 100
+    max_keepalive_connections: int = 20
 
     _local_models: ClassVar[dict[str, Any]] = {}
+    _client: httpx.AsyncClient | None = None
 
     @classmethod
     def _get_local_model(cls, model_name: str) -> Any:
@@ -97,12 +100,11 @@ class EmbeddingClient:
     async def _embed_remote(self, texts: list[str]) -> list[list[float]]:
         _require_remote_url("embedding", self.api_url)
         endpoint = _resolve_remote_endpoint(self.api_url, "/embeddings")
-        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
-            response = await client.post(
-                endpoint,
-                headers=_build_headers(self.api_key),
-                json={"model": self.model, "input": texts},
-            )
+        response = await self._get_client().post(
+            endpoint,
+            headers=_build_headers(self.api_key),
+            json={"model": self.model, "input": texts},
+        )
         response.raise_for_status()
         payload = response.json()
         data = payload.get("data")
@@ -110,6 +112,23 @@ class EmbeddingClient:
             raise RuntimeError("Remote embedding API response missing data list")
         ordered = sorted(data, key=lambda item: item.get("index", 0))
         return [item["embedding"] for item in ordered]
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=self.request_timeout_seconds,
+                limits=httpx.Limits(
+                    max_connections=self.max_connections,
+                    max_keepalive_connections=self.max_keepalive_connections,
+                ),
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the remote HTTP client if it was created."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
 
 @dataclass(slots=True)
@@ -123,8 +142,11 @@ class RerankClient:
     request_timeout_seconds: float = 120.0
     max_length: int = 8192
     supports_max_length: bool = True
+    max_connections: int = 100
+    max_keepalive_connections: int = 20
 
     _local_models: ClassVar[dict[str, Any]] = {}
+    _client: httpx.AsyncClient | None = None
 
     @classmethod
     def _get_local_model(cls, model_name: str) -> Any:
@@ -219,12 +241,11 @@ class RerankClient:
         body: dict[str, Any],
     ) -> httpx.Response:
         started = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
-            response = await client.post(
-                endpoint,
-                headers=_build_headers(self.api_key),
-                json=body,
-            )
+        response = await self._get_client().post(
+            endpoint,
+            headers=_build_headers(self.api_key),
+            json=body,
+        )
         logger.info(
             "remote_rerank_request",
             status_code=response.status_code,
@@ -238,6 +259,23 @@ class RerankClient:
         )
         return response
 
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=self.request_timeout_seconds,
+                limits=httpx.Limits(
+                    max_connections=self.max_connections,
+                    max_keepalive_connections=self.max_keepalive_connections,
+                ),
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the remote HTTP client if it was created."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
 
 def build_embedding_client(config: Any) -> EmbeddingClient:
     """Build an embedding client from pipeline or server config."""
@@ -248,6 +286,8 @@ def build_embedding_client(config: Any) -> EmbeddingClient:
         api_key=config.embedding_api_key,
         request_timeout_seconds=config.embedding_request_timeout_seconds,
         batch_size=getattr(config, "embedding_batch_size", 8),
+        max_connections=getattr(config, "httpx_max_connections", 100),
+        max_keepalive_connections=getattr(config, "httpx_max_keepalive_connections", 20),
     )
 
 
@@ -260,4 +300,6 @@ def build_rerank_client(config: Any) -> RerankClient:
         api_key=config.rerank_api_key,
         request_timeout_seconds=config.rerank_request_timeout_seconds,
         max_length=getattr(config, "rerank_max_length", 8192),
+        max_connections=getattr(config, "httpx_max_connections", 100),
+        max_keepalive_connections=getattr(config, "httpx_max_keepalive_connections", 20),
     )

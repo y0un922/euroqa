@@ -56,6 +56,8 @@ class ServerConfig(BaseSettings):
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     rerank_request_timeout_seconds: float = 120.0
     rerank_max_length: int = 8192
+    httpx_max_connections: int = 100
+    httpx_max_keepalive_connections: int = 20
 
     milvus_host: str = "localhost"
     milvus_port: int = 19530

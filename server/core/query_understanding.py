@@ -15,6 +15,7 @@ import httpx
 import structlog
 from openai import AsyncOpenAI
 
+from shared.llm_clients import get_async_openai_client
 from shared.reference_graph import classify_reference_label, normalize_reference_label
 from server.config import ServerConfig
 from server.models.schemas import (
@@ -573,10 +574,11 @@ async def _call_llm(prompt: str, config: ServerConfig | None = None) -> str:
     api_key = cfg.query_expansion_llm_api_key or cfg.llm_api_key
     base_url = cfg.query_expansion_llm_base_url or cfg.llm_base_url
     model = cfg.query_expansion_llm_model or cfg.llm_model
-    client = AsyncOpenAI(
+    client = await get_async_openai_client(
         api_key=api_key,
         base_url=base_url,
         timeout=httpx.Timeout(timeout=30.0, connect=5.0),
+        client_factory=AsyncOpenAI,
     )
     logger.info("query_expansion_llm_start model=%s", model)
     resp = await client.chat.completions.create(

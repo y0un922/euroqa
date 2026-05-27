@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 import httpx
 
 from server.config import ServerConfig
+from shared.llm_clients import get_async_openai_client
 from shared.tokenizers import count_for_llm
 from shared.spot_check import record_spot_check
 from server.models.schemas import (
@@ -1261,10 +1262,11 @@ async def _call_source_translation_llm(
     api_key = cfg.translation_llm_api_key or cfg.llm_api_key
     base_url = cfg.translation_llm_base_url or cfg.llm_base_url
     model = cfg.translation_llm_model or cfg.llm_model
-    client = AsyncOpenAI(
+    client = await get_async_openai_client(
         api_key=api_key,
         base_url=base_url,
         timeout=httpx.Timeout(timeout=30.0, connect=5.0),
+        client_factory=AsyncOpenAI,
     )
     response = await client.chat.completions.create(
         model=model,
@@ -1500,10 +1502,11 @@ async def generate_answer_stream(
         intent_label=intent_label,
     )
 
-    client = AsyncOpenAI(
+    client = await get_async_openai_client(
         api_key=cfg.llm_api_key,
         base_url=cfg.llm_base_url,
         timeout=httpx.Timeout(timeout=600.0),
+        client_factory=AsyncOpenAI,
     )
     prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
     record_spot_check(
@@ -1696,7 +1699,11 @@ async def generate_answer(
         config=cfg,
     )
 
-    client = AsyncOpenAI(api_key=cfg.llm_api_key, base_url=cfg.llm_base_url)
+    client = await get_async_openai_client(
+        api_key=cfg.llm_api_key,
+        base_url=cfg.llm_base_url,
+        client_factory=AsyncOpenAI,
+    )
     prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
     record_spot_check(
         "final_prompt_tokens",

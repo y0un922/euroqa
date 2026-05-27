@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,17 +11,28 @@ from server.api.debug_pipeline import router as debug_router
 from server.api.v1.auth import require_auth
 from server.api.v1.router import router as v1_router
 from server.deps import get_retriever
+from shared.llm_clients import close_async_openai_clients
+
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from server.services.task_manager import get_task_manager
+
+    retriever = get_retriever()
+    try:
+        await retriever.initialize()
+    except Exception:
+        logger.error("retriever_initialize_failed", exc_info=True)
+        raise
+
     task_manager = get_task_manager()
     await task_manager.start()
     yield
     await task_manager.stop()
-    retriever = get_retriever()
     await retriever.close()
+    await close_async_openai_clients()
 
 
 app = FastAPI(

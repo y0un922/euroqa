@@ -1,6 +1,7 @@
 """混合检索层：向量检索 + BM25 + 重排序 + 父文档检索 + 交叉引用补充。"""
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
     from pymilvus import Collection
 
-logger = structlog.get_logger()
+logger = structlog.get_logger(__name__)
 
 # 匹配源文档代号（EN 1990, EN 1992-1-1 等）用于标识引用的标准来源
 _SOURCE_DOC_RE = re.compile(
@@ -166,9 +167,42 @@ class HybridRetriever:
             self._es = build_async_elasticsearch(self.config.es_url)
         return self._es
 
+    async def initialize(self) -> None:
+        """初始化 Milvus 连接并预加载 Collection。"""
+        logger.info(
+            "milvus_initialize_starting",
+            host=self.config.milvus_host,
+            port=self.config.milvus_port,
+            collection=self.config.milvus_collection,
+        )
+        try:
+            collection_cls, milvus_connections = self._import_milvus()
+            await asyncio.to_thread(
+                milvus_connections.connect,
+                host=self.config.milvus_host,
+                port=self.config.milvus_port,
+            )
+            collection = collection_cls(self.config.milvus_collection)
+            await asyncio.to_thread(collection.load)
+            self._collection = collection
+            logger.info(
+                "milvus_initialize_completed",
+                collection=self.config.milvus_collection,
+            )
+        except Exception:
+            logger.exception(
+                "milvus_initialize_failed",
+                collection=self.config.milvus_collection,
+            )
+            raise
+
     def _get_collection(self) -> Collection:
-        """获取或创建 Milvus Collection（同时建立连接并加载数据）。"""
+        """获取已加载的 Milvus Collection。"""
         if self._collection is None:
+            logger.warning(
+                "milvus_collection_lazy_initialization",
+                collection=self.config.milvus_collection,
+            )
             collection_cls, milvus_connections = self._import_milvus()
             milvus_connections.connect(
                 host=self.config.milvus_host,
@@ -197,7 +231,8 @@ class HybridRetriever:
                 expr_parts.append(source_expr)
         expr = " and ".join(expr_parts) if expr_parts else None
 
-        results = collection.search(
+        results = await asyncio.to_thread(
+            collection.search,
             data=[embedding],
             anns_field="embedding",
             param={"metric_type": "COSINE", "params": {"ef": 128}},
@@ -832,27 +867,45 @@ class HybridRetriever:
         if not guide_queries:
             return []
 
-        for query in guide_queries:
-            try:
-                vec = await self._vector_search(
-                    query,
-                    self._guide_search_top_k(),
-                    guide_filters,
-                )
-                candidate_results = self._append_unique_results(candidate_results, vec)
-            except Exception:
-                logger.warning("guide_vector_search_failed", query=query[:80])
+        async def _search_guide_query(query: str) -> list[dict]:
+            query_results: list[dict] = []
 
-            try:
-                bm25 = await self._bm25_search(
-                    query,
-                    min(max(self.config.bm25_top_k * 3, 12), 30),
-                    guide_filters,
-                    fields=_GUIDE_SEARCH_FIELDS,
-                )
-                candidate_results = self._append_unique_results(candidate_results, bm25)
-            except Exception:
-                logger.warning("guide_bm25_search_failed", query=query[:80])
+            async def _vector() -> list[dict]:
+                try:
+                    return await self._vector_search(
+                        query,
+                        self._guide_search_top_k(),
+                        guide_filters,
+                    )
+                except Exception:
+                    logger.warning("guide_vector_search_failed", query=query[:80])
+                    return []
+
+            async def _bm25() -> list[dict]:
+                try:
+                    return await self._bm25_search(
+                        query,
+                        min(max(self.config.bm25_top_k * 3, 12), 30),
+                        guide_filters,
+                        fields=_GUIDE_SEARCH_FIELDS,
+                    )
+                except Exception:
+                    logger.warning("guide_bm25_search_failed", query=query[:80])
+                    return []
+
+            vec, bm25 = await asyncio.gather(_vector(), _bm25())
+            query_results = self._append_unique_results(query_results, vec)
+            query_results = self._append_unique_results(query_results, bm25)
+            return query_results
+
+        per_query_results = await asyncio.gather(
+            *(_search_guide_query(query) for query in guide_queries)
+        )
+        for query_results in per_query_results:
+            candidate_results = self._append_unique_results(
+                candidate_results,
+                query_results,
+            )
 
         if not candidate_results:
             return []
@@ -894,27 +947,45 @@ class HybridRetriever:
         if not guide_queries:
             return []
 
-        for query in guide_queries:
-            try:
-                vec = await self._vector_search(
-                    query,
-                    self._guide_search_top_k(),
-                    guide_filters,
-                )
-                candidate_results = self._append_unique_results(candidate_results, vec)
-            except Exception:
-                logger.warning("guide_example_vector_search_failed", query=query[:80])
+        async def _search_guide_example_query(query: str) -> list[dict]:
+            query_results: list[dict] = []
 
-            try:
-                bm25 = await self._bm25_search(
-                    query,
-                    min(max(self.config.bm25_top_k * 3, 12), 30),
-                    guide_filters,
-                    fields=_GUIDE_SEARCH_FIELDS,
-                )
-                candidate_results = self._append_unique_results(candidate_results, bm25)
-            except Exception:
-                logger.warning("guide_example_bm25_search_failed", query=query[:80])
+            async def _vector() -> list[dict]:
+                try:
+                    return await self._vector_search(
+                        query,
+                        self._guide_search_top_k(),
+                        guide_filters,
+                    )
+                except Exception:
+                    logger.warning("guide_example_vector_search_failed", query=query[:80])
+                    return []
+
+            async def _bm25() -> list[dict]:
+                try:
+                    return await self._bm25_search(
+                        query,
+                        min(max(self.config.bm25_top_k * 3, 12), 30),
+                        guide_filters,
+                        fields=_GUIDE_SEARCH_FIELDS,
+                    )
+                except Exception:
+                    logger.warning("guide_example_bm25_search_failed", query=query[:80])
+                    return []
+
+            vec, bm25 = await asyncio.gather(_vector(), _bm25())
+            query_results = self._append_unique_results(query_results, vec)
+            query_results = self._append_unique_results(query_results, bm25)
+            return query_results
+
+        per_query_results = await asyncio.gather(
+            *(_search_guide_example_query(query) for query in guide_queries)
+        )
+        for query_results in per_query_results:
+            candidate_results = self._append_unique_results(
+                candidate_results,
+                query_results,
+            )
 
         if not candidate_results:
             return []
@@ -1014,17 +1085,23 @@ class HybridRetriever:
             "content^2",
             "embedding_text",
         ]
-        for query in deduped_queries:
+        async def _search_metadata_query(query: str) -> list[dict]:
             try:
-                matches = await self._bm25_search(
+                return await self._bm25_search(
                     query,
                     self.config.bm25_top_k,
                     filters,
                     fields=metadata_fields,
                 )
-                results = self._append_unique_results(results, matches)
             except Exception:
                 logger.warning("metadata_probe_bm25_failed", query=query[:80])
+                return []
+
+        per_query_results = await asyncio.gather(
+            *(_search_metadata_query(query) for query in deduped_queries)
+        )
+        for query_results in per_query_results:
+            results = self._append_unique_results(results, query_results)
 
         return results
 
@@ -1639,24 +1716,42 @@ class HybridRetriever:
             except Exception:
                 logger.warning("metadata_probe_failed", exc_info=True)
 
-        # 多角度检索：每条查询分别跑向量 + BM25
-        for q in queries:
-            try:
-                vec = await self._vector_search(q, cfg.vector_top_k, filters)
-                if vec:
-                    result_groups.append(vec)
-            except Exception:
-                logger.warning("vector_search_failed", query=q[:80])
+        # 多角度检索：每条查询并发跑向量 + BM25
+        async def _vec_and_bm25(q: str) -> list[list[dict]]:
+            groups: list[list[dict]] = []
 
-            try:
-                bm25 = await self._bm25_search(
-                    q, cfg.bm25_top_k, filters,
-                    preferred_element_type=preferred_element_type,
-                )
-                if bm25:
-                    result_groups.append(bm25)
-            except Exception:
-                logger.warning("bm25_search_failed", query=q[:80])
+            async def _vector() -> list[dict]:
+                try:
+                    return await self._vector_search(q, cfg.vector_top_k, filters)
+                except Exception:
+                    logger.warning("vector_search_failed", query=q[:80])
+                    return []
+
+            async def _bm25() -> list[dict]:
+                try:
+                    return await self._bm25_search(
+                        q,
+                        cfg.bm25_top_k,
+                        filters,
+                        preferred_element_type=preferred_element_type,
+                    )
+                except Exception:
+                    logger.warning("bm25_search_failed", query=q[:80])
+                    return []
+
+            vec, bm25 = await asyncio.gather(_vector(), _bm25())
+            if vec:
+                groups.append(vec)
+            if bm25:
+                groups.append(bm25)
+
+            return groups
+
+        per_query_groups = await asyncio.gather(
+            *(_vec_and_bm25(q) for q in queries)
+        )
+        for groups in per_query_groups:
+            result_groups.extend(groups)
 
         # 原始中文问题仅作为向量补召回信号；避免中文 BM25 给英文索引引入噪音。
         normalized_original = (original_query or "").strip()
@@ -1882,3 +1977,5 @@ class HybridRetriever:
         """清理 ES 连接资源。"""
         if self._es is not None:
             await self._es.close()
+        await self._embedding_client.close()
+        await self._rerank_client.close()
