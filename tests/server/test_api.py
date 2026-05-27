@@ -312,6 +312,9 @@ class TestQueryEndpoint:
         client,
     ):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -382,6 +385,9 @@ class TestQueryEndpoint:
 
     def test_stream_query_does_not_500_when_query_rewrite_llm_fails(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -421,6 +427,9 @@ class TestQueryEndpoint:
 
     def test_query_endpoint_applies_request_scoped_llm_overrides(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -513,6 +522,9 @@ class TestQueryEndpoint:
 
     def test_query_endpoint_does_not_forward_or_store_conversation_history(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -567,6 +579,9 @@ class TestQueryEndpoint:
 
     def test_stream_query_does_not_forward_or_store_conversation_history(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -623,6 +638,9 @@ class TestQueryEndpoint:
         self, client
     ):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -678,6 +696,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_persists_answer_and_title_with_async_manager(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -743,6 +764,9 @@ class TestQueryEndpoint:
         seen_retrieve_calls: list[dict[str, object]] = []
 
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 seen_retrieve_calls.append(kwargs)
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
@@ -818,6 +842,9 @@ class TestQueryEndpoint:
         seen_queries: list[list[str]] = []
 
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 seen_queries.append(kwargs["queries"])
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
@@ -879,6 +906,9 @@ class TestQueryEndpoint:
         )
 
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(
                     chunks=[],
@@ -970,6 +1000,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_endpoint_ignores_blank_llm_override_values(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
@@ -1049,6 +1082,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_endpoint_done_event_includes_retrieval_context(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[0.91], groundedness="grounded")
 
@@ -1148,6 +1184,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_emits_user_friendly_progress_events(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(
                     chunks=[],
@@ -1204,6 +1243,9 @@ class TestQueryEndpoint:
         seen_retrieval_kwargs = {}
 
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 seen_retrieval_kwargs.update(kwargs)
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
@@ -1253,6 +1295,9 @@ class TestQueryEndpoint:
 
     def test_query_endpoint_returns_groundedness(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(
                     chunks=[],
@@ -1296,6 +1341,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_done_event_includes_groundedness(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
 
@@ -1338,6 +1386,9 @@ class TestQueryEndpoint:
         persisted_turn: dict[str, object] = {}
 
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
 
@@ -1435,6 +1486,9 @@ class TestQueryEndpoint:
 
     def test_query_endpoint_threads_intent_label_to_generate_answer(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
 
@@ -1476,6 +1530,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_threads_intent_label_to_generate_answer_stream(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
 
@@ -1510,6 +1567,9 @@ class TestQueryEndpoint:
 
     def test_query_stream_error_event_uses_external_contract(self, client):
         class _FakeRetriever:
+            async def prefetch_vectors(self, query, filters=None):
+                return []
+
             async def retrieve(self, **kwargs):
                 raise RuntimeError("retrieval unavailable")
 

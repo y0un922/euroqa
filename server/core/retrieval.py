@@ -216,6 +216,23 @@ class HybridRetriever:
     # 检索子步骤
     # ------------------------------------------------------------------
 
+    async def prefetch_vectors(
+        self, query: str, filters: dict | None = None,
+    ) -> list[dict]:
+        """Run a vector search that can overlap with query expansion.
+
+        Returns raw result dicts suitable for passing into
+        ``retrieve(prefetched_original_results=...)``.
+        """
+        filters = filters or {}
+        try:
+            return await self._vector_search(
+                query, self.config.vector_top_k, filters,
+            )
+        except Exception:
+            logger.warning("prefetch_vectors_failed", query=query[:80])
+            return []
+
     async def _vector_search(
         self, query: str, top_k: int, filters: dict
     ) -> list[dict]:
@@ -1674,6 +1691,7 @@ class HybridRetriever:
         target_hint: Any = None,
         requested_objects: list[str] | None = None,
         preferred_element_type: str | None = None,
+        prefetched_original_results: list[dict] | None = None,
     ) -> RetrievalResult:
         """执行多角度混合检索流程。
 
@@ -1753,10 +1771,14 @@ class HybridRetriever:
         for groups in per_query_groups:
             result_groups.extend(groups)
 
-        # 原始中文问题仅作为向量补召回信号；避免中文 BM25 给英文索引引入噪音。
         normalized_original = (original_query or "").strip()
         primary_query = queries[0] if queries else ""
-        if normalized_original and normalized_original != primary_query.strip():
+
+        # 原始中文问题仅作为向量补召回信号；避免中文 BM25 给英文索引引入噪音。
+        if prefetched_original_results is not None:
+            if prefetched_original_results:
+                result_groups.append(prefetched_original_results)
+        elif normalized_original and normalized_original != primary_query.strip():
             try:
                 orig_vec = await self._vector_search(
                     normalized_original, cfg.vector_top_k, filters,
@@ -1800,6 +1822,16 @@ class HybridRetriever:
 
         guide_chunks_from_main = self._collect_guide_chunks(final_chunks)
         groundedness = self._infer_groundedness_from_scores(scores)
+
+        # Start guide retrieval early — independent of parent/cross-ref.
+        guide_task: asyncio.Task[list[Chunk]] | None = None
+        if self._should_fetch_guide_chunks(question_type, guide_hint):
+            guide_task = asyncio.create_task(
+                self._retrieve_guide_chunks(queries, original_query)
+            )
+        guide_example_task = asyncio.create_task(
+            self._retrieve_guide_example_chunks(queries, original_query, guide_hint)
+        )
 
         # 获取父 chunk
         parent_chunks = await self._fetch_parent_chunks(final_chunks)
@@ -1946,20 +1978,13 @@ class HybridRetriever:
             groundedness = "partial"
 
         guide_chunks: list[Chunk] = list(guide_chunks_from_main)
-        if self._should_fetch_guide_chunks(question_type, guide_hint):
-            retrieved_guide_chunks = await self._retrieve_guide_chunks(
-                queries,
-                original_query,
-            )
+        if guide_task is not None:
+            retrieved_guide_chunks = await guide_task
             guide_chunks = self._append_unique_chunks(
                 guide_chunks_from_main,
                 retrieved_guide_chunks,
             )
-        guide_example_chunks = await self._retrieve_guide_example_chunks(
-            queries,
-            original_query,
-            guide_hint,
-        )
+        guide_example_chunks = await guide_example_task
 
         return RetrievalResult(
             chunks=final_chunks,

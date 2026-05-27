@@ -24,6 +24,9 @@ def _server_config(**overrides) -> ServerConfig:
 
 
 class _FakeRetriever:
+    async def prefetch_vectors(self, query, filters=None):
+        return []
+
     async def retrieve(self, **kwargs):
         return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 

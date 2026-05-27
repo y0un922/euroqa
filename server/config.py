@@ -19,7 +19,7 @@ class ServerConfig(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
-    llm_enable_thinking: bool = True
+    llm_enable_thinking: bool = False
     use_unified_tokenizer: bool = True
 
     access_password: str = ""
@@ -68,7 +68,7 @@ class ServerConfig(BaseSettings):
 
     vector_top_k: int = 30
     bm25_top_k: int = 30
-    rerank_top_n: int = 15
+    rerank_top_n: int = 10
     max_context_tokens: int = 4000
 
     conversation_ttl_hours: int = 24

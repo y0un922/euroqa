@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import inspect
+import asyncio
 import time
 
 import structlog
@@ -11,7 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from server.config import ServerConfig
 from server.deps import get_config, get_conversation_manager, get_glossary, get_retriever
-from server.core.query_understanding import analyze_query
+from server.core.query_understanding import analyze_query, extract_filters
 from server.core.generation import generate_answer, generate_answer_stream, postprocess_citations
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
 from shared.spot_check import (
@@ -499,7 +500,13 @@ async def query_stream(
                     ensure_ascii=False,
                 ),
             }
-            analysis = await analyze_query(req.question, glossary, runtime_config)
+            pre_filters = extract_filters(req.question)
+            if req.domain:
+                pre_filters["source"] = req.domain
+            analysis, prefetch_results = await asyncio.gather(
+                analyze_query(req.question, glossary, runtime_config),
+                retriever.prefetch_vectors(req.question, pre_filters),
+            )
             if recorder:
                 recorder.record(
                     "expanded_queries",
@@ -552,6 +559,7 @@ async def query_stream(
                 target_hint=analysis.target_hint,
                 requested_objects=analysis.requested_objects,
                 preferred_element_type=analysis.preferred_element_type,
+                prefetched_original_results=prefetch_results,
             )
             summary, facts = _retrieval_summary(result)
             yield {

@@ -954,14 +954,17 @@ _SOURCE_TRANSLATION_SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eu
 }"""
 
 
+def _is_qwen_provider(config: ServerConfig) -> bool:
+    model_name = config.llm_model.lower()
+    base_url = config.llm_base_url.lower()
+    return "qwen" in model_name or "dashscope.aliyuncs.com" in base_url
+
+
 def _should_enable_reasoning(config: ServerConfig) -> bool:
     """Return whether the current model/provider should request thinking tokens."""
     if not config.llm_enable_thinking:
         return False
-
-    model_name = config.llm_model.lower()
-    base_url = config.llm_base_url.lower()
-    return "qwen" in model_name or "dashscope.aliyuncs.com" in base_url
+    return _is_qwen_provider(config)
 
 
 def _build_stream_completion_kwargs(config: ServerConfig) -> dict[str, Any]:
@@ -969,6 +972,8 @@ def _build_stream_completion_kwargs(config: ServerConfig) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
     if _should_enable_reasoning(config):
         kwargs["extra_body"] = {"enable_thinking": True}
+    elif _is_qwen_provider(config):
+        kwargs["extra_body"] = {"enable_thinking": False}
     return kwargs
 
 
