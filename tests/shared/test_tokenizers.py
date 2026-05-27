@@ -98,83 +98,32 @@ def test_bge_count_helpers_return_plain_counts(monkeypatch):
     assert tokenizers.count_for_bge_rerank("text") == 2
 
 
-def test_qwen_llm_count_uses_openai_compatible_usage(monkeypatch):
-    calls = []
-
-    class FakeCompletions:
-        @staticmethod
-        def create(**kwargs):
-            calls.append(kwargs)
-            return {"usage": {"prompt_tokens": 7}}
-
-    class FakeClient:
-        chat = type("Chat", (), {"completions": FakeCompletions})()
-
-    def fake_client(**kwargs):
-        calls.append({"client": kwargs})
-        return FakeClient()
-
+def test_qwen_llm_count_uses_local_tiktoken_estimate(monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "llm-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://dashscope.example/v1")
-    monkeypatch.setattr(tokenizers, "_get_openai_compatible_client", fake_client)
 
     count, is_estimate = tokenizers.count_for_llm("混合 mixed text", "qwen3.6-flash")
 
-    assert (count, is_estimate) == (7, False)
-    assert calls == [
-        {
-            "client": {
-                "api_key": "llm-key",
-                "base_url": "https://dashscope.example/v1",
-            }
-        },
-        {
-            "model": "qwen3.6-flash",
-            "messages": [{"role": "user", "content": "混合 mixed text"}],
-            "max_tokens": 1,
-        },
-    ]
+    assert count > 0
+    assert is_estimate is True
 
 
-def test_qwen_llm_count_falls_back_when_usage_missing(monkeypatch):
-    class FakeCompletions:
-        @staticmethod
-        def create(**kwargs):
-            return {"usage": {}}
-
-    class FakeClient:
-        chat = type("Chat", (), {"completions": FakeCompletions})()
-
+def test_qwen_llm_count_does_not_require_api_key(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
-    monkeypatch.setattr(
-        tokenizers,
-        "_get_openai_compatible_client",
-        lambda **kwargs: FakeClient(),
-    )
 
-    assert tokenizers.count_for_llm("abcdef", "qwen3.6-flash") == (3, True)
+    count, is_estimate = tokenizers.count_for_llm("abcdef", "qwen3.6-flash")
+
+    assert count > 0
+    assert is_estimate is True
 
 
-def test_qwen_embedding_count_can_use_dashscope_tokenization(monkeypatch):
-    calls = []
-
-    class FakeTokenization:
-        @staticmethod
-        def call(**kwargs):
-            calls.append(kwargs)
-            return {"usage": {"input_tokens": 5}}
-
+def test_qwen_embedding_count_uses_local_tiktoken_estimate(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
-    monkeypatch.setattr(tokenizers, "_get_dashscope_tokenization", lambda: FakeTokenization)
 
-    assert tokenizers.count_for_embedding("query", "qwen3-embedding-8b") == (5, False)
-    assert calls == [
-        {
-            "model": "qwen3-embedding-8b",
-            "prompt": "query",
-            "api_key": "dashscope-key",
-        }
-    ]
+    count, is_estimate = tokenizers.count_for_embedding("query", "qwen3-embedding-8b")
+
+    assert count > 0
+    assert is_estimate is True
 
 
 def test_qwen_count_falls_back_to_estimate_without_api_key(monkeypatch):
@@ -183,7 +132,10 @@ def test_qwen_count_falls_back_to_estimate_without_api_key(monkeypatch):
 
     monkeypatch.setattr(tokenizers, "_load_hf_tokenizer", fail_hf_load)
 
-    assert tokenizers.count_for_llm("abcdef", "qwen-max") == (3, True)
+    count, is_estimate = tokenizers.count_for_llm("abcdef", "qwen-max")
+
+    assert count > 0
+    assert is_estimate is True
 
 
 def test_llm_count_for_deepseek_model_is_estimate(monkeypatch):

@@ -28,8 +28,8 @@ def count_for_embedding(
 
     Returns:
         ``(count, is_estimate)``. BGE models use local/online HF tokenizer
-        loading. DashScope Qwen embedding models use DashScope tokenization when
-        available. Other models fall back to a character estimate.
+        loading. Qwen API models use local tiktoken estimates to avoid remote
+        tokenization latency. Other models fall back to a character estimate.
     """
     return _count_for_model(text, model)
 
@@ -48,7 +48,7 @@ def count_for_llm(text: str, model: str) -> tuple[int, bool]:
     if _is_openai_model(normalized_model):
         return _count_with_tiktoken(text, normalized_model), False
     if _is_qwen_model(normalized_model):
-        return _count_with_openai_compatible_usage_or_estimate(text, normalized_model)
+        return _count_with_tiktoken(text, normalized_model), True
     return _estimate_with_log(text, normalized_model, "llm_tokenizer_unavailable")
 
 
@@ -80,110 +80,9 @@ def _count_for_model(text: str, model: str) -> tuple[int, bool]:
             return _char_token_estimate(text), True
 
     if _is_qwen_model(normalized_model):
-        return _count_with_dashscope_or_estimate(text, normalized_model)
+        return _count_with_tiktoken(text, normalized_model), True
 
     return _estimate_with_log(text, normalized_model, "tokenizer_mapping_missing")
-
-
-def _count_with_dashscope_or_estimate(text: str, model: str) -> tuple[int, bool]:
-    try:
-        return _count_with_dashscope(text, model), False
-    except Exception:
-        logger.warning(
-            "dashscope_tokenization_fallback_to_char_estimate",
-            model=model,
-            exc_info=True,
-        )
-        return _char_token_estimate(text), True
-
-
-def _count_with_openai_compatible_usage_or_estimate(
-    text: str,
-    model: str,
-) -> tuple[int, bool]:
-    try:
-        return _count_with_openai_compatible_usage(text, model), False
-    except Exception:
-        logger.warning(
-            "openai_compatible_token_count_fallback_to_char_estimate",
-            model=model,
-            exc_info=True,
-        )
-        return _char_token_estimate(text), True
-
-
-def _count_with_openai_compatible_usage(text: str, model: str) -> int:
-    api_key = os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
-        raise RuntimeError("OpenAI-compatible API key is not configured")
-
-    client = _get_openai_compatible_client(
-        api_key=api_key,
-        base_url=os.getenv("LLM_BASE_URL"),
-    )
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": text or ""}],
-        max_tokens=1,
-    )
-    return _extract_openai_prompt_tokens(response)
-
-
-def _get_openai_compatible_client(*, api_key: str, base_url: str | None) -> Any:
-    from openai import OpenAI
-
-    kwargs: dict[str, str] = {"api_key": api_key}
-    if base_url and base_url.strip():
-        kwargs["base_url"] = base_url.strip()
-    return OpenAI(**kwargs)
-
-
-def _extract_openai_prompt_tokens(response: Any) -> int:
-    usage = _get_response_value(response, "usage")
-    tokens = _get_response_value(usage, "prompt_tokens")
-    if tokens is None:
-        tokens = _get_response_value(usage, "promptTokens")
-    if tokens is None:
-        raise RuntimeError("OpenAI-compatible response missing prompt tokens")
-    return int(tokens)
-
-
-def _count_with_dashscope(text: str, model: str) -> int:
-    api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("LLM_API_KEY")
-    if not api_key:
-        raise RuntimeError("DashScope API key is not configured")
-
-    tokenization = _get_dashscope_tokenization()
-    response = tokenization.call(
-        model=model,
-        prompt=text or "",
-        api_key=api_key,
-    )
-    return _extract_dashscope_input_tokens(response)
-
-
-def _extract_dashscope_input_tokens(response: Any) -> int:
-    usage = _get_response_value(response, "usage")
-    tokens = _get_response_value(usage, "input_tokens")
-    if tokens is None:
-        tokens = _get_response_value(usage, "inputTokens")
-    if tokens is None:
-        raise RuntimeError("DashScope tokenization response missing input tokens")
-    return int(tokens)
-
-
-def _get_response_value(value: Any, key: str) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value.get(key)
-    return getattr(value, key, None)
-
-
-def _get_dashscope_tokenization() -> Any:
-    import dashscope
-
-    return dashscope.Tokenization
 
 
 def _count_with_hf_tokenizer_strict(text: str, tokenizer_name: str) -> int:

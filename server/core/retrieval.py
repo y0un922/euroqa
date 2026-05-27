@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -1903,11 +1904,13 @@ class HybridRetriever:
         covered = self._refs_covered_by_chunks(all_refs, all_existing)
         missing_refs = all_refs - covered
         cross_ref_filters = self._build_cross_ref_filters(final_chunks, filters)
+        cross_ref_started = time.perf_counter()
         fallback_ref_chunks = await self._fetch_cross_ref_chunks(
             missing_refs,
             existing_ids,
             filters=cross_ref_filters,
         )
+        cross_ref_duration_ms = (time.perf_counter() - cross_ref_started) * 1000
         ref_chunks = deterministic_ref_chunks + fallback_ref_chunks
         record_spot_check(
             "ref_chunks",
@@ -1921,11 +1924,21 @@ class HybridRetriever:
                 for chunk in ref_chunks
             ],
         )
+        logger.info(
+            "cross_ref_supplemental_timing",
+            duration_ms=round(cross_ref_duration_ms, 2),
+            missing_count=len(missing_refs),
+            fallback_fetched=len(fallback_ref_chunks),
+            deterministic_fetched=len(deterministic_ref_chunks),
+            fetched=len(ref_chunks),
+            max_refs=_MAX_CROSS_REFS,
+        )
         if ref_chunks:
             logger.info(
                 "cross_ref_supplemental",
                 missing=sorted(missing_refs),
                 fetched=len(ref_chunks),
+                duration_ms=round(cross_ref_duration_ms, 2),
             )
 
         resolved_object_ids.update(self._collect_object_ids(ref_chunks))

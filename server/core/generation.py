@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -1485,6 +1486,8 @@ async def generate_answer_stream(
     qt_normalized = _normalize_question_type(question_type)
     ctx_normalized = _normalize_engineering_context(engineering_context)
     generation_mode = decide_generation_mode(groundedness)
+    prepare_started = time.perf_counter()
+    prompt_started = time.perf_counter()
     prompt = build_prompt(
         question,
         chunks,
@@ -1500,20 +1503,28 @@ async def generate_answer_stream(
         intent_label=intent_label,
         config=cfg,
     )
+    prompt_duration_ms = (time.perf_counter() - prompt_started) * 1000
+    system_prompt_started = time.perf_counter()
     system_prompt = _build_stream_mode_system_prompt(
         generation_mode,
         qt_normalized,
         ctx_normalized,
         intent_label=intent_label,
     )
+    system_prompt_duration_ms = (time.perf_counter() - system_prompt_started) * 1000
 
+    client_started = time.perf_counter()
     client = await get_async_openai_client(
         api_key=cfg.llm_api_key,
         base_url=cfg.llm_base_url,
         timeout=httpx.Timeout(timeout=600.0),
         client_factory=AsyncOpenAI,
     )
+    client_duration_ms = (time.perf_counter() - client_started) * 1000
+    token_count_started = time.perf_counter()
     prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
+    token_count_duration_ms = (time.perf_counter() - token_count_started) * 1000
+    prepare_duration_ms = (time.perf_counter() - prepare_started) * 1000
     record_spot_check(
         "final_prompt_tokens",
         {
@@ -1521,6 +1532,25 @@ async def generate_answer_stream(
             "is_estimate": prompt_tokens_estimate,
             "model": cfg.llm_model,
         },
+    )
+    logger.info(
+        "llm_stream_prepare_timing",
+        duration_ms=round(prepare_duration_ms, 2),
+        prompt_build_ms=round(prompt_duration_ms, 2),
+        system_prompt_build_ms=round(system_prompt_duration_ms, 2),
+        client_ready_ms=round(client_duration_ms, 2),
+        token_count_ms=round(token_count_duration_ms, 2),
+        prompt_len=len(prompt),
+        system_prompt_len=len(system_prompt),
+        prompt_tokens=prompt_tokens,
+        prompt_tokens_estimate=prompt_tokens_estimate,
+        chunks=len(chunks),
+        parent_chunks=len(parent_chunks),
+        ref_chunks=len(ref_chunks or []),
+        guide_chunks=len(guide_chunks or []),
+        guide_example_chunks=len(guide_example_chunks or []),
+        question_type=qt_normalized,
+        generation_mode=generation_mode,
     )
     try:
         logger.info(
