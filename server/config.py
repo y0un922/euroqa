@@ -1,11 +1,5 @@
 """Server configuration."""
-import logging
-
-from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-_logger = logging.getLogger(__name__)
-_DEFAULT_SECRET = "euroqa-default-secret-change-me"
 
 
 class ServerConfig(BaseSettings):
@@ -21,19 +15,6 @@ class ServerConfig(BaseSettings):
     llm_model: str = "deepseek-chat"
     llm_enable_thinking: bool = False
     use_unified_tokenizer: bool = True
-
-    access_password: str = ""
-    auth_secret_key: str = _DEFAULT_SECRET
-    auth_token_ttl_seconds: int = 86400
-
-    @model_validator(mode="after")
-    def _check_auth_secret(self) -> "ServerConfig":
-        if self.access_password and self.auth_secret_key == _DEFAULT_SECRET:
-            raise ValueError(
-                "ACCESS_PASSWORD is set but AUTH_SECRET_KEY is still the default. "
-                "Set AUTH_SECRET_KEY to a random string to prevent token forgery."
-            )
-        return self
 
     query_expansion_llm_api_key: str = ""
     query_expansion_llm_base_url: str = ""

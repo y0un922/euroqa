@@ -18,7 +18,6 @@ from server.models.schemas import QueryResponse, RetrievalContext
 
 
 def _server_config(**overrides) -> ServerConfig:
-    overrides.setdefault("access_password", "")
     return ServerConfig(**overrides)
 
 
@@ -52,7 +51,7 @@ def _analysis_stub(
 @pytest.fixture
 def client():
     app.dependency_overrides = {
-        deps.get_config: lambda: _server_config(access_password=""),
+        deps.get_config: lambda: _server_config(),
     }
     test_client = TestClient(app)
     yield test_client
@@ -307,7 +306,7 @@ class TestConversationTurnPersistence:
 
 
 class TestQueryEndpoint:
-    def test_public_query_stream_contract_bypasses_auth_when_password_enabled(
+    def test_query_stream_contract_has_no_builtin_auth_gate(
         self,
         client,
     ):
@@ -331,9 +330,7 @@ class TestQueryEndpoint:
         async def _fake_generate_answer_stream(**kwargs):
             yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
 
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            access_password="required"
-        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config()
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
         app.dependency_overrides[deps.get_conversation_manager] = (
             lambda: _FakeConversationManager()
@@ -358,18 +355,47 @@ class TestQueryEndpoint:
         assert resp.status_code == 200
         assert "event: done" in resp.text
 
-    def test_non_contract_query_endpoint_still_requires_auth_when_password_enabled(
+    def test_query_endpoint_has_no_builtin_auth_gate(
         self,
         client,
     ):
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            access_password="required"
-        )
+        class _FakeRetriever:
+            async def retrieve(self, **kwargs):
+                return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
-        resp = client.post("/api/v1/query", json={"question": "设计使用年限是什么？"})
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1",
+                    history=[],
+                )
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
+        app.dependency_overrides[deps.get_conversation_manager] = (
+            lambda: _FakeConversationManager()
+        )
+        app.dependency_overrides[deps.get_glossary] = lambda: {}
+
+        async def _fake_analyze_query(question, glossary, config):
+            return _analysis_stub(question)
+
+        async def _fake_generate_answer(**kwargs):
+            return QueryResponse(answer="ok", sources=[], confidence="low")
+
+        with (
+            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+        ):
+            resp = client.post(
+                "/api/v1/query",
+                json={"question": "设计使用年限是什么？"},
+            )
 
         assert resp.status_code == 200
-        assert resp.json()["code"] == 401
+        assert resp.json()["answer"] == "ok"
 
     def test_query_validation_missing_question(self, client):
         resp = client.post("/api/v1/query", json={})
@@ -1622,7 +1648,7 @@ class TestLlmSettingsEndpoint:
 
 
 class TestDocumentsEndpoint:
-    def test_public_document_parse_contract_bypasses_auth_when_password_enabled(
+    def test_document_parse_contract_has_no_builtin_auth_gate(
         self,
         client,
         tmp_path: Path,
@@ -1632,7 +1658,6 @@ class TestDocumentsEndpoint:
         source_pdf.parent.mkdir()
         source_pdf.write_bytes(b"%PDF-1.4 demo")
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            access_password="required",
             pdf_dir=str(pdf_dir),
             parsed_dir=str(tmp_path / "parsed"),
         )
@@ -1659,12 +1684,29 @@ class TestDocumentsEndpoint:
 
         assert resp.status_code == 200
 
-    def test_internal_document_upload_still_requires_auth_when_password_enabled(
+    def test_document_upload_has_no_builtin_auth_gate(
         self,
+        monkeypatch,
         client,
+        tmp_path: Path,
     ):
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            access_password="required"
+            pdf_dir=str(tmp_path / "pdfs"),
+            parsed_dir=str(tmp_path / "parsed"),
+        )
+
+        class _FakePdf:
+            metadata = {"title": "Demo"}
+
+            def __len__(self):
+                return 1
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(
+            "server.api.v1.documents.fitz.open",
+            lambda _path: _FakePdf(),
         )
 
         resp = client.post(
@@ -1673,7 +1715,7 @@ class TestDocumentsEndpoint:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["code"] == 401
+        assert resp.json()["doc_id"] == "demo"
 
     def test_list_documents(self, client):
         resp = client.get("/api/v1/documents")
@@ -1849,7 +1891,6 @@ class TestDocumentsEndpoint:
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
-            access_password="",
         )
 
         deleted_sources: list[str] = []
@@ -2162,7 +2203,6 @@ class TestDocumentsEndpoint:
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(pdf_dir),
             parsed_dir=str(parsed_dir),
-            access_password="",
         )
 
         deleted_source_batches: list[list[str]] = []
@@ -2207,7 +2247,6 @@ class TestDocumentsEndpoint:
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(tmp_path / "pdfs"),
             parsed_dir=str(tmp_path / "parsed"),
-            access_password="",
         )
 
         async def fake_delete_document_sources(source_names, _config):
@@ -2241,7 +2280,6 @@ class TestDocumentsEndpoint:
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(tmp_path / "pdfs"),
             parsed_dir=str(tmp_path / "parsed"),
-            access_password="",
         )
 
         async def fake_delete_document_sources(source_names, _config):
@@ -2275,7 +2313,6 @@ class TestDocumentsEndpoint:
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(tmp_path / "pdfs"),
             parsed_dir=str(tmp_path / "parsed"),
-            access_password="",
         )
 
         delete_call = AsyncMock(return_value={"milvus": 3, "elasticsearch": 4})
@@ -2308,11 +2345,9 @@ class TestDocumentsEndpoint:
 
 
 class TestSourcesEndpoint:
-    def test_public_translate_contract_bypasses_auth_when_password_enabled(self, client):
+    def test_translate_contract_has_no_builtin_auth_gate(self, client):
         translated_source = SimpleNamespace(translation="应规定设计使用年限。")
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            access_password="required"
-        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config()
 
         with patch(
             "server.api.v1.sources._fill_missing_source_translations",
@@ -2326,13 +2361,12 @@ class TestSourcesEndpoint:
         assert resp.status_code == 200
         assert resp.json()["translation"] == "应规定设计使用年限。"
 
-    def test_internal_source_translate_still_requires_auth_when_password_enabled(
+    def test_source_translate_has_no_builtin_auth_gate(
         self,
         client,
     ):
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            access_password="required"
-        )
+        translated_source = SimpleNamespace(translation="设计使用年限应予规定。")
+        app.dependency_overrides[deps.get_config] = lambda: _server_config()
         payload = {
             "document_id": "EN1990_2002",
             "file": "EN 1990:2002",
@@ -2344,10 +2378,14 @@ class TestSourcesEndpoint:
             "locator_text": "2.3 Design working life (1) The design working life should be specified.",
         }
 
-        resp = client.post("/api/v1/sources/translate", json=payload)
+        with patch(
+            "server.api.v1.sources._fill_missing_source_translations",
+            AsyncMock(return_value=[translated_source]),
+        ):
+            resp = client.post("/api/v1/sources/translate", json=payload)
 
         assert resp.status_code == 200
-        assert resp.json()["code"] == 401
+        assert resp.json() == {"translation": "设计使用年限应予规定。"}
 
     def test_translate_source_returns_translation(self, client):
         translated_source = SimpleNamespace(translation="设计使用年限应予规定。")

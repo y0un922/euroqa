@@ -2,13 +2,12 @@
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from server.api.debug_pipeline import router as debug_router
-from server.api.v1.auth import require_auth
 from server.api.v1.router import router as v1_router
 from server.deps import get_retriever
 from shared.llm_clients import close_async_openai_clients
@@ -80,4 +79,4 @@ app.add_middleware(
 )
 
 app.include_router(v1_router)
-app.include_router(debug_router, dependencies=[Depends(require_auth)])
+app.include_router(debug_router)

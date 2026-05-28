@@ -63,7 +63,6 @@ def client(tmp_path, monkeypatch):
     (run_dir / "events.jsonl").write_text("", encoding="utf-8")
 
     monkeypatch.setenv("DEBUG_PIPELINE_DIR", str(tmp_path / "debug_runs"))
-    monkeypatch.setenv("ACCESS_PASSWORD", "")
     get_config.cache_clear()
     get_retriever.cache_clear()
     try:

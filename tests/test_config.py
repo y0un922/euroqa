@@ -29,9 +29,12 @@ def test_server_config_defaults(monkeypatch, tmp_path: Path):
 
     cfg = ServerConfig()
 
-    assert cfg.rerank_top_n == 15
+    assert cfg.rerank_top_n == 10
     assert cfg.rerank_max_length == 8192
     assert cfg.use_unified_tokenizer is True
+    assert not hasattr(cfg, "access_password")
+    assert not hasattr(cfg, "auth_secret_key")
+    assert not hasattr(cfg, "auth_token_ttl_seconds")
 
 
 def test_pipeline_config_loads_project_dotenv(monkeypatch, tmp_path: Path):
