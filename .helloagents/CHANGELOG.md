@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.28] - 2026-05-27
+
+### 修复
+- **[frontend.lib.auth]**: 前端启动时校验本地访问密码 token 的 `exp`，过期或损坏 token 会立即清理并回到密码输入页，避免旧浏览器会话因过期认证状态卡在空白工作台 — by Codex
+  - 类型: 简化流程
+  - 文件: frontend/src/lib/auth.ts; frontend/src/lib/auth.test.ts; .helloagents/modules/frontend.lib.auth.md
+
 ## [0.1.27] - 2026-05-19
 
 ### 快速修改
