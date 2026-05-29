@@ -1,12 +1,5 @@
 # CHANGELOG
 
-## [0.1.29] - 2026-05-29
-
-### 变更
-- **[frontend.lib.api / server.api.v1.router / server.config]**: 移除项目内置账号密码鉴权与 bearer token 注入，接口访问鉴权交由华科方前端或外层网关处理；流式问答请求不再携带 auth token — by Codex
-  - 类型: 标准流程
-  - 文件: frontend/src/App.tsx; frontend/src/lib/api.ts; server/api/v1/router.py; server/main.py; server/config.py; tests/server/test_api.py; frontend/src/lib/api.test.ts
-
 ## [0.1.28] - 2026-05-27
 
 ### 修复

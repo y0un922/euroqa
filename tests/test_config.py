@@ -26,15 +26,18 @@ def test_server_config_defaults(monkeypatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("RERANK_TOP_N", raising=False)
     monkeypatch.delenv("USE_UNIFIED_TOKENIZER", raising=False)
+    monkeypatch.delenv("ACCESS_PASSWORD", raising=False)
+    monkeypatch.delenv("AUTH_SECRET_KEY", raising=False)
+    monkeypatch.delenv("AUTH_TOKEN_TTL_SECONDS", raising=False)
 
     cfg = ServerConfig()
 
     assert cfg.rerank_top_n == 10
     assert cfg.rerank_max_length == 8192
     assert cfg.use_unified_tokenizer is True
-    assert not hasattr(cfg, "access_password")
-    assert not hasattr(cfg, "auth_secret_key")
-    assert not hasattr(cfg, "auth_token_ttl_seconds")
+    assert cfg.access_password == ""
+    assert cfg.auth_secret_key
+    assert cfg.auth_token_ttl_seconds == 86400
 
 
 def test_pipeline_config_loads_project_dotenv(monkeypatch, tmp_path: Path):

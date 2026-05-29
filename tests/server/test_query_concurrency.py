@@ -19,6 +19,7 @@ SINGLE_REQUEST_DELAY_SECONDS = 0.5
 
 
 def _server_config(**overrides) -> ServerConfig:
+    overrides.setdefault("access_password", "")
     return ServerConfig(**overrides)
 
 
@@ -84,7 +85,7 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
         return _analysis_stub(question)
 
     app.dependency_overrides = {
-        deps.get_config: lambda: _server_config(),
+        deps.get_config: lambda: _server_config(access_password=""),
         deps.get_retriever: lambda: _FakeRetriever(),
         deps.get_conversation_manager: lambda: _FakeConversationManager(),
         deps.get_glossary: lambda: {},

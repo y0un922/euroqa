@@ -519,49 +519,6 @@ test("queryStream forwards reasoning events to the caller", async () => {
   ]);
 });
 
-test("queryStream does not send built-in auth token headers", async () => {
-  const encoder = new TextEncoder();
-  const seenHeaders: Headers[] = [];
-  const originalFetch = globalThis.fetch;
-
-  try {
-    globalThis.fetch = async (_input, init) => {
-      seenHeaders.push(new Headers(init?.headers));
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode(
-                'event: done\ndata: {"confidence":"low","sources":[],"related_refs":[]}\n\n'
-              )
-            );
-            controller.close();
-          }
-        }),
-        { status: 200 }
-      );
-    };
-
-    await queryStream(
-      {
-        question: "桥梁设计使用年限是多少？",
-        stream: true
-      },
-      {
-        onReasoning: () => {},
-        onChunk: () => {},
-        onDone: () => {}
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  assert.equal(seenHeaders.length, 1);
-  assert.equal(seenHeaders[0]?.has("Authorization"), false);
-  assert.equal(seenHeaders[0]?.get("Accept"), "text/event-stream");
-});
-
 test("queryStream forwards retrieval progress events to the caller", async () => {
   const encoder = new TextEncoder();
   const progressEvents: Array<{ title: string; summary: string }> = [];
