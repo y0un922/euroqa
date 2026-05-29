@@ -1,0 +1,3839 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>层级分类问题集答案</title>
+  <style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">body {
+font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Heiti SC", "Microsoft YaHei", sans-serif;
+line-height: 1.55;
+color: #111827;
+max-width: 980px;
+margin: 0 auto;
+padding: 24px;
+}
+h1, h2, h3 {
+line-height: 1.3;
+}
+h1 {
+font-size: 28px;
+border-bottom: 2px solid #111827;
+padding-bottom: 10px;
+}
+h2 {
+font-size: 22px;
+margin-top: 32px;
+page-break-after: avoid;
+}
+h3 {
+font-size: 17px;
+margin-top: 20px;
+}
+table {
+border-collapse: collapse;
+width: 100%;
+margin: 12px 0;
+font-size: 13px;
+}
+th, td {
+border: 1px solid #d1d5db;
+padding: 6px 8px;
+vertical-align: top;
+}
+th {
+background: #f3f4f6;
+}
+code {
+font-family: "Menlo", "SFMono-Regular", monospace;
+font-size: 0.92em;
+}
+blockquote {
+border-left: 4px solid #d1d5db;
+margin-left: 0;
+padding-left: 12px;
+color: #374151;
+}
+@page {
+size: A4;
+margin: 18mm 16mm;
+}
+@media print {
+body {
+max-width: none;
+padding: 0;
+}
+}
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">层级分类问题集答案</h1>
+</header>
+<h1 id="层级分类问题集答案">层级分类问题集答案</h1>
+<ul>
+<li>生成时间: 2026-05-27T21:52:30</li>
+<li>问题集:
+<code>/Users/youngz/Downloads/(层级分类)问题集_20260518.xlsx</code></li>
+<li>系统接口:
+<code>http://127.0.0.1:18080/api/v1/query/stream</code></li>
+<li>thinking: <code>True</code></li>
+<li>有效问题数: 32</li>
+</ul>
+<h2 id="请给出混凝土结构设计中相关作用荷载和材料的分项系数">1.
+请给出混凝土结构设计中相关作用荷载和材料的分项系数。</h2>
+<ul>
+<li>Excel 行号: 2</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案">答案</h3>
+<p>在混凝土结构设计中，作用（荷载）和材料的分项系数主要依据 EN
+1990（结构设计基础）和 EN
+1992-1-1（混凝土结构设计）确定。规范提供了推荐值，但具体取值必须结合项目所在国的<strong>国家附录（National
+Annex）</strong> 确定。</p>
+<p>以下为基于规范原文整理的分项系数取值规则及推荐值：</p>
+<h3 id="一-作用荷载的分项系数">一、 作用（荷载）的分项系数</h3>
+<p>一般作用（如恒载、活载、风载等）的分项系数及荷载组合规则由 EN 1990
+及其规范性附录（如建筑附录 A1、桥梁附录 A2）统一规定 [Ref-1] [Ref-2]
+[Ref-6]。对于混凝土结构中的特定作用，EN 1992-1-1
+给出了以下补充规定：</p>
+<ol type="1">
+<li><strong>收缩作用（Shrinkage actions）</strong>
+<ul>
+<li>承载能力极限状态（ULS）下若需考虑收缩作用，分项系数 <span class="math inline"><em>γ</em><sub><em>S</em><em>H</em></sub></span>
+的推荐值为 <strong>1.0</strong> [Ref-2] [Ref-13]。</li>
+</ul></li>
+<li><strong>预应力（Prestress）</strong> restress）**
+<ul>
+<li><strong>有利情况</strong>（持久和瞬态设计情况，以及疲劳验算）：分项系数
+<span class="math inline"><em>γ</em><sub><em>P</em>, <em>f</em><em>a</em><em>v</em></sub></span>
+推荐值为 <strong>1.0</strong> [Ref-2] [Ref-13]。</li>
+<li><strong>不利情况</strong>（外部预应力整体稳定性验算）：分项系数
+<span class="math inline"><em>γ</em><sub><em>P</em>, <em>u</em><em>n</em><em>f</em><em>a</em><em>v</em></sub></span>
+推荐值为 <strong>1.3</strong> [Ref-2] [Ref-13]。</li>
+<li><strong>不利情况</strong>（局部效应验算）：分项系数 <span class="math inline"><em>γ</em><sub><em>P</em>, <em>u</em><em>n</em><em>f</em><em>a</em><em>v</em></sub></span>
+推荐值为 <strong>1.2</strong> [Ref-2] [Ref-13]。</li>
+</ul></li>
+<li><strong>疲劳荷载（Fatigue loads）</strong>
+<ul>
+<li>疲劳荷载分项系数 <span class="math inline"><em>γ</em><sub><em>F</em>, <em>f</em><em>a</em><em>t</em></sub></span>
+的推荐值为 <strong>1.0</strong> [Ref-2] [Ref-13]。</li>
+</ul></li>
+<li><strong>正常使用极限状态（SLS）</strong>
+<ul>
+<li>在正常使用极限状态验算中，荷载（作用）的分项系数通常取
+<strong>1.0</strong> [Ref-20]。</li>
+</ul></li>
+</ol>
+<h3 id="二-材料的分项系数">二、 材料的分项系数</h3>
+<ol type="1">
+<li><strong>承载能力极限状态（ULS）</strong>
+<ul>
+<li>混凝土（<span class="math inline"><em>γ</em><sub><em>C</em></sub></span>）和钢筋（<span class="math inline"><em>γ</em><sub><em>S</em></sub></span>）的分项系数推荐值详见规范
+<strong>Table 2.1N</strong>（区分了“持久与瞬态”及“偶然”设计情况）
+[Ref-2] [Ref-5] [Ref-9] [Ref-13]。</li>
+<li><strong>疲劳验算</strong>：推荐使用 Table 2.1N
+中“持久设计情况”的值作为疲劳材料分项系数 <span class="math inline"><em>γ</em><sub><em>C</em>, <em>f</em><em>a</em><em>t</em></sub></span>
+和 <span class="math inline"><em>γ</em><sub><em>S</em>, <em>f</em><em>a</em><em>t</em></sub></span>
+[Ref-2] [Ref-5] [Ref-9] [Ref-13]。</li>
+<li><strong>现浇无永久护筒灌注桩</strong>：计算其设计抗力时，混凝土分项系数
+<span class="math inline"><em>γ</em><sub><em>C</em></sub></span>
+需乘以附加系数 <span class="math inline"><em>k</em><sub><em>f</em></sub></span>，推荐值为
+<strong>1.1</strong> [Ref-2] [Ref-13]。</li>
+</ul></li>
+<li><strong>正常使用极限状态（SLS）</strong>
+<ul>
+<li>材料分项系数应取 EN 1992-1-1 特定条款中给出的值 [Ref-2] [Ref-5]
+[Ref-9] [Ref-13]。</li>
+<li>对于规范特定条款未涵盖的情况，材料分项系数推荐取
+<strong>1.0</strong> [Ref-2] [Ref-5] [Ref-9] [Ref-13] [Ref-20]。</li>
+</ul></li>
+<li><strong>分项系数的折减条件</strong>
+<ul>
+<li>如果采取了能够降低计算抗力不确定性的有效措施，允许使用较低的 <span class="math inline"><em>γ</em><sub><em>C</em></sub></span> 和 <span class="math inline"><em>γ</em><sub><em>S</em></sub></span>
+值（具体指导可参考规范资料性附录 A） [Ref-2] [Ref-5] [Ref-9]
+[Ref-13]。</li>
+</ul></li>
+</ol>
+<h3 id="三-土地基的属性">三、 土（地基）的属性</h3>
+<ul>
+<li>土的强度属性设计值不属于 EN 1992 的管辖范围，必须按照 <strong>EN
+1997（岩土工程设计）</strong> 的规定进行计算 [Ref-2] [Ref-13]。</li>
+</ul>
+<hr />
+<h3 id="重要适用条件与限制提醒">⚠️ 重要适用条件与限制提醒</h3>
+<ol type="1">
+<li><strong>国家附录（NDP）优先</strong>：上述所有提到的推荐值（包括
+<span class="math inline"><em>γ</em><sub><em>S</em><em>H</em></sub></span>、<span class="math inline"><em>γ</em><sub><em>P</em></sub></span>、<span class="math inline"><em>γ</em><sub><em>F</em>, <em>f</em><em>a</em><em>t</em></sub></span>、<span class="math inline"><em>γ</em><sub><em>C</em></sub></span>、<span class="math inline"><em>γ</em><sub><em>S</em></sub></span> 及 <span class="math inline"><em>k</em><sub><em>f</em></sub></span>）均属于“国家确定参数（NDPs）”。在实际工程中，<strong>必须查阅项目所在国的国家附录（National
+Annex）</strong> 以获取法定强制取值，国家附录可能会修改这些推荐值
+[Ref-2] [Ref-5] [Ref-9] [Ref-11] [Ref-13]。</li>
+<li><strong>防火设计除外</strong>：Table 2.1N
+中给出的材料分项系数<strong>不适用</strong>于防火设计。混凝土结构的防火设计必须参考
+<strong>EN 1992-1-2</strong> 中的专门规定 [Ref-2] [Ref-5] [Ref-9]
+[Ref-13]。</li>
+<li><strong>可靠性等级</strong>：使用本规范及 EN 1990
+附录中给定的分项系数进行设计，默认对应于 <strong>RC2 可靠性等级</strong>
+的结构。若项目属于其他可靠性等级，需按 EN 1990 调整 [Ref-3]。</li>
+</ol>
+<h3 id="来源">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 17，条款 : All Eurocodes rely on EN 1990
+for the basis of structural design. The provisions of that code are
+applicable to all materials, and as such only the requirements which are
+independent of material properties are noted. In the main it</li>
+<li>[2] EN1992-1-1_2004，页 23，条款 2.4.1, 2.4.2.1: (1) The rules for
+the partial factor method are given in EN 1990 Section 6. (1) Where
+consideration of shrinkage actions is required for ultimate limit state
+a partial factor, SH, should be used. Note: The value of $_ { \mathsf {
+S</li>
+<li>[3] EN1992-1-1_2004，页 20，条款 2.1.1, (1)P: (1)P The design of
+concrete structures shall be in accordance with the general rules given
+in EN 1990. (2)P The supplementary provisions for concrete structures
+given in this section shall also be applied. (3) The basic requirements
+of EN</li>
+<li>[4] DG EN1990，页 128，条款 : Due, largely, to increased competition
+among material producers, there has been a tendency within the
+construction industry to reduce safety margins (in particular partial
+factors) for both actions and material resistance. This together</li>
+<li>[5] EN1992-1-1_2004，页 24，条款 2.4.2.4: (1) Partial factors for
+materials for ultimate limit states, <span class="math inline"><em>γ</em><sub>C</sub></span> and <span class="math inline"><em>γ</em><sub>S</sub></span> should be used. Note:
+The values of C and <span class="math inline"><em>γ</em><sub>S</sub></span> for use in a Country
+may be found</li>
+<li>[6] DG EN1990，页 17，条款 1.1.1: EN 1990, ‘Eurocode: basis of
+structural design’, is the head document in the Eurocode suite, and it
+establishes for all the structural Eurocodes the principles and
+requirements for safety, serviceability and durability of structures;
+it</li>
+<li>[7] EN1992-1-1_2004，页 2，条款 1.1.1, (1)P: 1. General 1.1 Scope
+1.1.1 Scope of Eurocode 2 1.1.2 Scope of Part 1-1 of Eurocode 2 1.2
+Normative references 1.2.1 General reference standards 1.2.2 Other
+reference standards 1.3 Assumptions 1.4 Distinction between principles
+and</li>
+<li>[8] DG_EN1990，页 17，条款 1.1.1, 1.1.2: EN 1990, ‘Eurocode: basis
+of structural design’, is the head document in the Eurocode suite, and
+it establishes for all the structural Eurocodes the principles and
+requirements for safety, serviceability and durability of structures;
+it</li>
+</ul>
+<h2 id="请给出混凝土材料的强度与变形的相关定义相互关系及如何计算">2.
+请给出混凝土材料的强度与变形的相关定义、相互关系及如何计算。</h2>
+<ul>
+<li>Excel 行号: 3</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-1">答案</h3>
+<p>基于欧洲规范 EN 1992-1-1（Eurocode
+2）及相关设计指南，混凝土（concrete）的强度（strength）与变形（deformation）的定义、相互关系及计算方法整理如下：</p>
+<h3 id="一-混凝土强度的定义与计算">一、 混凝土强度的定义与计算</h3>
+<ol type="1">
+<li><strong>特征强度（Characteristic Strength）</strong>
+<ul>
+<li>混凝土抗压强度由强度等级表示，对应于28天龄期的特征圆柱体强度 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>
+或立方体强度 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em>, <em>c</em><em>u</em><em>b</em><em>e</em></sub></span>
+[Ref-12],
+[Ref-19]。特征强度是指不超过5%的测试结果可能低于该值的强度（即5%分位值）
+[Ref-19]。</li>
+<li>平均抗压强度 <span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub></span>
+与特征强度的关系为：<span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub> = <em>f</em><sub><em>c</em><em>k</em></sub> + 8
+(MPa)</span> [Ref-2]。</li>
+</ul></li>
+<li><strong>设计强度（Design Strength）</strong>
+<ul>
+<li><strong>设计抗压强度</strong>：<span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub> = <em>α</em><sub><em>c</em><em>c</em></sub><em>f</em><sub><em>c</em><em>k</em></sub>/<em>γ</em><sub><em>c</em></sub></span>
+[Ref-12], [Ref-19]。其中 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span>
+为考虑长期效应及加载方式不利影响的系数，规范推荐值为
+1.0（注：英国国家附录推荐值为 0.85） [Ref-19]；<span class="math inline"><em>γ</em><sub><em>c</em></sub></span>
+为混凝土材料分项系数。</li>
+<li><strong>设计抗拉强度</strong>：强度：<span class="math inline"><em>f</em><sub><em>c</em><em>t</em><em>d</em></sub> = <em>α</em><sub><em>c</em><em>t</em></sub><em>f</em><sub><em>c</em><em>t</em><em>k</em>, 0.05</sub>/<em>γ</em><sub><em>c</em></sub></span>
+[Ref-12], [Ref-19]。<span class="math inline"><em>α</em><sub><em>c</em><em>t</em></sub></span>
+推荐值为 1.0 [Ref-19]。</li>
+</ul></li>
+</ol>
+<h3 id="二-混凝土变形的定义与计算">二、 混凝土变形的定义与计算</h3>
+<p>混凝土的变形主要包括弹性变形、徐变和收缩： 1.
+<strong>弹性变形（Elastic Deformation）</strong> -
+<strong>弹性模量（<span class="math inline"><em>E</em><sub><em>c</em><em>m</em></sub></span>）</strong>：定义为应力
+<span class="math inline"><em>σ</em><sub><em>c</em></sub> = 0</span> 到
+<span class="math inline">0.4<em>f</em><sub><em>c</em><em>m</em></sub></span>
+之间的割线模量
+[Ref-12]。规范给出的基准值适用于<strong>石英岩骨料</strong>；若使用石灰岩骨料需降低10%，砂岩骨料降低30%，玄武岩骨料增加20%
+[Ref-12], [Ref-19]。其估算公式为：<span class="math inline"><em>E</em><sub><em>c</em><em>m</em></sub> = 22 × [(<em>f</em><sub><em>c</em><em>m</em></sub>)/10]<sup>0.3</sup></span>
+（<span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub></span>
+单位为 MPa，<span class="math inline"><em>E</em><sub><em>c</em><em>m</em></sub></span>
+单位为 GPa） [Ref-2]。 - <strong>泊松比</strong>：未开裂混凝土取
+0.2，开裂混凝土取 0 [Ref-12], [Ref-19]。 -
+<strong>线膨胀系数</strong>：可取 <span class="math inline">10 × 10<sup>−6</sup> K<sup>−1</sup></span> [Ref-12],
+[Ref-19]。 2. <strong>徐变变形（Creep）</strong> -
+徐变取决于环境湿度、构件尺寸、混凝土成分及加载龄期 [Ref-19]。 -
+在恒定压应力 <span class="math inline"><em>σ</em><sub><em>c</em></sub></span>
+作用下，最终徐变变形计算公式为：<span class="math inline"><em>ε</em><sub><em>c</em><em>c</em></sub>(∞, <em>t</em><sub>0</sub>) = <em>φ</em>(∞, <em>t</em><sub>0</sub>) × (<em>σ</em><sub><em>c</em></sub>/<em>E</em><sub><em>c</em></sub>)</span>
+[Ref-7], [Ref-12], [Ref-19]。 -
+<strong>非线性徐变</strong>：当加载时（龄期 <span class="math inline"><em>t</em><sub>0</sub></span>）的压应力超过 <span class="math inline">0.45<em>f</em><sub><em>c</em><em>k</em></sub>(<em>t</em><sub>0</sub>)</span>
+时，必须考虑非线性徐变效应 [Ref-12], [Ref-19]。 3.
+<strong>收缩变形（Shrinkage）</strong> -
+包含<strong>干燥收缩</strong>（水分散失引起）和<strong>自收缩</strong>（水泥水化引起的宏观体积减小，高强混凝土中尤为显著）
+[Ref-19]。</p>
+<h3 id="三-强度与变形的相互关系应力-应变本构模型">三、
+强度与变形的相互关系（应力-应变本构模型）</h3>
+<p>规范针对不同的计算目的，提供了多种强度与变形的关联模型：</p>
+<ol type="1">
+<li><strong>用于截面设计（ULS）的应力-应变关系</strong>
+<ul>
+<li><strong>抛物线-矩形模型（Parabola-rectangle）</strong>：由指数 <span class="math inline"><em>n</em></span>、达到最大强度的应变 <span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span> 和极限应变
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>
+定义 [Ref-4], [Ref-11]。</li>
+<li><strong>双线性模型（Bi-linear）</strong>：作为等效或更保守的替代方案，由参数
+<span class="math inline"><em>ε</em><sub><em>c</em>3</sub></span> 和
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>
+定义 [Ref-4], [Ref-11]。</li>
+<li><strong>矩形应力块（Rectangular stress
+block）</strong>：使用有效受压区高度系数 <span class="math inline"><em>λ</em></span> 和有效强度系数 <span class="math inline"><em>η</em></span> 进行简化计算 [Ref-4],
+[Ref-11]。<strong>注意</strong>：如果受压区宽度向极端受压纤维方向减小，<span class="math inline"><em>η</em><em>f</em><sub><em>c</em><em>d</em></sub></span>
+的值应再降低 10% [Ref-4], [Ref-11]。</li>
+</ul></li>
+<li><strong>用于结构非线性分析的应力-应变关系</strong>
+<ul>
+<li>适用于短期单轴加载分析，使用峰值应力对应的应变 <span class="math inline"><em>ε</em><sub><em>c</em>1</sub></span>
+和名义极限应变 <span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>1</sub></span>
+来描述 [Ref-12]。</li>
+</ul></li>
+<li><strong>约束混凝土（Confined Concrete）</strong>
+<ul>
+<li>侧向约束（如封闭箍筋）会改变有效的应力-应变关系，导致<strong>更高的强度</strong>和<strong>更高的临界应变</strong>
+[Ref-1], [Ref-9]。其修正后的特征强度和应变与极限状态下的有效侧向压应力
+<span class="math inline"><em>σ</em><sub>2</sub>( = <em>σ</em><sub>3</sub>)</span>
+直接相关 [Ref-1], [Ref-9]。</li>
+</ul></li>
+</ol>
+<h3 id="四-关键参数取值指南基于-table-3.1">四、 关键参数取值指南（基于
+Table 3.1）</h3>
+<p>规范 Table 3.1 提供了从 C12/15 到15 到 C90/105
+各强度等级的具体参数取值 [Ref-2]。核心参数随强度变化的趋势如下： -
+<strong>峰值应变</strong>：<span class="math inline"><em>ε</em><sub><em>c</em>1</sub></span>（分析用）和
+<span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span>（设计用）随强度等级提高而增大（例如
+<span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span> 从 C50
+以下的 2.0‰ 增至 C90 的 2.6‰） [Ref-2]。 -
+<strong>极限应变</strong>：<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>1</sub></span>、<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span> 和
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span> 在
+C50 以下通常取
+3.5‰，但在高强混凝土（&gt;C50）中随强度提高而<strong>降低</strong>（降至
+C90 的 2.6‰） [Ref-2]。 - <strong>抛物线指数 <span class="math inline"><em>n</em></span></strong>：在 C50 以下取
+2.0，高强混凝土中逐渐减小至 1.4 [Ref-2]。</p>
+<h3 id="五-适用条件与注意事项">五、 适用条件与注意事项</h3>
+<ol type="1">
+<li><strong>国家附录（National Annex）差异</strong>：材料分项系数 <span class="math inline"><em>γ</em><sub><em>c</em></sub></span>、长期效应系数
+<span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span> 和
+<span class="math inline"><em>α</em><sub><em>c</em><em>t</em></sub></span>
+的具体取值必须查阅项目所在国的国家附录 [Ref-12], [Ref-19]。</li>
+<li><strong>骨料敏感性</strong>：弹性模量 <span class="math inline"><em>E</em><sub><em>c</em><em>m</em></sub></span>
+高度依赖于骨料类型。对于对变形敏感的结构（如大跨度或精密结构），规范建议通过受控试验实测变形属性，而非直接采用规范指示值
+[Ref-12], [Ref-19]。</li>
+<li><strong>轻骨料混凝土</strong>：若使用轻骨料混凝土（密度 <span class="math inline"> ≤ 2200
+kg/m<sup>3</sup></span>），其弹性模量、徐变系数及极限应变等参数需根据规范第11章引入密度折减系数（如
+<span class="math inline"><em>η</em><sub><em>E</em></sub> = (<em>ρ</em>/2200)<sup>2</sup></span>）进行修正
+[Ref-20]。</li>
+<li><strong>早龄期强度</strong>：若需计算 28
+天之前的强度（如预应力传递或拆模阶段），需根据水泥类型和温度调整龄期进行计算，且此时
+<span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span>
+等系数可能需乘以折减系数 <span class="math inline"><em>k</em><sub><em>t</em></sub></span>（推荐 0.85）
+[Ref-12], [Ref-14]。</li>
+</ol>
+<table style="width:6%;">
+<colgroup>
+<col style="width: 5%" />
+</colgroup>
+<thead>
+<tr>
+<th><strong>仍需补充的项目条件</strong>：
+为进行具体数值计算，您仍需明确： 1. 项目所在国家（以确定国家附录中的
+<span class="math inline"><em>γ</em><sub><em>c</em></sub>, <em>α</em><sub><em>c</em><em>c</em></sub></span>
+等参数）。 2. 混凝土的具体骨料类型（以修正弹性模量）。 3.
+构件所处的环境湿度及构件名义尺寸（用于查表计算徐变系数 <span class="math inline"><em>φ</em></span> 和收缩应变）。</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>工程师应用提示：</strong> 1.
+在进行正常使用极限状态（SLS）验算时，若构件存在较高的预压应力或长期压应力（如预应力构件），务必核查应力是否超过
+<span class="math inline">0.45<em>f</em><sub><em>c</em><em>k</em></sub></span>
+阈值，以决定是否采用非线性徐变模型 [Ref-4]。 2.
+规范提供的徐变和收缩预测模型及图表（如基于石英岩骨料的默认值）仅为指示性数据。若结构对变形极度敏感，或使用了特殊骨料（如石灰岩、玄武岩、砂岩等），建议通过受控试验确定实际材料的变形参数
+[Ref-6], [Ref-13]。</td>
+</tr>
+<tr>
+<td>### 来源</td>
+</tr>
+<tr>
+<td>- [1] DG_EN1992-1-1__-1-2，页 64，条款 : The creep and shrinkage of
+concrete depend on a number of factors, including the ambient humidity,
+the dimensions of the element, the composition of the concrete and the
+age of concrete at the time of loading. The long-term values of the -
+[2] DG_EN1992-1-1<strong>-1-2，页 64，条款 Table 4.2: Table 4.2.
+Multipliers for non-linear creep - [3] DG_EN1992-1-1</strong>-1-2，页
+64，条款 Table 4.6: Table 4.6. Autogenous shrinkage coefficients at
+different ages <span class="math inline"><em>ε</em><sub>ca</sub>(∞)<em>β</em><sub>as</sub>(<em>t</em>)</span>
+(‰)</td>
+</tr>
+<tr>
+<td>## 4. 钢筋的主要特性有哪些?并给出相应总结。</td>
+</tr>
+<tr>
+<td>- Excel 行号: 5 - 层级: Level 1 / 基础概念与符号体系层</td>
+</tr>
+<tr>
+<td>### 答案</td>
+</tr>
+<tr>
+<td>### 直接结论 根据欧洲规范 EN 1992-1-1，钢筋（reinforcing
+steel）的行为和性能由一系列力学、物理及工艺特性共同规定。主要包括屈服强度、抗拉强度、延性、粘结特性、弯曲性能、可焊性等，同时规范给出了弹性模量和密度的默认设计值。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="依据与说明">依据与说明</h3>
+<h4 id="力学与物理特性">1. 力学与物理特性</h4>
+<ul>
+<li><strong>屈服强度（<span class="math inline"><em>f</em><sub><em>y</em><em>k</em></sub></span> 或
+<span class="math inline"><em>f</em><sub>0, 2<em>k</em></sub></span>）与最大实际屈服强度（<span class="math inline"><em>f</em><sub><em>y</em>, <em>m</em><em>a</em><em>x</em></sub></span>）</strong>：规范的设计和应用规则适用于特征屈服强度在
+<strong>400 MPa 至 600 MPa</strong> 范围内的钢筋 [Ref-1], [Ref-4],
+[Ref-24]。
+<ul>
+<li><em>适用条件提醒</em>：具体国家允许使用的屈服强度上限值，必须查阅该国的<strong>国家附录（National
+Annex）</strong> [Ref-1], [Ref-4]。</li>
+</ul></li>
+<li>。</li>
+<li><strong>抗拉强度（<span class="math inline"><em>f</em><sub><em>t</em></sub></span>）</strong>：定义为直接轴向拉伸下的特征最大荷载除以公称截面积
+[Ref-4]。</li>
+<li><strong>延性（Ductility）</strong>：由最大荷载下的应变（<span class="math inline"><em>ε</em><sub><em>u</em><em>k</em></sub></span>）和强屈比（<span class="math inline">(<em>f</em><sub><em>t</em></sub>/<em>f</em><sub><em>y</em><em>k</em></sub>)<sub><em>k</em></sub></span>）共同定义
+[Ref-1], [Ref-4], [Ref-22]。规范将延性划分为 <strong>A、B、C
+三个等级</strong>；延性对利用结构塑性行为（如受弯构件的塑性铰转动能力）至关重要
+[Ref-4], [Ref-22], [Ref-23]。</li>
+<li><strong>疲劳强度（Fatigue
+strength）</strong>：当结构需要验证疲劳强度时，需按照 EN 10080
+标准进行验证 [Ref-4]。</li>
+<li><strong>弹性模量（<span class="math inline"><em>E</em><sub><em>s</em></sub></span>）</strong>：设计值可假定为
+<strong>200 GPa</strong> [Ref-4]。</li>
+<li><strong>密度</strong>：平均值可假定为 <strong>7850 kg/m³</strong>
+[Ref-4]。</li>
+</ul>
+<h4 id="工艺与构造特性">2. 工艺与构造特性</h4>
+<ul>
+<li><strong>粘结特性（Bond
+characteristics）</strong>：带肋钢筋的表面特征必须确保与混凝土有足够的粘结力，通常通过满足最小相对肋面积（<span class="math inline"><em>f</em><sub><em>R</em></sub></span>）的规范来保证
+[Ref-1], [Ref-4]。</li>
+<li><strong>弯曲性能（Bendability）</strong>：钢筋必须具备足够的弯曲性能，以允许使用规范（Table
+8.1）规定的最小弯芯直径，并允许进行重弯操作 [Ref-1], [Ref-4]。</li>
+<li><strong>可焊性（Weldability）及焊接/剪切强度</strong>：钢筋的可焊性需符合
+EN 10080，焊接工艺需符合 EN ISO 17760
+及规范允许的焊接方法（如闪光对焊、手工电弧焊等，详见规范 Table 3.4）
+[Ref-2], [Ref-4]。对于焊接网和桁架梁，还需满足特定的剪切和焊接强度要求
+[Ref-1], [Ref-4]。</li>
+<li><strong>截面尺寸和公差（Section sizes and
+tolerances）</strong>：需符合相关产品标准（如 EN 10080） [Ref-1],
+[Ref-4]。</li>
+</ul>
+<hr />
+<h3 id="总结">总结</h3>
+<p>钢筋的特性体系不仅涵盖了决定混凝土结构承载力与变形能力的<strong>核心力学指标</strong>（如屈服强度、延性、弹性模量），还严格规定了确保施工可行性与材料协同工作的<strong>工艺及几何指标</strong>（如粘结肋面积、弯曲与可焊性能）。</p>
+<p>在实际工程应用中，工程师需特别注意以下前提与限制： 1.
+<strong>强度匹配与国家附录</strong>：确保所选钢筋的特征屈服强度在
+400~600 MPa 范围内，并务必核对项目所在国的国家附录对强度上限的具体规定。
+2.
+<strong>延性与抗震要求</strong>：在抗震设计或需要利用塑性内力重分布的区域，必须严格限制实际屈服强度上限（<span class="math inline"><em>f</em><sub><em>y</em>, <em>m</em><em>a</em><em>x</em></sub></span>，防止超强导致脆性破坏），并选择合适延性等级（A/B/C）的钢筋，以保证结构具有足够的塑性转动能力
+[Ref-22], [Ref-24]。 3.
+<strong>材料验证时效</strong>：所有钢筋特性的测试与验证程序均需遵循 EN
+10080
+标准；若现场操作（如加工、焊接）可能影响钢筋性能，必须在操作后重新验证其特性
+[Ref-4], [Ref-5]。</p>
+<hr />
+<h3 id="依据位置">依据位置</h3>
+<ul>
+<li><strong>特性列表及基本要求</strong>：EN 1992-1-1 第 3.2.1 节、第
+3.2.2 节 (1)P~(6)P [Ref-1], [Ref-4], [Ref-5], [Ref-7]</li>
+<li><strong>物理参数（密度、弹性模量）及设计假设</strong>：EN 1992-1-1
+第 3.2.7 节 [Ref-4]</li>
+<li><strong>焊接工艺要求</strong>：EN 1992-1-1 第 3.2.5 节及 Table 3.4
+[Ref-2], [Ref-4]</li>
+<li><strong>延性与强度补充说明</strong>：Designers’ Guide to EN 1992-1-1
+第 4.3.1 节、4.3.2 节 [Ref-22], [Ref-23], [Ref-24]</li>
+</ul>
+<h3 id="来源-1">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 37，条款 3.2.2, (1)P: (1)P The behaviour of
+reinforcing steel is specified by the following properties: - yield
+strength <span class="math inline">(<em>f</em><sub>yk</sub> ∘ r<em>f</em><sub>0, 2k</sub>)</span>
+- maximum actual yield strength $( _ { \mathsf {</li>
+<li>[2] EN1992-1-1 2004，页 39，条款 Table 3.4: Table 3.4: Permitted
+welding processes and examples of application
+<table>
+<tr>
+<td rowspan="1" colspan="1">
+Loading case
+</td>
+<td rowspan="1" colspan="1">
+Welding method
+</td>
+<td rowspan="1" colspan="1">
+Bars in tension1
+</td>
+<td rowspan="1" colspan="1">
+Bars in</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 142，条款 Table 8.1: Table 8.1. Neutral
+axis depths and moments of inertia for flanged beams (a) hf/d = 0.2
+<table>
+<tr>
+<td rowspan="3">
+<span class="math inline"><em>b</em><sub>r</sub>/<em>b</em></span>
+</td>
+<td colspan="9">
+</td>
+</tr>
+<tr>
+<td colspan="2">
+1.0
+</td>
+<td colspan="2">
+0.5
+</td>
+&lt;td</li>
+<li>[4] EN1992-1-1_2004，页 37，条款 3.2.1, (1)P: (1)P The following
+clauses give principles and rules for reinforcement which is in the form
+of bars, de-coiled rods, welded fabric and lattice girders. They do not
+apply to specially coated bars. (2)P The requirements for the properties
+of</li>
+<li>[5] EN1992-1-1_2004，页 37，条款 3.2.1, (1)P: (1)P The following
+clauses give principles and rules for reinforcement which is in the form
+of bars, de-coiled rods, welded fabric and lattice girders. They do not
+apply to specially coated bars. (2)P The requirements for the properties
+of</li>
+<li>[6] EN1992-1-1 2004，页 37，条款 3.2.1, (1)P: (1)P The following
+clauses give principles and rules for reinforcement which is in the form
+of bars, de-coiled rods, welded fabric and lattice girders. They do not
+apply to specially coated bars. (2)P The requirements for the properties
+of</li>
+<li>[7] EN1992-1-1 2004，页 37，条款 3.2.2, (1)P: (1)P The behaviour of
+reinforcing steel is specified by the following properties:</li>
+<li>[8] DG_EN1992-1-1__-1-2，页 7，条款 : Preface v Introduction v
+Layout of this guide v Chapter 1 Introduction 1 1.1. Scope 1 1.2. Layout
+1 1.3. Related documents 2 1.4. Terminology 2 Chapter 2 Basis of design
+5 2.1. Notation 5 2.2. General 5 2.3. Fundamental requirements 5
+2.4.</li>
+</ul>
+<h2 id="请问都有那些环境暴露等级">5. 请问都有那些环境暴露等级?</h2>
+<ul>
+<li>Excel 行号: 6</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-2">答案</h3>
+<p>根据 EN 1992-1-1 规范，环境暴露等级（Exposure
+classes）根据环境条件（基于 EN 206-1）被划分为
+<strong>6个基本大类</strong>，并进一步细分为多个子类，以定义侵蚀风险的严重程度
+[Ref-3], [Ref-7]。</p>
+<h3 id="详细分类及环境描述">1. 详细分类及环境描述</h3>
+<p><strong>(1) 无钢筋锈蚀或混凝土腐蚀风险 (No risk of corrosion or
+attack)</strong> *
+<strong>X0</strong>：对于无钢筋或预埋金属的混凝土：除冻融、磨损或化学腐蚀外的所有暴露环境；对于有钢筋或预埋金属的混凝土：非常干燥的环境（如：空气湿度极低的建筑物内部混凝土）
+[Ref-3]。</p>
+<p><strong>(2) 碳化引起的钢筋锈蚀 (Corrosion induced by
+carbonation)</strong> *
+<strong>XC1</strong>：干燥或永久湿润（如：空气湿度低的建筑物内部混凝土、永久淹没在水中的混凝土）
+[Ref-3]。 *
+<strong>XC2</strong>：湿润，极少干燥（如：长期接触水的混凝土表面、许多基础）
+[Ref-3]。 *
+<strong>XC3</strong>：中等湿度（如：空气湿度中等或高的建筑物内部混凝土、免受雨淋的外部混凝土）
+[Ref-3]。 * <strong>XC4</strong>：干湿交替（如：接触水但不属于 XC2
+类的混凝土表面） [Ref-3]。</p>
+<p><strong>(3) 氯离子引起的钢筋锈蚀 (Corrosion induced by
+chlorides)</strong> *
+<strong>XD1</strong>：中等湿度（如：暴露于空气中氯离子的混凝土表面）
+[Ref-3]。 *
+<strong>XD2</strong>：湿润，极少干燥（如：游泳池、暴露于含氯工业水中的混凝土构件）
+[Ref-3]。 *
+<strong>XD3</strong>：干湿交替（如：暴露于含氯喷雾的桥梁部件、路面、停车场楼板）
+[Ref-3]。</p>
+<p><strong>(4) 海水中的氯离子引起的钢筋锈蚀 (Corrosion induced by
+chlorides from sea water)</strong> *
+<strong>XS1</strong>：暴露于含盐空气中，但不直接接触海水（如：靠近海岸或海岸上的结构）
+[Ref-3]。 * <strong>XS2</strong>：永久淹没（如：海洋结构物的部件）
+[Ref-3]。 *
+<strong>XS3</strong>：潮汐区、飞溅区和喷雾区（如：海洋结构物的部件）
+[Ref-3]。</p>
+<p><strong>(5) 冻融破坏 (Freeze/Thaw Attack)</strong> *
+<strong>XF1</strong>：中等水饱和度，无除冰剂（如：暴露于雨水和冰冻的垂直混凝土表面）
+[Ref-3]。 *
+<strong>XF2</strong>：中等水饱和度，有除冰剂（如：暴露于冰冻和空气中除冰剂的道路结构垂直混凝土表面）
+[Ref-3]。 *
+<strong>XF3</strong>：高水饱和度，无除冰剂（如：暴露于雨水和冰冻的水平混凝土表面）
+[Ref-3]。 *
+<strong>XF4</strong>：高水饱和度，有除冰剂或海水（如：暴露于除冰剂的道路和桥面、暴露于含除冰剂直接喷雾和冰冻的混凝土表面、暴露于冰冻的海洋结构物飞溅区）
+[Ref-3]。</p>
+<p><strong>(6) 化学腐蚀 (Chemical attack)</strong> *
+<strong>XA1</strong>：根据 EN 206-1
+表2，轻微侵蚀性化学环境（如：天然土壤和地下水） [Ref-3]。 *
+<strong>XA2</strong>：根据 EN 206-1
+表2，中等侵蚀性化学环境（如：天然土壤和地下水） [Ref-3]。 *
+<strong>XA3</strong>：根据 EN 206-1
+表2，高度侵蚀性化学环境（如：天然土壤和地下水） [Ref-3]。</p>
+<hr />
+<h3 id="适用条件与注意事项">2. 适用条件与注意事项</h3>
+<ul>
+<li><strong>国家附录（National
+Annex）差异</strong>：耐久性规定（如各暴露等级对应的指示性混凝土强度等级、最小保护层厚度等参数）在不同国家可能存在差异。具体设计时，必须查阅项目所在国的国家附录以获取当地法定参数
+[Ref-6], [Ref-7]。</li>
+<li><strong>轻骨料混凝土的特殊规定</strong>：对于轻骨料混凝土，可使用与普通密度混凝土相同的指示性暴露等级
+[Ref-5], [Ref-9]。但是，轻骨料混凝土的最小保护层厚度（<span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em></sub></span>）必须在规范常规规定值的基础上<strong>增加
+5 mm</strong> [Ref-13]。</li>
+<li><strong>其他侵蚀形式</strong>：除了上述表格中的分类，设计时还应考虑特定的侵蚀或间接作用，例如：化学攻击（酸或硫酸盐溶液、混凝土内含氯离子、碱骨料反应）和物理攻击（温度变化、磨损、水渗透）
+[Ref-1]。</li>
+</ul>
+<hr />
+<h3 id="依据位置-1">3. 依据位置</h3>
+<ul>
+<li><strong>环境暴露等级分类表</strong>等级分类表**：EN 1992-1-1:2004,
+Table 4.1 (页码 47-49) [Ref-3]</li>
+<li><strong>环境条件基本原则</strong>：EN 1992-1-1:2004, 4.2 (1)P - (3)
+(页码 47-49) [Ref-1]</li>
+<li><strong>轻骨料混凝土规定</strong>：EN 1992-1-1:2004, 11.4.1 及
+11.4.2 (1)P (页码 189) [Ref-5], [Ref-13]</li>
+<li><strong>国家附录及指示性强度说明</strong>：EN 1992-1-1:2004, Annex
+E.1 (页码 210) [Ref-6]；指南说明 [Ref-7]</li>
+</ul>
+<h3 id="来源-2">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 47，条款 4.2, (1)P: (1)P Exposure conditions
+are chemical and physical conditions to which the structure is exposed
+in addition to the mechanical actions. (2) Environmental conditions are
+classified according to Table 4.1, based on EN 206-1. (3) In
+addition</li>
+<li>[2] EN1992-1-1 2004，页 24，条款 Table 2: Table 2.1N: Partial
+factors for materials for ultimate limit states
+<table>
+<tr>
+<td rowspan="1" colspan="1">
+Design situations
+</td>
+<td rowspan="1" colspan="1">
+Yc for concrete
+</td>
+<td rowspan="1" colspan="1">
+Ys for reinforcing steel
+</td>
+&lt;td rowspan=1</li>
+<li>[3] EN1992-1-1_2004，页 47，条款 Table 4.1: Table 4.1: Exposure
+classes related to environmental conditions in accordance with EN 206-1
+<table>
+<tr>
+<td rowspan="1" colspan="1">
+Classdesignation
+</td>
+<td rowspan="1" colspan="1">
+Description of the environment
+</td>
+&lt;td rowspan=1</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 216，条款 Table 11.7: Table 11.7.
+Criteria for controlling cracking
+<table>
+<tr>
+<td rowspan="2">
+Exposure class
+</td>
+<td rowspan="2">
+Unbonded tendons: quasi-permanent loads
+</td>
+<td colspan="2">
+Bonded tendons
+</td>
+</tr>
+<tr>
+<td>
+Frequent loads
+</td>
+<td>
+Quasi-permanent</li>
+<li>[5] EN1992-1-1_2004，页 189，条款 11.4.1: (1) For lightweight
+aggregate concrete in Table 4.1 the same indicative exposure classes can
+be used as for normal density concrete.</li>
+<li>[6] EN1992-1-1_2004，页 210，条款 : (1) The choice of adequately
+durable concrete for corrosion protection of reinforcement and
+protection of concrete attack, requires consideration of the composition
+of concrete. This may result in a higher compressive strength of
+the</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 189，条款 : There are two basic steps in
+designing for durability. These are: (1) Establish the aggressivity of
+the environment to which the member is exposed. This is analogous to
+establishing the design loading where the ultimate or
+serviceability</li>
+<li>[8] DG_EN1992-1-1__-1-2，页 211，条款 : In EN 1992-1-1, prestressed
+concrete is treated as part of a much wider material group known as
+reinforced concrete, which covers normal reinforced concrete through
+partially prestressed concrete to fully prestressed concrete. The</li>
+</ul>
+<h2 id="保护层都与什么因素相关该怎么计算">6.
+保护层都与什么因素相关，该怎么计算?</h2>
+<ul>
+<li>Excel 行号: 7</li>
+<li>层级: Level 4 / 复杂场景与多参数耦合层</li>
+</ul>
+<h3 id="答案-3">答案</h3>
+<p>根据欧洲规范 EN
+1992-1-1，混凝土保护层的设计需要综合考虑粘结力传递、耐久性（防腐蚀）以及耐火性等因素。以下是保护层的相关因素及计算方法的详细说明：</p>
+<h3 id="核心计算公式与定义">1. 核心计算公式与定义</h3>
+<p><strong>混凝土保护层</strong>是指最靠近混凝土表面的钢筋（包括箍筋和表面构造钢筋）表面与最近的混凝土表面之间的距离
+[Ref-2, Ref-11]。 在图纸上必须标注的是<strong>名义保护层（Nominal cover,
+<span class="math inline"><em>c</em><sub><em>n</em><em>o</em><em>m</em></sub></span>）</strong>，其计算公式为
+[Ref-2, Ref-8, Ref-11]： <span class="math display"><em>c</em><sub><em>n</em><em>o</em><em>m</em></sub> = <em>c</em><sub><em>m</em><em>i</em><em>n</em></sub> + <em>Δ</em><em>c</em><sub><em>d</em><em>e</em><em>v</em></sub></span>
+- <strong><span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em></sub></span></strong>：最小保护层（Minimum
+cover） - <strong><span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>e</em><em>v</em></sub></span></strong>：设计时考虑的施工允许偏差（Allowance
+in design for deviation）</p>
+<hr />
+<h3 id="最小保护层-c_min-的相关因素与计算">2. 最小保护层 (<span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em></sub></span>)
+的相关因素与计算</h3>
+<p>最小保护层 <span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em></sub></span>
+必须同时满足<strong>安全传递粘结力</strong>、<strong>保护钢筋免受腐蚀（耐久性）</strong>以及<strong>足够的耐火性</strong>（依据
+EN 1992-1-2）的要求 [Ref-9, Ref-11]。
+计算时，应取满足“粘结要求”和“环境条件（耐久性）要求”两者中的<strong>较大值</strong>
+[Ref-9, Ref-11]：</p>
+<h4 id="基于粘结要求的最小保护层-c_minb">(1) 基于粘结要求的最小保护层
+(<span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em>, <em>b</em></sub></span>)</h4>
+<p>为了保证粘结力的安全传递和混凝土的充分振捣，保护层不得小于 <span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em>, <em>b</em></sub></span>
+[Ref-9, Ref-11]： -
+<strong>普通钢筋</strong>：通常与钢筋直径相关（具体查表 4.2）。 -
+<strong>后张法预应力管道</strong>：圆形管道为管道直径；矩形管道为较小尺寸或较大尺寸一半的较大值，且最大不超过
+80 mm [Ref-6, Ref-9, Ref-11]。 -
+<strong>先张法预应力筋</strong>：钢绞线或光面钢丝为 1.5
+倍直径；刻痕钢丝；刻痕钢丝为 2.5 倍直径 [Ref-6, Ref-9, Ref-11]。</p>
+<h4 id="基于环境条件耐久性的最小保护层-c_mindur">(2)
+基于环境条件（耐久性）的最小保护层 (<span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em>, <em>d</em><em>u</em><em>r</em></sub></span>)</h4>
+<p>该值主要取决于结构所处的<strong>暴露等级（Exposure
+classes）</strong>和<strong>结构分类（Structural classes）</strong>
+[Ref-9, Ref-11]。 环境条件计算中还需考虑以下修正参数 [Ref-9, Ref-11]： -
+<strong><span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>u</em><em>r</em>, <em>γ</em></sub></span></strong>：附加安全元素。
+- <strong><span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>u</em><em>r</em>, <em>s</em><em>t</em></sub></span></strong>：使用不锈钢时的保护层折减值。
+- <strong><span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>u</em><em>r</em>, <em>a</em><em>d</em><em>d</em></sub></span></strong>：使用附加保护措施时的保护层折减值。
+<em>(注：普通钢筋和预应力钢的 <span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em>, <em>d</em><em>u</em><em>r</em></sub></span>
+推荐值分别见规范表 4.4N 和表
+4.5N，但规范建议为预应力钢提供更大的保护层以降低腐蚀风险 [Ref-6, Ref-9,
+Ref-11]。)</em></p>
+<hr />
+<h3 id="施工允许偏差-delta-c_dev-的相关因素与取值">3. 施工允许偏差
+(<span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>e</em><em>v</em></sub></span>)
+的相关因素与取值</h3>
+<p><span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>e</em><em>v</em></sub></span>
+是为了弥补施工过程中的负偏差而增加的余量 [Ref-1, Ref-5, Ref-7]。 -
+<strong>常规推荐值</strong>：10 mm [Ref-1, Ref-5, Ref-7]。 -
+<strong>可折减的情况</strong>（需查阅国家附录确认是否适用） [Ref-1,
+Ref-5, Ref-7]： -
+若制造受质量保证体系控制，且监测包含保护层测量：可折减至 <strong>5 mm ~
+10 mm</strong>。 -
+若使用高精度测量设备监测并拒收不合格构件（如预制构件）：可折减至
+<strong>0 mm ~ 10 mm</strong>。</p>
+<hr />
+<h3 id="特殊工况下的保护层调整">4. 特殊工况下的保护层调整</h3>
+<p>当混凝土浇筑在<strong>不平整表面</strong>上时，必须增加最小保护层以允许更大的设计偏差
+[Ref-1, Ref-5, Ref-7]： -
+<strong>在准备好的地基（含垫层）上浇筑</strong>：最小保护层至少为 <span class="math inline"><em>k</em><sub>1</sub></span>（推荐值 <strong>40
+mm</strong>） [Ref-1, Ref-5, Ref-7]。 -
+<strong>直接在土壤上浇筑</strong>：最小保护层至少为 <span class="math inline"><em>k</em><sub>2</sub></span>（推荐值 <strong>75
+mm</strong>） [Ref-1, Ref-5, Ref-7]。 -
+<strong>表面具有特殊特征</strong>（如肋状饰面或裸露骨料）：也必须增加保护层以考虑表面的不平整度
+[Ref-1, Ref-5, Ref-7]。</p>
+<hr />
+<h3 id="工程师应用提醒国家附录与前提条件">⚠️
+工程师应用提醒（国家附录与前提条件）</h3>
+<ol type="1">
+<li><strong>国家附录（National Annex）优先</strong>：上述提到的 <span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em>, <em>d</em><em>u</em><em>r</em></sub></span>
+具体数值、结构分类（推荐 S4）、偏差折减范围（<span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>e</em><em>v</em></sub></span>）以及不平整表面系数（<span class="math inline"><em>k</em><sub>1</sub>, <em>k</em><sub>2</sub></span>）的<strong>最终取值必须以项目所在国的国家附录为准</strong>
+[Ref-1, Ref-5, Ref-7, Ref-9, Ref-11]。</li>
+<li><strong>耐火设计</strong>：若项目有严格的防火要求，保护层厚度还需满足
+EN 1992-1-2 的耐火验算要求，此时 <span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em></sub></span>
+可能需要进一步放大 [Ref-9, Ref-11]。</li>
+<li><strong>图纸标注</strong>：计算得出的名义保护层 <span class="math inline"><em>c</em><sub><em>n</em><em>o</em><em>m</em></sub></span>
+必须直接用于结构计算，并明确标注在施工图纸上 [Ref-1, Ref-5,
+Ref-7]。</li>
+</ol>
+<h3 id="依据位置-2">依据位置</h3>
+<ul>
+<li>保护层定义与名义保护层公式：EN 1992-1-1:2004, 4.4.1.1 (1)P, (2)P,
+公式 4.1 [Ref-2, Ref-3, Ref-8, Ref-11]</li>
+<li>最小保护层 <span class="math inline"><em>c</em><sub><em>m</em><em>i</em><em>n</em></sub></span>
+影响因素及参数：EN 1992-1-1:2004, 4.4.1.2 (1)P~(5) [Ref-9, Ref-11]</li>
+<li>施工偏差 <span class="math inline"><em>Δ</em><em>c</em><sub><em>d</em><em>e</em><em>v</em></sub></span>
+及不平整表面调整：EN 1992-1-1:2004, 4.4.1.3 (1)P~(4) [Ref-1, Ref-5,
+Ref-7]</li>
+<li>预应力构件保护层特殊指南说明：DG_EN1992-1-1, Chapter 11 (Prestressed
+concrete) [Ref-6]</li>
+</ul>
+<h3 id="来源-3">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 52，条款 4.4.1.3, (1)P: (1)P To calculate
+the nominal cover, <span class="math inline"><em>c</em><sub>nom</sub>,</span> , an addition to
+the minimum cover shall be made in design to allow for the deviation
+<span class="math inline">(<em>Δ</em><em>c</em><sub>dev</sub>)</span> .
+The required minimum cover shall be increased</li>
+<li>[2] EN1992-1-1_2004，页 49，条款 4.4.1.1, (1)P: (1)P The concrete
+cover is the distance between the surface of the reinforcement closest
+to the nearest concrete surface (including links and stirrups and
+surface reinforcement where relevant) and the nearest concrete surface.
+(2)P The</li>
+<li>[3] EN1992-1-1 2004，页 49，条款 4.4.1.1, (1)P: (1)P The concrete
+cover is the distance between the surface of the reinforcement closest
+to the nearest concrete surface (including links and stirrups and
+surface reinforcement where relevant) and the nearest concrete surface.
+(2)P The</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 193，条款 : The main guidance on
+detailing is contained in Sections 8 and 9 of EN 1992-1-1. Cover
+requirements are in Section 4, under durability. The main aspects of
+detailing are concerned with anchoring bars carrying stress and lapping
+of</li>
+<li>[5] EN1992-1-1 2004，页 52，条款 4.4.1.3, (1)P: (1)P To calculate
+the nominal cover, <span class="math inline"><em>c</em><sub>nom</sub></span> , an addition to the
+minimum cover shall be made in design to allow for the deviation <span class="math inline">(<em>Δ</em><em>c</em><sub>dev</sub>)</span> . The
+required minimum cover shall be increased</li>
+<li>[6] DG_EN1992-1-1__-1-2，页 211，条款 : In EN 1992-1-1, prestressed
+concrete is treated as part of a much wider material group known as
+reinforced concrete, which covers normal reinforced concrete through
+partially prestressed concrete to fully prestressed concrete. The</li>
+<li>[7] EN1992-1-1_2004，页 52，条款 4.4.1.3, (1)P: (1)P To calculate
+the nominal cover, <span class="math inline"><em>c</em><sub>nom</sub>,</span> , an addition to
+the minimum cover shall be made in design to allow for the deviation
+<span class="math inline">(<em>Δ</em><em>c</em><sub>dev</sub>)</span> .
+The required minimum cover shall be increased</li>
+<li>[8] EN1992-1-1_2004，页 49，条款 : <span class="math display"><em>c</em><sub>nom</sub> = <em>c</em><sub>min</sub> + <em>Δ</em><em>c</em><sub>dev</sub></span></li>
+</ul>
+<h2 id="结构分析的目的是什么">7. 结构分析的目的是什么?</h2>
+<ul>
+<li>Excel 行号: 8</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-4">答案</h3>
+<h3 id="直接结论">直接结论</h3>
+<p>结构分析的主要目的是确定结构整体或局部的<strong>作用效应（Action
+effects）分布</strong>（如内力、弯矩，或应力、应变和位移），并以此为基础<strong>验证结构的整体稳定性</strong>以及<strong>评估其在各种极限状态下的可靠性</strong>。</p>
+<h3 id="依据与详细说明">依据与详细说明</h3>
+<ol type="1">
+<li><p><strong>确定作用效应分布</strong>
+结构分析旨在确立整个结构或其某一部分的内力（internal
+forces）和弯矩（moments）分布，或者应力（stresses）、应变（strains）和位移（displacements）的分布
+[Ref-1]。在此基础上，可进一步计算截面的曲率、转角和位移等参数
+[Ref-2]。</p></li>
+<li><p><strong>验证整体稳定性与极限状态可靠性</strong>
+通过结构建模和分析确定的截面、节点或构件中的作用效应，可用于验证建筑和土木工程结构在各种极限状态（如承载能力极限状态和正常使用极限状态）下的整体稳定性和可靠性
+[Ref-2], [Ref-8]。</p></li>
+<li><p><strong>为截面抗力验证提供基础</strong></p>
+<ul>
+<li><strong>常规情况</strong>：在大多数正常设计中，分析主要用于确定内力和弯矩的分布，截面的完整验证或抗力证明正是基于这些作用效应来进行的
+[Ref-1]。</li>
+<li><strong>特殊情况</strong>：对于某些特定构件，所采用的分析方法（例如有限元分析）可能直接输出应力、应变和位移，而不是内力和弯矩。在这种情况下，必须采用特殊方法来利用这些结果以获得适当的截面验证
+[Ref-1]。</li>
+</ul></li>
+<li><p><strong>局部分析的补充</strong>
+除了整体分析外，在必要时（例如线性应变分布假设不成立的区域，如支座附近、集中荷载作用处、梁柱节点、锚固区或截面突变处）还应进行附加的局部分析（Local
+analysis） [Ref-1]。</p></li>
+</ol>
+<h3 id="依据位置-3">依据位置</h3>
+<ul>
+<li><strong>[Ref-1]</strong> EN 1992-1-1:2004, 条款 5.1.1 (1)P 及其
+Note, 第 53 页</li>
+<li><strong>[Ref-2]</strong> Designers’ Guide to EN 1992-1-1, 章节 3.1
+Introduction, 第 33 页</li>
+<li><strong>[Ref-8]</strong> Designers’ Guide to EN 1990, 章节 5
+(Structural analysis and design assisted by testing) 概述, 第 67 页</li>
+</ul>
+<h3 id="来源-4">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 53，条款 5.1.1, (1)P: (1)P The purpose of
+structural analysis is to establish the distribution of either internal
+forces and moments, or stresses, strains and displacements, over the
+whole or part of a structure. Additional local analysis shall be carried
+out</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 33，条款 : The purpose of analysis is
+the verification of overall stability and establishment of action
+effects, i.e. the distribution of internal forces and moments. In turn,
+this will enable the calculation of stresses, strains, curvature,
+rotation</li>
+<li>[3] EN1992-1-1 2004，页 53，条款 5.1.1, (1)P: (1)P The purpose of
+structural analysis is to establish the distribution of either internal
+forces and moments, or stresses, strains and displacements, over the
+whole or part of a structure. Additional local analysis shall be carried
+out</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 33，条款 : In the analysis of the
+structure, the designer should consider the effects of the realistic
+combinations of permanent and variable actions. Within each set of
+combinations (e.g. dead and imposed loads) a number of different
+arrangements of</li>
+<li>[5] EN1992-1-1_2004，页 218，条款 : (1) For the purpose of this
+section flat slabs may be of uniform thickness or they may incorporate
+drops (thickenings over columns). (2) Flat slabs should be analysed
+using a proven method of analysis, such as grillage (in which the
+plate</li>
+<li>[6] DG EN1990，页 69，条款 : In the previous version of the Eurocode
+(ENV 1991-1), an increase of more than <span class="math inline">10%</span> in the effects of actions was proposed,
+but it was recognised that such a value depends on the particular
+construction and/or its structural material.</li>
+<li>[7] DG EN1990，页 67，条款 : This chapter is concerned with the
+modelling of building and civil engineering structures for the purpose
+of determining action effects and resistances. The material described in
+this chapter is covered in Section 5 of EN 1990, in the</li>
+<li>[8] DG_EN1990，页 67，条款 5.1.1, 5.1.2: The Principles and
+Application Rules presented in Section 5 of EN 1990 primarily deal with
+the modelling of structures. Action effects in cross-sections, joints or
+members determined through structural modelling and analysis can be used
+to</li>
+</ul>
+<h2 id="在哪些部位当线性应变分布的假设不成立时可能需要进行局部分析">8.
+在哪些部位当线性应变分布的假设不成立时，可能需要进行局部分析?</h2>
+<ul>
+<li>Excel 行号: 9</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-5">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+及其相关设计指南，当线性应变分布假设（即平截面假定）不成立时，除了整体分析外，还需要在以下部位进行额外的局部分析：</p>
+<h3 id="需要进行局部分析的部位">需要进行局部分析的部位</h3>
+<ol type="1">
+<li><strong>支座附近</strong>（in the vicinity of
+supports）[Ref-1]。</li>
+<li><strong>集中荷载作用处及其邻近区域</strong>（local to concentrated
+loads / locations adjacent to concentrated loads）[Ref-1],
+[Ref-3]。</li>
+<li><strong>梁柱节点/交接处</strong>（in beam-column intersections /
+junctions）[Ref-1], [Ref-3]。</li>
+<li><strong>锚固区</strong>（in anchorage zones）[Ref-1], [Ref-3]。</li>
+<li><strong>截面突变处</strong>，包括大洞口附近（at changes in cross
+section / members with significant changes in cross-section, including
+the vicinity of large holes）[Ref-1], [Ref-3]。</li>
+<li><strong>存在平面应力状态的区域</strong>（plain stress / in-plane
+stress fields）[Ref-1], [Ref-7]。</li>
+<li><strong>短构件</strong>（如深梁、牛腿等，因其内部变形复杂，平截面假定不再适用）[Ref-5]。</li>
+</ol>
+<h3 id="依据与说明-1">依据与说明</h3>
+<ul>
+<li><strong>分析要求</strong>：结构分析的目的通常是确定内力分布，但在上述几何或受力不连续的区域，线性应变分布假设失效，必须开展局部分析以准确评估应力、应变和位移分布
+[Ref-1]。</li>
+<li><strong>推荐分析方法</strong>：对于这些非线性应变分布区域，规范推荐采用<strong>拉压杆模型（Strut-and-tie
+models）</strong> 等基于塑性下限定理的方法进行局部分析和承载力验证
+[Ref-3], [Ref-7], [Ref-18]。此外，对于平面应力场，也可参考规范附录
+F（Annex F）提供的简化方法来确定配筋 [Ref-1]。</li>
+</ul>
+<h3 id="依据位置-4">依据位置</h3>
+<ul>
+<li>EN 1992-1-1:2004, 条款 5.1.1(2) [Ref-1]</li>
+<li>EN 1992-1-1:2004, 条款 6.5.1(1)P [Ref-7]</li>
+<li>EN 1992-1-1:2004, 条款 5.6.4 [Ref-18]</li>
+<li>DG_EN1992-1-1 指南, 章节 3.1 Introduction [Ref-3]</li>
+<li>DG_EN1992-1-1 指南, 章节 5.1.2 Assumptions relating to the strains
+at the ultimate limit state [Ref-5]</li>
+</ul>
+<h3 id="来源-5">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 53，条款 5.1.1, (1)P: (1)P The purpose of
+structural analysis is to establish the distribution of either internal
+forces and moments, or stresses, strains and displacements, over the
+whole or part of a structure. Additional local analysis shall be carried
+out</li>
+<li>[2] EN1992-1-1_2004，页 53，条款 5.1.1, (1)P: (1)P The purpose of
+structural analysis is to establish the distribution of either internal
+forces and moments, or stresses, strains and displacements, over the
+whole or part of a structure. Additional local analysis shall be carried
+out</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 33，条款 : The purpose of analysis is
+the verification of overall stability and establishment of action
+effects, i.e. the distribution of internal forces and moments. In turn,
+this will enable the calculation of stresses, strains, curvature,
+rotation</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 48，条款 : Strut-and-tie models utilize
+the lower-bound theorem of plasticity, which can be summarized as
+follows: for a structure under a given system of external loads, if a
+stress distribution throughout the structure can be found such that
+(1)</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 75，条款 : The basic assumptions here
+are that plane sections remain plane and that the strain in
+reinforcement is the same as the strain in the concrete at the same
+level. These assumptions are universally accepted for the design of
+members</li>
+<li>[6] EN1992-1-1 2004，页 53，条款 5.1.1, (1)P: (1)P The purpose of
+structural analysis is to establish the distribution of either internal
+forces and moments, or stresses, strains and displacements, over the
+whole or part of a structure. Additional local analysis shall be carried
+out</li>
+<li>[7] EN1992-1-1_2004，页 107，条款 6.5.1, (1)P: (1)P Where a
+non-linear strain distribution exists (e.g. supports, near concentrated
+loads or plain stress) strut-and-tie models may be used (see also
+5.6.4).</li>
+<li>[8] EN1992-1-1 2004，页 107，条款 6.5.1, (1)P: (1)P Where a
+non-linear strain distribution exists (e.g. supports, near concentrated
+loads or plain stress) strut-and-tie models may be used (see also
+5.6.4).</li>
+</ul>
+<h2 id="根据性质和功能结构构件包括哪些类型">9.
+根据性质和功能，结构构件包括哪些类型?</h2>
+<ul>
+<li>Excel 行号: 10</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-6">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+的规定，基于性质和功能，结构构件的分类及建筑中常见构件的具体界定如下：</p>
+<h3 id="结构构件的基本分类">1. 结构构件的基本分类</h3>
+<p>考虑结构构件的性质和功能，结构元素（构件）主要分类为：<strong>梁（beams）、柱（columns）、板（slabs）、墙（walls）、平板（plates）、拱（arches）、壳（shells）</strong>
+等 [Ref-1]。规范也为这些常见构件及其组合结构的分析提供了相关规则
+[Ref-1]。</p>
+<h3 id="建筑中常见构件的具体界定条件">2.
+建筑中常见构件的具体界定条件</h3>
+<p>对于建筑结构（buildings），规范根据几何尺寸比例对部分常见构件的类型界定给出了明确的划分条件
+[Ref-1]： * <strong>梁（Beam）与深梁（Deep
+beam）</strong>：当构件的跨度不小于其截面总高度的 3
+倍时，视为梁；否则应将其视为深梁 [Ref-1]。 *
+<strong>板（Slab）</strong>：当构件的最小板块尺寸不小于板总厚度的 5
+倍时，视为板 [Ref-1]。 *
+<strong>柱（Column）与墙（Wall）</strong>：当构件的截面高度不超过其宽度的
+4 倍，且高度至少为截面高度的 3 倍时，视为柱；否则应将其视为墙
+[Ref-1]。</p>
+<h3 id="依据位置-5">依据位置</h3>
+<ul>
+<li><strong>文档名</strong>：EN 1992-1-1:2004 (Eurocode 2: Design of
+concrete structures - Part 1-1)</li>
+<li><strong>条款/章节</strong>：5.3.1 Structural models for overall
+analysis, 条款 (1)P, (3), (4), ( (4), (7)</li>
+<li><strong>页码</strong>：57</li>
+<li><strong>对应证据片段</strong>：[Ref-1], [Ref-2], [Ref-12]</li>
+</ul>
+<h3 id="来源-6">来源</h3>
+<ul>
+<li>[1] EN1992-1-1 2004，页 57，条款 5.3.1, (1)P: (1)P The elements of a
+structure are classified, by consideration of their nature and function,
+as beams, columns, slabs, walls, plates, arches, shells etc. Rules are
+provided for the analysis of the commoner of these elements and of</li>
+<li>[2] EN1992-1-1_2004，页 57，条款 5.3.1, (1)P: (1)P The elements of a
+structure are classified, by consideration of their nature and function,
+as beams, columns, slabs, walls, plates, arches, shells etc. Rules are
+provided for the analysis of the commoner of these elements and of</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 193，条款 : The main guidance on
+detailing is contained in Sections 8 and 9 of EN 1992-1-1. Cover
+requirements are in Section 4, under durability. The main aspects of
+detailing are concerned with anchoring bars carrying stress and lapping
+of</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 230，条款 : Section 5 of EN 1992-1-2
+sets out minimum dimensions and axis distances (cover plus half the
+diameter of the reinforcement bar) for different types of structural
+element for fire exposure periods of 30, 60, 90, 120, 180 and 240 min.
+Some</li>
+<li>[5] EN1992-1-1 2004，页 64，条款 5.8.1: Biaxial bending:
+simultaneous bending about two principal axes Braced members or systems:
+structural members or subsystems, which in analysis and design are
+assumed not to contribute to the overall horizontal stability of a
+structure</li>
+<li>[6] DG EN1990，页 46，条款 : Examples of classification for most
+common types of action are given in Table 4.1. However, this
+classification corresponds to typical conditions only, and may not apply
+in certain specific cases. Depending on site location and the
+actual</li>
+<li>[7] EN1992-1-1 2004，页 172，条款 10.1.1: Precast element: element
+manufactured in a factory or a place other than the final position in
+the structure, protected from adverse weather conditions Precast
+product: precast element manufactured in compliance with a specific
+CEN</li>
+<li>[8] DG_EN1990，页 25，条款 2.1.4: 3 ‘Selecting a structural form and
+design that survive adequately the accidental removal of an individual
+element or a limited part of the structure or the occurrence of
+acceptable localised damage.’ For this measure: – each load-bearing</li>
+</ul>
+<h2 id="什么是单向板">10. 什么是单向板?</h2>
+<ul>
+<li>Excel 行号: 11</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-7">答案</h3>
+<h3 id="直接结论-1">直接结论</h3>
+<p>在主要承受均布荷载的前提下，满足特定边界支撑条件或长宽比条件的混凝土板可被判定为<strong>单向板（one-way
+spanning slab）</strong>。</p>
+<h3 id="依据与说明-2">依据与说明</h3>
+<p>根据欧洲规范 EN 1992-1-1
+的规定，承受主要均布荷载的板若满足以下任一条件，可视为单向板 [Ref-1]：
+1. 具有两个自由（无支撑）且大致平行的边缘 [Ref-1]。 2.
+它是四边支撑的大致矩形板的中心部分，且长跨与短跨之比大于 2 [Ref-1]。</p>
+<p><strong>指南补充说明（防火设计）：</strong>
+在结构防火设计的相关指南中明确指出，双向板的设计数据仅适用于四边均有支撑的板；如果不满足四边支撑的条件，该板应按单向板进行处理
+[Ref-3]。</p>
+<h3 id="依据位置-6">依据位置</h3>
+<ul>
+<li><strong>[Ref-1]</strong> EN1992-1-1 2004, 章节 5.3.1 (Structural
+models for overall analysis), 条款 (5), 页码 57</li>
+<li><strong>[Ref-3]</strong> DG_EN1992-1-1__-1-2 (指南), 章节 Structural
+fire design &gt; Slabs, 页码 232</li>
+</ul>
+<h3 id="来源-7">来源</h3>
+<ul>
+<li>[1] EN1992-1-1 2004，页 57，条款 5.3.1, (1)P: (1)P The elements of a
+structure are classified, by consideration of their nature and function,
+as beams, columns, slabs, walls, plates, arches, shells etc. Rules are
+provided for the analysis of the commoner of these elements and of</li>
+<li>[2] EN1992-1-1 2004，页 62，条款 5.6.3: (1) The simplified procedure
+for continuous beams and continuous one way spanning slabs is based on
+the rotation capacity of beam/slab zones over a length of approximately
+1,2 times the depth of section. It is assumed that these zones</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 232，条款 : The data for two-way
+spanning slabs are applicable only to slabs supported on all four edges.
+If this is not met, the slab should be treated as one-way spanning. The
+thickness of the slab for continuous slabs is the same as for
+simply</li>
+<li>[4] EN1992-1-1_2004，页 127，条款 Table 7: Table 7.4N: Basic ratios
+of span/effective depth for reinforced concrete members without axial
+compression
+<table>
+<tr>
+<td>
+Structural System
+</td>
+<td>
+K
+</td>
+<td>
+Concrete highly stressed <span class="math inline"><em>ρ</em> = 1, 5%</span>
+</td>
+<td>
+Concrete lightly</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 55，条款 : Flat slab structures are
+defined as slabs (solid or coffered) supported on point supports. Unlike
+two-way spanning slabs on line supports, flat slabs can fail by yield
+lines in either of the two orthogonal directions (Fig. 3.24). For
+this</li>
+<li>[6] DG_EN1992-1-1__-1-2，页 55，条款 : Flat slab structures are
+defined as slabs (solid or coffered) supported on point supports. Unlike
+two-way spanning slabs on line supports, flat slabs can fail by yield
+lines in either of the two orthogonal directions (Fig. 3.24). For
+this</li>
+<li>[7] EN1992-1-1 2004，页 158，条款 9.3: (1) This section applies to
+one-way and two-way solid slabs for which <span class="math inline"><em>b</em></span> and <span class="math inline"><em>I</em><sub>eff</sub></span> are not less than
+<span class="math inline">5<em>h</em></span> (see 5.3.1).</li>
+<li>[8] EN1992-1-1_2004，页 62，条款 5.6.3: (1) The simplified procedure
+for continuous beams and continuous one way spanning slabs is based on
+the rotation capacity of beam/slab zones over a length of approximately
+1,2 times the depth of section. It is assumed that these zones</li>
+</ul>
+<h2 id="欧标的截面计算的基本假设前提是什么">11.
+欧标的截面计算的基本假设前提是什么？</h2>
+<ul>
+<li>Excel 行号: 12</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-8">答案</h3>
+<p>根据欧洲规范（以混凝土结构 EN 1992-1-1 和结构设计基础 EN 1990
+为例），截面计算的基本假设前提可分为<strong>截面力学计算假定</strong>和<strong>欧标体系通用前提假定</strong>。</p>
+<h3 id="一-截面力学计算的基本假设承载能力极限状态">一、
+截面力学计算的基本假设（承载能力极限状态）</h3>
+<p>在确定钢筋混凝土或预应力混凝土截面（受弯或压弯）的极限承载力时，规范规定了以下核心力学假设
+[Ref-2, Ref-10]： 1.
+<strong>平截面假定</strong>：构件在加载变形前后，截面保持平面 [Ref-2,
+Ref-10]。 2.
+<strong>应变协调假定</strong>：有粘结的普通钢筋或有粘结的预应力筋（无论受拉还是受压），其应变与周围同一位置的混凝土应变相同
+[Ref-2,
+Ref-10]。对于预应力截面，需考虑钢筋在粘结前的初始应变，粘结后其应变变化量假定与混凝土相同
+[Ref-3, Ref-13]。 3.
+<strong>忽略混凝土抗拉强度</strong>：在截面承载力计算中，不考虑混凝土的抗拉作用
+[Ref-2, Ref-10]。 4. <strong>材料本构关系</strong>： -
+受压混凝土的应力由规范第 3.1.7 节给出的设计应力-应变关系推导 [Ref-2,
+Ref-10]。 - 钢筋或预应力钢的应力由规范第 3.2 节和第 3.3 节的设计曲线推导
+[Ref-2, Ref-10]。 5.
+<strong>预应力初始应变</strong>：在评估预应力筋的应力时，必须计入其初始应变
+[Ref-2, Ref-10]。 6. <strong>应变限值</strong>：混凝土的受压应变需限制在
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span> 或
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>（取决于所选的应力-应变图）；钢筋和预应力钢的应变需限制在
+<span class="math inline"><em>ε</em><sub><em>u</em><em>d</em></sub></span>（如适用）
+[Ref-2, Ref-10]。</p>
+<h3 id="二-预应力钢材的特定截面设计假设">二、
+预应力钢材的特定截面设计假设</h3>
+<p>针对预应力钢材的截面设计，规范允许在应力-应变关系中采用以下两种假设之一
+[Ref-1, Ref-4]： 1. <strong>带应变限制的倾斜分支</strong>：设定极限应变
+<span class="math inline"><em>ε</em><sub><em>u</em><em>d</em></sub></span>（推荐值为
+<span class="math inline">0.9<em>ε</em><sub><em>u</em><em>k</em></sub></span>，若未知则推荐取
+<span class="math inline">0.02</span>） [Ref-1, Ref-4]。 2.
+<strong>无应变限制的水平顶部分支</strong>：即达到屈服后应力保持水平，不限制最大应变
+[Ref-1, Ref-4]。</p>
+<h3 id="三-适用范围与限制条件重要提醒">三、
+适用范围与限制条件（重要提醒）</h3>
+<p>根据规范及设计指南的补充说明，上述力学假设并非在所有情况下都严格成立，工程师需注意以下限制
+[Ref-3, Ref-7, Ref-13]： 1.
+<strong>局部不准确性</strong>：由于局部粘结滑移和复杂的内部变形，平截面和应变完全协调在微观局部并不严格成立，但在平均意义上对常规构件的设计足够准确
+[Ref-3, Ref-7, Ref-13]。 2.
+<strong>不适用于短构件</strong>：对于深梁（deep
+beams）、牛腿（corbels）等短构件，平截面假定失效，不能使用该章节的截面计算规定，而应按规范第
+6.5 节（不连续区域/拉压杆模型）进行设计和配筋 [Ref-2, Ref-2, Ref-3,
+Ref-10, Ref-13]。 3.
+<strong>不适用于无粘结预应力筋</strong>：应变协调假定对无粘结预应力筋无效。无粘结预应力构件需按规范第
+5.10.8 节的专门规定进行设计 [Ref-2, Ref-3, Ref-10,
+Ref-13]。对于体外预应力筋，假定两个接触点（锚具或转向块）之间的预应力筋应变保持恒定
+[Ref-2, Ref-10]。</p>
+<h3 id="四-欧标体系的通用基本假设en-1990">四、
+欧标体系的通用基本假设（EN 1990）</h3>
+<p>除了力学计算假定，采用欧标进行任何设计（包括截面计算）均必须满足 EN
+1990 第 1.3 节规定的通用前提假设 [Ref-8, Ref-9]： 1.
+结构系统的选择和设计由具备适当资质和经验的人员完成 [Ref-8, Ref-9]。 2.
+施工由具备适当技能和经验的人员执行，并在设计、工厂和现场提供充分的监督与质量控制
+[Ref-8, Ref-9]。 3. 建筑材料和产品严格按照欧标及相关产品规范使用 [Ref-8,
+Ref-9]。 4. 结构将得到充分的维护，并严格按照设计假设（如不超载）进行使用
+[Ref-8, Ref-9]。</p>
+<table style="width:6%;">
+<colgroup>
+<col style="width: 5%" />
+</colgroup>
+<tbody>
+<tr>
+<td><strong>依据位置：</strong> - [Ref-1] EN 1992-1-1:2004, 条款 3.3.6
+(7), 页码 44 - [Ref-2] EN 1992-1-1:2004, 条款 6.1 (1)P, (2)P, (3)P, (7),
+(8), 页码 83 - [Ref-3] Designers’ Guide to EN 1992-1-1, 章节 5.1.2, 页码
+75 - [Ref-4] EN 1992-1-1:2004, 条款 3.3.6 (7), 页码 44-45 - [Ref-7]
+Designers’ Guide to EN 1992-1-1, 章节 Derivation of stress block
+parameters, 页码 75 - [Ref-8] Designers’ Guide to EN 1990, 章节 1.3
+Assumptions, 页码 18-19 - [Ref-9] Designers’ Guide to EN 1990, 章节 1.3
+Assumptions, 页码 18-19 - [Ref-10] EN 1992-1-1:2004, 条款 6.1 (1)P,
+(2)P, (3)P, (7), (8), 页码 83-84 - [Ref-13] Designers’ Guide to EN
+1992-1-1, 章节 Design of sections for bending and axial force, 页码
+75</td>
+</tr>
+<tr>
+<td>### 来源</td>
+</tr>
+<tr>
+<td>- [1] EN1992-1-1_2004，页 44，条款 3.3.6, (1)P: (1)P Structural
+analysis is performed on the basis of the nominal cross-section area of
+the prestressing steel and the characteristic values <span class="math inline"><em>f</em><sub>p0, 1k</sub>, <em>f</em><sub>pk</sub></span>
+and ${ - [2] EN1992-1-1_2004，页 83，条款 6.1, (1)P: (1)P This section
+applies to undisturbed regions of beams, slabs and similar types of
+members for which sections remain approximately plane before and after
+loading. The discontinuity regions of beams and other members in which
+plane - [3] DG_EN1992-1-1__-1-2，页 75，条款 : The basic assumptions
+here are that plane sections remain plane and that the strain in
+reinforcement is the same as the strain in the concrete at the same
+level. These assumptions are universally accepted for the design of
+members - [4] EN1992-1-1 2004，页 44，条款 3.3.6, (1)P: (1)P Structural
+analysis is performed on the basis of the nominal cross-section area of
+the prestressing steel and the characteristic values <span class="math inline"><em>f</em><sub>p0, 1k</sub>, <em>f</em><sub>pk</sub></span>
+and ${ - [5] DG_EN1992-1-1<strong>-1-2，页 232，条款 : This method
+requires knowledge of the temperature distribution across the
+cross-section of the member. EN 1992-1-2 provides such profiles for
+slabs, beams and columns in Annex A for standard time-temperature
+relationships. The method may - [6] EN1992-1-1_2004，页 2，条款 1.1.1,
+(1)P: 1. General 1.1 Scope 1.1.1 Scope of Eurocode 2 1.1.2 Scope of Part
+1-1 of Eurocode 2 1.2 Normative references 1.2.1 General reference
+standards 1.2.2 Other reference standards 1.3 Assumptions 1.4
+Distinction between principles and - [7] DG_EN1992-1-1</strong>-1-2，页
+75，条款 : The basic assumptions here are that plane sections remain
+plane and that the strain in reinforcement is the same as the strain in
+the concrete at the same level. These assumptions are universally
+accepted for the design of members - [8] DG_EN1990，页 18，条款 : ‘A
+design which employs the Principles and Application Rules is deemed to
+meet the requirements of EN 1990, provided the following assumptions are
+satisfied.’ The assumptions that need to be satisfied (clause 1.3(2))
+are: ‘The choice of</td>
+</tr>
+<tr>
+<td>## 12. 混凝土受压区应变-应力分布假设是什么？</td>
+</tr>
+<tr>
+<td>- Excel 行号: 13 - 层级: Level 1 / 基础概念与符号体系层</td>
+</tr>
+<tr>
+<td>### 答案</td>
+</tr>
+<tr>
+<td>### 直接结论
+在混凝土截面设计（如受弯或压弯构件）中，混凝土受压区的应变-应力分布假设主要基于<strong>平截面假定</strong>，并允许采用三种理想化的应力-应变关系模型：<strong>抛物线-矩形分布</strong>、<strong>双线性分布</strong>或<strong>矩形应力块分布</strong>。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="一-截面设计的基本前提假设">一、 截面设计的基本前提假设</h3>
+<p>在确定钢筋混凝土或预应力混凝土截面的极限承载力时，必须遵循以下基本假设
+[Ref-3, Ref-6]： 1.
+<strong>平截面假定</strong>：变形前垂直于轴线的截面，在受力变形后仍保持平面
+[Ref-3, Ref-6]。 2.
+<strong>应变协调</strong>：粘结钢筋或粘结预应力筋的应变（无论受拉或受压）与周围混凝土的应变相同
+[Ref-3, Ref-6]。 3.
+<strong>忽略抗拉强度</strong>：计算中忽略混凝土的抗拉强度 [Ref-3,
+Ref-6]。 4. <strong>极限应变限制</strong>：混凝土的极限压应变必须限制在
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span> 或
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>，具体限值取决于所采用的应力-应变模型
+[Ref-3, Ref-6]。</p>
+<hr />
+<h3 id="二-三种受压区应力-应变分布模型">二、
+三种受压区应力-应变分布模型</h3>
+<p>根据规范第 3.1.7 节，截面设计可采用以下三种受压区应力-应变关系
+[Ref-1, Ref-4]：</p>
+<h4 id="抛物线-矩形分布parabola-rectangle-diagram">1.
+抛物线-矩形分布（Parabola-rectangle diagram）</h4>
+<p>这是规范给出的标准设计模型 [Ref-10, Ref-11]。 *
+<strong>参数定义</strong>：曲线段由指数 <span class="math inline"><em>n</em></span> 控制，达到最大强度时的应变为 <span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span>，极限应变为
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>
+[Ref-1, Ref-4]。 * <strong>常规混凝土（<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50
+MPa</span>）</strong>：<span class="math inline"><em>n</em> = 2.0</span>（即标准抛物线），<span class="math inline"><em>ε</em><sub><em>c</em>2</sub> = 2.0‰</span>，<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub> = 3.5‰</span>
+[Ref-2]。 * <strong>高强混凝土（<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> &gt; 50
+MPa</span>）</strong>：由于高强混凝土表现出更脆的特性，指数 <span class="math inline"><em>n</em></span> 会从 2.0 逐渐减小至
+1.4，此时曲线段不再是严格的抛物线，且极限应变 <span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>
+也会相应降低 [Ref-2, Ref-11]。</p>
+<h4 id="双线性分布bi-linear-stress-strain-relation">2.
+双线性分布（Bi-linear stress-strain relation）</h4>
+<p>若证明其等效于或比抛物线-矩形模型更保守，则可使用双线性简化模型
+[Ref-1, Ref-4]。 *
+<strong>参数定义</strong>：关键参数为达到最大强度的应变 <span class="math inline"><em>ε</em><sub><em>c</em>3</sub></span> 和极限应变
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>
+[Ref-1, Ref-4]。 * <strong>常规混凝土（<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50
+MPa</span>）</strong>：<span class="math inline"><em>ε</em><sub><em>c</em>3</sub> = 1.75‰</span>，<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub> = 3.5‰</span>
+[Ref-2]。</p>
+<h4 id="矩形应力分布rectangular-stress-distribution">3.
+矩形应力分布（Rectangular stress distribution）</h4>
+<p>为简化计算，可假设受压区应力呈矩形分布 [Ref-1, Ref-4]。 *
+<strong>参数定义</strong>：引入<strong>有效受压区高度系数 <span class="math inline"><em>λ</em></span></strong> 和<strong>有效强度系数
+<span class="math inline"><em>η</em></span></strong> 来定义矩形应力块
+[Ref-1, Ref-4]。 * <strong>常规混凝土（<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50
+MPa</span>）</strong>：<span class="math inline"><em>λ</em> = 0.8</span>，<span class="math inline"><em>η</em> = 1.0</span> [Ref-10, Ref-12]。 *
+<strong>⚠️
+适用条件限制</strong>：如果受压区宽度向极端受压纤维方向逐渐减小（例如三角形截面受压），则有效强度值
+<span class="math inline"><em>η</em><em>f</em><sub><em>c</em><em>d</em></sub></span>
+必须<strong>折减 10%</strong> [Ref-1, Ref-4]。</p>
+<hr />
+<h3 id="三-特殊情况约束混凝土confined混凝土confined-concrete">三、
+特殊情况：约束混凝土（Confined混凝土（Confined concrete）</h3>
+<p>如果混凝土受到有效的横向约束（如通过封闭箍筋或交叉拉筋），其应力-应变关系会发生改变，表现为<strong>更高的抗压强度和更大的临界应变</strong>
+[Ref-5, Ref-8]。 * 在缺乏精确数据时，可采用规范第 3.1.9
+节提供的约束混凝土应力-应变关系模型 [Ref-5, Ref-8]。 *
+其强度和应变参数会根据极限状态下的有效侧向压应力 <span class="math inline"><em>σ</em><sub>2</sub></span> 进行放大计算 [Ref-5,
+Ref-8]。</p>
+<hr />
+<h3 id="四-依据位置">四、 依据位置</h3>
+<ul>
+<li><strong>基本前提假设</strong>：EN 1992-1-1 第 6.1 节 (2)P [Ref-3,
+Ref-6]</li>
+<li><strong>应力-应变模型定义</strong>：EN 1992-1-1 第 3.1.7 节 [Ref-1,
+Ref-4]</li>
+<li><strong>应变参数取值</strong>：EN 1992-1-1 表 3.1 (Table 3.1)
+[Ref-2]</li>
+<li><strong>约束混凝土修正</strong>：EN 1992-1-1 第 3.1.9 节 [Ref-5,
+Ref-8]</li>
+<li><strong>指南补充说明（矩形块参数及高强混凝土特性）</strong>：DG_EN1992-1-1
+第 4.1.5 节、第 5.1.1 节 [Ref-10, Ref-11, Ref-12]</li>
+</ul>
+<h3 id="来源-8">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 34，条款 3.1.7: (1) For the design of
+cross-sections, the following stress-strain relationship may be used,
+see Figure 3.3 (compressive strain shown positive): (3.18) where: n is
+the exponent according to Table 3.1 <span class="math inline"><em>ε</em><sub>C2</sub></span> is</li>
+<li>[2] EN1992-1-1 2004，页 28，条款 Table 3.1: Table 3.1 Strength and
+deformation characteristics for concrete
+<table>
+<tr>
+<td rowspan="1" colspan="15">
+Strength classes for concrete
+</td>
+<td rowspan="1" colspan="1">
+Analytical relation/ Explanation
+</td>
+</tr>
+<tr>
+<td rowspan="1" colspan="1">
+fck</li>
+<li>[3] EN1992-1-1_2004，页 83，条款 6.1, (1)P: (1)P This section
+applies to undisturbed regions of beams, slabs and similar types of
+members for which sections remain approximately plane before and after
+loading. The discontinuity regions of beams and other members in which
+plane</li>
+<li>[4] EN1992-1-1 2004，页 34，条款 3.1.7: (1) For the design of
+cross-sections, the following stress-strain relationship may be used,
+see Figure 3.3 (compressive strain shown positive): where: <span class="math inline"><em>n</em></span> is the exponent according to Table
+3.1 <span class="math inline"><em>ε</em><sub>C2</sub></span> is the</li>
+<li>[5] EN1992-1-1_2004，页 36，条款 3.1.9: (1) Confinement of concrete
+results in a modification of the effective stress-strain relationship:
+higher strength and higher critical strains are achieved. The other
+basic material characteristics may be considered as unaffected for</li>
+<li>[6] EN1992-1-1 2004，页 83，条款 6.1, (1)P: (1)P This section
+applies to undisturbed regions of beams, slabs and similar types of
+members for which sections remain approximately plane before and after
+loading. The discontinuity regions of beams and other members in which
+plane</li>
+<li>[7] EN1992-1-1_2004，页 107，条款 6.5.1, (1)P: (1)P Where a
+non-linear strain distribution exists (e.g. supports, near concentrated
+loads or plain stress) strut-and-tie models may be used (see also
+5.6.4). (1) The design strength for a concrete strut in a region with
+transverse</li>
+<li>[8] EN1992-1-1 2004，页 36，条款 3.1.9: (1) Confinement of concrete
+results in a modification of the effective stress-strain relationship:
+higher strength and higher critical strains are achieved. The other
+basic material characteristics may be considered as unaffected for</li>
+</ul>
+<h2 id="混凝土压碎应变限值是多少">13. 混凝土压碎应变限值是多少？</h2>
+<ul>
+<li>Excel 行号: 14</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-9">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+的规定，混凝土的压碎应变（极限压应变）限值取决于截面设计时所采用的应力-应变关系模型以及构件的受力状态。</p>
+<h3 id="直接结论-2">直接结论</h3>
+<p>混凝土的极限压应变限值主要取 <strong><span class="math inline">$\varepsilonvarepsilon_{cu2}$</span></strong>（对应抛物线-矩形应力图）或
+<strong><span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span></strong>（对应双线性应力图），具体数值需根据混凝土强度等级查阅规范原文的
+<strong>Table
+3.1</strong>。对于近似轴心受压区域，限值应取峰值应力对应的应变
+<strong><span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span></strong> 或
+<strong><span class="math inline"><em>ε</em><sub><em>c</em>3</sub></span></strong>。</p>
+<h3 id="依据与说明-3">依据与说明</h3>
+<ol type="1">
+<li><p><strong>一般受弯或压弯构件</strong>
+在确定钢筋混凝土或预应力混凝土截面的极限抗弯承载力时，混凝土的压应变必须限制为
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span> 或
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>，具体取决于设计时选用的应力-应变模型
+[Ref-5]。</p>
+<ul>
+<li>若采用<strong>抛物线-矩形</strong>应力-应变关系，极限压应变限值为
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>
+[Ref-3], [Ref-9]。</li>
+<li>若采用<strong>双线性</strong>应力-应变关系，极限压应变限值为 <span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>
+[Ref-3], [Ref-9]。</li>
+</ul></li>
+<li><p><strong>近似轴心受压区域</strong>
+在截面中承受近似同心荷载的部分（偏心距 <span class="math inline"><em>e</em>/<em>h</em> &lt; 0.1</span>，例如箱梁的受压翼缘），该部分的<strong>平均压应变</strong>应限制为达到最大强度时的应变
+<span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span>（若使用双线性模型则为
+<span class="math inline"><em>ε</em><sub><em>c</em>3</sub></span>）
+[Ref-5]。</p></li>
+<li><p><strong>约束混凝土（Confined Concrete）</strong>
+当混凝土受到有效的侧向约束（如通过封闭箍筋或拉筋产生侧向压应力）时，其应力-应变关系会发生改变，不仅强度提高，其<strong>极限压应变也会相应提高</strong>
+[Ref-6], [Ref-10]。此时需根据侧向有效压应力 <span class="math inline"><em>σ</em><sub>2</sub></span>
+按约束混凝土的专门公式计算提高后的极限应变 [Ref-6], [Ref-10]。</p></li>
+</ol>
+<h3 id="现有证据不足说明">⚠️ 现有证据不足说明</h3>
+<p><strong>根据当前检索结果无法确定具体的应变数值。</strong>
+当前检索到的证据中仅提供了极限应变的符号定义（<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>、<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>、<span class="math inline"><em>ε</em><sub><em>c</em>2</sub></span>
+等）并指出其来源于 <strong>Table 3.1</strong>，但<strong>未包含 Table
+3.1
+的具体数值表格</strong>。因此，无法直接为您提供不同混凝土强度等级（如
+C50/60 以下或高强混凝土）对应的具体应变限值（例如常规非高强混凝土的
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>
+通常为 0.0035）。<strong>请务必查阅 EN 1992-1-1 规范原文的 Table 3.1
+以获取准确数值。</strong></p>
+<h3 id="依据位置-7">依据位置</h3>
+<ul>
+<li>一般受弯/压弯应变限值及轴心受压限值：EN 1992-1-1 第 6.1 节 (3)P 和
+(5) [Ref-5]</li>
+<li>应力-应变模型定义（<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>,
+<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>3</sub></span>）：EN
+1992-1-1 第 3.1.7 节 [Ref-3], [Ref-9]</li>
+<li>约束混凝土应变提高：EN 1992-1-1 第 3.1.9 节 [Ref-6], [Ref-10]</li>
+</ul>
+<h3 id="来源-9">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 70，条款 : Ductility is defined using
+the strain at maximum load <span class="math inline">(<em>ε</em><sub>uk</sub>)</span> and the ratio
+between the maximum and the yield strengths <span class="math inline">(<em>f</em><sub>t</sub>/<em>f</em><sub>y</sub>)<sub>l</sub></span>
+k. Ductility is</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 69，条款 Table 4.10: Table 4.10.
+Ductility classes for bars, decoiled rods and wire fabrics
+<table>
+<tr>
+<td>
+</td>
+<td>
+Ductility class A
+</td>
+<td>
+Ductility class B
+</td>
+<td>
+Ductility class C
+</td>
+</tr>
+<tr>
+<td>
+$k = ( f _ { } / f _ { } ) _</li>
+<li>[3] EN1992-1-1_2004，页 34，条款 3.1.7: (1) For the design of
+cross-sections, the following stress-strain relationship may be used,
+see Figure 3.3 (compressive strain shown positive): (3.18) where: n is
+the exponent according to Table 3.1 <span class="math inline"><em>ε</em><sub>C2</sub></span> is</li>
+<li>[4] EN1992-1-1_2004，页 34，条款 : $$ \begin{array} { r l } &amp; {
+_ { } = f _ { } </li>
+<li>[5] EN1992-1-1 2004，页 83，条款 6.1, (1)P: (1)P This section
+applies to undisturbed regions of beams, slabs and similar types of
+members for which sections remain approximately plane before and after
+loading. The discontinuity regions of beams and other members in which
+plane</li>
+<li>[6] EN1992-1-1_2004，页 36，条款 3.1.9: (1) Confinement of concrete
+results in a modification of the effective stress-strain relationship:
+higher strength and higher critical strains are achieved. The other
+basic material characteristics may be considered as unaffected for</li>
+<li>[7] EN1992-1-1_2004，页 27，条款 3.1.1, (1)P: (1)P The following
+clauses give principles and rules for normal and high strength concrete.
+(2) Rules for lightweight aggregate concrete are given in Section 11.
+(1)P The compressive strength of concrete is denoted by concrete
+strength</li>
+<li>[8] EN1992-1-1_2004，页 69，条款 5.8.6, (1)P: (1)P The general
+method is based on non-linear analysis, including geometric
+non-linearity i.e. second order effects. The general rules for
+non-linear analysis given in 5.7 apply. (2)P Stress-strain curves for
+concrete and steel suitable</li>
+</ul>
+<h2 id="极限受力状态下混凝土受压区高度限值为多少">14.
+极限受力状态下混凝土受压区高度限值为多少？</h2>
+<ul>
+<li>Excel 行号: 15</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-10">答案</h3>
+<h3 id="直接结论-3">直接结论</h3>
+<p>在承载能力极限状态（ULS）下，欧洲规范 EN 1992-1-1
+并未直接规定一个固定的“混凝土受压区高度”绝对限值，而是通过限制<strong>中性轴深度（neutral
+axis depth, <span class="math inline"><em>x</em><sub><em>u</em></sub></span> 或 <span class="math inline"><em>x</em></span>）与截面有效高度（<span class="math inline"><em>d</em></span>）的比值（<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>）</strong>
+来进行控制
+[Ref-8]。该限值主要取决于<strong>弯矩重分布（redistribution）的程度</strong>、<strong>混凝土强度</strong>以及<strong>钢筋的延性等级</strong>
+[Ref-8]。</p>
+<hr />
+<h3 id="规范限值公式与条件">规范限值公式与条件</h3>
+<p>根据 EN 1992-1-1 第 5.5 节，对于主要受弯且相邻跨度比在 0.5 到 2
+之间的连续梁或板，在进行弯矩重分布且无需显式验算转动能力时，中性轴深度比值
+<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+必须满足以下条件 [Ref-8, Ref-10]：</p>
+<p><strong>1. 基于混凝土强度的限值公式：</strong> * 当 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50
+MPa</span> 时：<span class="math inline">$\delta \ge k_1 + k_2
+\frac{x_u}{d}$</span> [Ref-8] * 当 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> &gt; 50
+MPa</span> 时：<span class="math inline">$\delta \ge k_3 + k_4
+\frac{x_u}{d}$</span> [Ref-8]</p>
+<p><strong>2. 基于钢筋延性等级的绝对下限：</strong> * 使用 B 级和 C
+级钢筋时：<span class="math inline"><em>δ</em> ≥ <em>k</em><sub>5</sub></span> [Ref-8] *
+使用 A 级钢筋时：<span class="math inline"><em>δ</em> ≥ <em>k</em><sub>6</sub></span>
+[Ref-8]</p>
+<p><strong>参数说明与推荐值</strong>（具体需查阅所在国的国家附录）
+[Ref-8]： * <span class="math inline"><em>δ</em></span>：重分布后的弯矩与弹性弯矩的比值。
+* <span class="math inline"><em>x</em><sub><em>u</em></sub></span>：重分布后极限状态下的中性轴深度。
+* <span class="math inline"><em>d</em></span>：截面有效高度。 * <span class="math inline"><em>k</em><sub>1</sub> = 0.44</span> * <span class="math inline"><em>k</em><sub>2</sub> = 1.25(0.6 + 0.0014/<em>ε</em><sub><em>c</em><em>u</em>2</sub>)</span>
+（<span class="math inline"><em>ε</em><sub><em>c</em><em>u</em>2</sub></span>
+为混凝土极限压应变） * <span class="math inline"><em>k</em><sub>3</sub> = 0.54</span> * <span class="math inline"><em>k</em><sub>4</sub> = 1.25(0.6 + 0.0014/<em>ε</em><sub><em>c</em><em>u</em>2</sub>)</span>
+* <span class="math inline"><em>k</em><sub>5</sub> = 0.7</span> * <span class="math inline"><em>k</em><sub>6</sub> = 0.8</span></p>
+<hr />
+<h3 id="指南参考限值表">指南参考限值表</h3>
+<p>根据限值表 根据设计指南（DG_EN1992-1-1）提供的参考表（Table
+3.1），在不同弯矩重分布比例（<span class="math inline"><em>δ</em></span>）和混凝土强度下，中性轴深度比值
+<span class="math inline"><em>x</em>/<em>d</em></span> 的限值参考如下
+[Ref-2]：</p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">弯矩比值 <span class="math inline"><em>δ</em></span></th>
+<th style="text-align: left;"><span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50
+MPa</span></th>
+<th style="text-align: left;"><span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> = 55
+MPa</span></th>
+<th style="text-align: left;"><span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> = 60
+MPa</span></th>
+<th style="text-align: left;"><span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> = 70
+MPa</span></th>
+<th style="text-align: left;"><span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> = 80, 90
+MPa</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>0.90</strong> (重分布10%)</td>
+<td style="text-align: left;">0.460</td>
+<td style="text-align: left;">0.342</td>
+<td style="text-align: left;">0.332</td>
+<td style="text-align: left;">0.322</td>
+<td style="text-align: left;">0.316</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>0.85</strong> (重分布15%)</td>
+<td style="text-align: left;">0.410</td>
+<td style="text-align: left;">0.295</td>
+<td style="text-align: left;">0.286</td>
+<td style="text-align: left;">0.277</td>
+<td style="text-align: left;">0.272</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>0.80</strong> (重分布20%)</td>
+<td style="text-align: left;">0.360</td>
+<td style="text-align: left;">0.247</td>
+<td style="text-align: left;">0.240</td>
+<td style="text-align: left;">0.232</td>
+<td style="text-align: left;">0.228</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>0.70</strong> (重分布30%)</td>
+<td style="text-align: left;">0.260</td>
+<td style="text-align: left;">0.152</td>
+<td style="text-align: left;">0.148</td>
+<td style="text-align: left;">0.143</td>
+<td style="text-align: left;">0.140</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="受压区高度与中性轴深度的换算">受压区高度与中性轴深度的换算</h3>
+<p>规范直接限制的是中性轴深度 <span class="math inline"><em>x</em><sub><em>u</em></sub></span>。若需计算等效矩形<strong>混凝土受压区高度</strong>，需将其乘以系数
+<span class="math inline"><em>λ</em></span>（即 等效受压区高度 = <span class="math inline"><em>λ</em><em>x</em><sub><em>u</em></sub></span>）
+[Ref-4, Ref-17]。 * 对于 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50
+MPa</span> 的混凝土，<span class="math inline"><em>λ</em> = 0.8</span>
+[Ref-17]。 * 对于高强混凝土，<span class="math inline"><em>λ</em></span>
+值随强度增加而递减（例如 C55 为 0.788，C90 为 0.700） [Ref-17]。</p>
+<hr />
+<h3 id="注意事项">注意事项</h3>
+<ol type="1">
+<li><strong>国家附录差异</strong>：上述 <span class="math inline"><em>k</em><sub>1</sub></span> 至 <span class="math inline"><em>k</em><sub>6</sub></span>
+的数值为欧洲规范推荐值，实际工程中<strong>必须采用项目所在国国家附录（National
+Annex）中规定的具体数值</strong> [Ref-8]。</li>
+<li><strong>适用范围限制</strong>：上述免算转动能力的限值规则仅适用于主要受弯、且相邻跨度比在
+0.5 到 2 之间的连续梁或板
+[Ref-8]。对于柱构件，必须使用框架作用产生的弹性弯矩，<strong>不得进行任何弯矩重分布</strong>
+[Ref-8]。</li>
+<li><strong>未重分布情况</strong>：如果不进行弯矩重分布（即纯弹性分析，<span class="math inline"><em>δ</em> = 1.0</span>），规范第 5.5 节未对 <span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+设定明确的上限公式，但截面设计仍需满足基本的平衡条件和延性要求。</li>
+</ol>
+<hr />
+<h3 id="依据位置-8">依据位置</h3>
+<ul>
+<li><strong>规范公式与重分布条件</strong>：EN 1992-1-1 第 5.5 节 (4)
+[Ref-8, Ref-10]</li>
+<li><strong>指南中性轴深度限值表</strong>：DG_EN1992-1-1 Table 3.1
+[Ref-2]</li>
+<li><strong>混凝土应力块参数 <span class="math inline"><em>λ</em></span></strong>：DG_EN1992-1-1 Table 5.2
+[Ref-17]</li>
+<li><strong>柱构件不可重分布规定</strong>：EN 1992-1-1 第 5.5 节 (6)
+[Ref-8]</li>
+</ul>
+<h3 id="来源-10">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 76，条款 : The conditions in a singly
+reinforced rectangular section at the ultimate limit state are assumed
+to be as shown in Fig. 5.5. From Fig. 5.5, it will be seen that the
+following equations can be derived from consideration of equilibrium
+of</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 46，条款 Table 3.1: Table 3.1. Limiting
+neutral axis depths and redistribution of moment
+<table>
+<tr>
+<td colspan="6">
+<span class="math inline"><em>x</em>/<em>d</em></span>
+</td>
+</tr>
+<tr>
+<td>
+8
+</td>
+<td>
+<span class="math inline"><em>f</em><sub><code>c</code><code>k</code></sub> ≤ 50MPa</span>
+</td>
+<td>
+$f _ { } = 5 5 \mathsf { M</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 74，条款 Table 5.3: Table 5.3.
+Comparison of stress block parameters
+<table>
+<tr>
+<td rowspan="2">
+Grade
+</td>
+<td colspan="2">
+Parabolic-rectangular
+</td>
+<td colspan="2">
+Bi-linear rectangular
+</td>
+<td colspan="2">
+Rectangular
+</td>
+</tr>
+<tr>
+<td>
+Average stress</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 71，条款 : The information required to
+obtain the design stress-strain curves for concrete, ordinary
+reinforcement and prestressing steel are to be found in clauses 3.1.7,
+3.2.3 and 3.3.3, respectively, of EN 1992-1-1. For reinforcement
+and</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 76，条款 : The conditions in a singly
+reinforced rectangular section at the ultimate limit state are assumed
+to be as shown in Fig. 5.5. From Fig. 5.5, it will be seen that the
+following equations can be derived from consideration of equilibrium
+of</li>
+<li>[6] EN1992-1-1 2004，页 195，条款 : <span class="math inline"><em>f</em><sub>cvd</sub></span> is the concrete
+design strength in shear and compression <span class="math inline"><em>f</em><sub>Cd</sub></span> is the concrete
+design strength in compression <span class="math inline"><em>f</em><sub>ctd</sub></span> is concrete design
+strength in</li>
+<li>[7] EN1992-1-1_2004，页 195，条款 12.6.3: (1) In plain concrete
+members account may be taken of the concrete tensile strength in the
+ultimate limit state for shear, provided that either by calculations or
+by experience brittle failure can be excluded and adequate resistance
+can be</li>
+<li>[8] EN1992-1-1 2004，页 60，条款 5.5, (1)P: (1)P The influence of
+any redistribution of the moments on all aspects of the design shall be
+considered. (2) Linear analysis with limited redistribution may be
+applied to the analysis of structural members for the verification of
+ULS. (3)</li>
+</ul>
+<h2 id="弯矩重分布限值为多少">15. 弯矩重分布限值为多少？</h2>
+<ul>
+<li>Excel 行号: 16</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-11">答案</h3>
+<p><strong>直接结论</strong> 在 Eurocode 2 (EN 1992-1-1)
+中，弯矩重分布（Moment
+Redistribution）的限值并非单一固定数值，而是通过<strong>重分布后弯矩与弹性弯矩的比值（<span class="math inline"><em>δ</em></span>）</strong>以及<strong>相对受压区高度（<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>）</strong>来综合控制。具体限值取决于所采用的分析方法（带有限重分布的线性弹性分析或塑性分析）、钢筋延性等级以及混凝土强度等级。</p>
+<p><strong>依据与说明</strong></p>
+<h3 id="带有限重分布的线性弹性分析-linear-elastic-analysis-with-limited-redistribution">1.
+带有限重分布的线性弹性分析 (Linear elastic analysis with limited
+redistribution)</h3>
+<p>对于主要受弯的连续梁或板，且相邻跨度比在 0.5 到 2
+之间时，可不进行转动能力的显式验算而直接进行弯矩重分布，但必须满足以下限值
+[Ref-5, Ref-7]：</p>
+<ul>
+<li><strong>弯矩比值 <span class="math inline"><em>δ</em></span>
+限值</strong>（<span class="math inline"><em>δ</em></span> =
+重分布后弯矩 / 弹性弯矩）：
+<ul>
+<li>使用 <strong>B级和C级钢筋</strong> 时：<span class="math inline"><em>δ</em> ≥ <em>k</em><sub>5</sub></span>（规范推荐值
+<span class="math inline"><em>k</em><sub>5</sub> = 0.7</span>，即最大允许重分布
+30%）[Ref-5, Ref-6, Ref-7]。</li>
+<li>使用 <strong>A级钢筋</strong> 时：<span class="math inline"><em>δ</em> ≥ <em>k</em><sub>6</sub></span>（规范推荐值
+<span class="math inline"><em>k</em><sub>6</sub> = 0.8</span>，即最大允许重分布
+20%）[Ref-5, Ref-6, Ref-7]。</li>
+<li><em>注：<span class="math inline"><em>δ</em></span>
+还需满足与受压区高度相关的公式要求，例如对于 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> ≤ 50</span>
+MPa 的混凝土，需满足 <span class="math inline"><em>δ</em> ≥ <em>k</em><sub>1</sub> + <em>k</em><sub>2</sub>(<em>x</em><sub><em>u</em></sub>/<em>d</em>)</span>
+[Ref-10]。</em></li>
+</ul></li>
+<li><strong>相对受压区高度 <span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+限值</strong>（重分布后的极限状态）：
+<ul>
+<li>混凝土强度 <span class="math inline">≤</span> C50/60 时：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em> ≤ 0.45</span>
+[Ref-1, Ref-8, Ref-14]。</li>
+<li>混凝土强度 <span class="math inline">≥</span> C55/67 时：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em> ≤ 0.35</span>
+[Ref-1, Ref-8, Ref-14]。</li>
+</ul></li>
+</ul>
+<h3 id="塑性分析-plastic-analysis">2. 塑性分析 (Plastic analysis)</h3>
+<p>若采用塑性分析，根据是否显式验算转动能力，其限值要求更为严格：</p>
+<ul>
+<li><strong>无需显式验算转动能力的条件</strong> [Ref-4, Ref-13,
+Ref-14]：
+<ul>
+<li>受拉钢筋面积必须受限，使得任何截面的 <span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+满足：
+<ul>
+<li>混凝土 <span class="math inline">≤</span> C50/60：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em> ≤ 0.25</span></li>
+<li>混凝土 <span class="math inline">≥</span> C55/67：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em> ≤ 0.15</span></li>
+</ul></li>
+<li>必须使用 B级或 C级钢筋（不推荐使用A级钢筋）[Ref-8, Ref-14]。</li>
+<li>中间支座弯矩与跨中弯矩的比值必须在 0.5 到 2 之间 [Ref-4, Ref-13,
+Ref-14]。</li>
+</ul></li>
+<li><strong>考虑转动能力时的绝对限值</strong>（塑性铰区域） [Ref-8,
+Ref-14]：
+<ul>
+<li>混凝土 <span class="math inline">≤</span> C50/60：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+不得超过 0.45。</li>
+<li>混凝土 <span class="math inline">≥</span> C55/67：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+不得超过 0.35。</li>
+</ul></li>
+</ul>
+<h3 id="禁止进行弯矩重分布的情况">3. 禁止进行弯矩重分布的情况</h3>
+<ul>
+<li><strong>柱子设计</strong>：必须使用框架作用产生的弹性弯矩，<strong>不得</strong>进行任何弯矩重分布
+[Ref-6, Ref-7]。</li>
+<li><strong>转动能力无法可靠定义的区域</strong>：例如预应力框架的角部，不应进行弯矩重分布
+[Ref-6, Ref-7, Ref-7]。</li>
+</ul>
+<p><strong>重要提醒（适用条件与国家附录）</strong> 1. <strong>国家附录
+(National Annex)</strong>：上述提到的参数 <span class="math inline"><em>k</em><sub>1</sub></span> 至 <span class="math inline"><em>k</em><sub>6</sub></span> 的数值为 Eurocode
+的<strong>推荐值</strong>。具体工程所在国的国家附录可能会对这些系数进行修改，设计时必须查阅当地的国家附录以获取法定取值
+[Ref-6, Ref-7]。 2.
+<strong>平衡要求</strong>：无论采用何种重分布方法，重分布后的弯矩分布必须始终与施加的荷载保持静力平衡
+[Ref-5, Ref-7]。 3.
+<strong>使用阶段验算</strong>：在进行塑性分析或弯矩重分布后，仍需对结构在使用极限状态（SLS）下的行为（如裂缝宽度、挠度）进行评估和验算
+[Ref-4, Ref-13]。</p>
+<p><strong>依据位置</strong> * [Ref-5], [Ref-7] EN 1992-1-1 第 5.5 节
+(Linear elastic analysis with limited redistribution) * [Ref-6] EN
+1992-1-1 第 5.5 节 Note (推荐值 <span class="math inline"><em>k</em><sub>1</sub> ∼ <em>k</em><sub>6</sub></span>)
+* [Ref-8], [Ref-14] EN 1992-1-1 第 5.6 节 (Plastic analysis &amp;
+Rotation capacity) * [Ref-10] EN 1992-1-1 第 5.5 节 公式 (5.10a) *
+[Ref-1], [Ref-4], [Ref-13] DG_EN1992-1-1 指南 第 3.7.2 节及 5.2 节
+(补充解释与参数推导) * [Ref-6], [Ref-7] EN 1992-1-1 第 5.5(5)P 及 5.5(6)
+(禁止重分布的情形)</p>
+<h3 id="来源-11">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 76，条款 : In applying this formula,
+some degree of interpretation of the code is necessary since the reader
+is referred to Table 3.1 of EN 1992-1-1 for values of the ultimate
+strain. Table 3.1 gives several values, and it has been assumed that
+the</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 46，条款 Table 3.1: Table 3.1. Limiting
+neutral axis depths and redistribution of moment
+<table>
+<tr>
+<td colspan="6">
+<span class="math inline"><em>x</em>/<em>d</em></span>
+</td>
+</tr>
+<tr>
+<td>
+8
+</td>
+<td>
+<span class="math inline"><em>f</em><sub><code>c</code><code>k</code></sub> ≤ 50MPa</span>
+</td>
+<td>
+$f _ { } = 5 5 \mathsf { M</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 74，条款 Table 5.3: Table 5.3.
+Comparison of stress block parameters
+<table>
+<tr>
+<td rowspan="2">
+Grade
+</td>
+<td colspan="2">
+Parabolic-rectangular
+</td>
+<td colspan="2">
+Bi-linear rectangular
+</td>
+<td colspan="2">
+Rectangular
+</td>
+</tr>
+<tr>
+<td>
+Average stress</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 46，条款 : Apart from moment
+redistribution, EN 1992-1-1 allows the use of plastic analysis without
+any direct check on rotation capacity, provided certain conditions are
+satisfied: (1) The area of reinforcement at any location in any
+direction</li>
+<li>[5] EN1992-1-1_2004，页 60，条款 5.5, (1)P: (1)P The influence of
+any redistribution of the moments on all aspects of the design shall be
+considered. (2) Linear analysis with limited redistribution may be
+applied to the analysis of structural members for the verification of
+ULS. (3)</li>
+<li>[6] EN1992-1-1_2004，页 61，条款 : Note: The values of <span class="math inline"><em>k</em><sub>1,</sub><em>k</em><sub>2,</sub><em>k</em><sub>3,</sub><em>k</em><sub>4,</sub><em>k</em><sub>5</sub></span>
+and <span class="math inline"><em>k</em><sub>6</sub></span> for use in a
+Country may be found in its National Annex. The recommended value for
+<span class="math inline"><em>k</em><sub>1</sub>is0, 44</span> ,
+for</li>
+<li>[7] EN1992-1-1 2004，页 60，条款 5.5, (1)P: (1)P The influence of
+any redistribution of the moments on all aspects of the design shall be
+considered. (2) Linear analysis with limited redistribution may be
+applied to the analysis of structural members for the verification of
+ULS. (3)</li>
+<li>[8] EN1992-1-1_2004，页 62，条款 5.6.3: (1) The simplified procedure
+for continuous beams and continuous one way spanning slabs is based on
+the rotation capacity of beam/slab zones over a length of approximately
+1,2 times the depth of section. It is assumed that these zones</li>
+</ul>
+<h2 id="fcd-如何计算">16. fcd 如何计算</h2>
+<ul>
+<li>Excel 行号: 17</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-12">答案</h3>
+<h3 id="直接结论-4">直接结论</h3>
+<p>混凝土抗压强度设计值 <span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>
+的基本计算公式为： <span class="math display">$$f_{cd} = \alpha_{cc}
+\frac{f_{ck}}{\gamma_c}$$</span></p>
+<h3 id="依据与说明-4">依据与说明</h3>
+<ul>
+<li><strong><span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span></strong>：混凝土的特征圆柱体抗压强度（characteristic
+cylinder strength），根据混凝土强度等级确定 [Ref-1]。</li>
+<li><strong><span class="math inline"><em>γ</em><sub><em>c</em></sub></span></strong>：混凝土的材料分项系数（partial
+safety factor for concrete），具体取值需参考规范 2.4.2.4
+节或项目所在国的国家附录 [Ref-1]。在常规持久和短暂设计状况下，通常取 1.5
+[Ref-23]。</li>
+<li><strong><span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span></strong>：考虑长期效应对抗压强度的不利影响以及荷载施加方式不利影响的转换系数
+[Ref-1]。
+<ul>
+<li><strong>普通混凝土</strong>：规范推荐值为 1（或
+1.0），但各国国家附录（National Annex）规定的取值范围在 0.8 到 1.0
+之间（例如许多国家实际采用 0.85）[Ref-1]。</li>
+<li><strong>轻骨料混凝土（LWAC）</strong>：对应的系数记为 <span class="math inline"><em>α</em><sub><em>l</em><em>c</em><em>c</em></sub></span>，规范推荐值为
+0.85 [Ref-9]。</li>
+</ul></li>
+<li><strong>龄期修正（前提条件）</strong>：如果混凝土强度是在龄期 <span class="math inline"><em>t</em> &gt; 28</span>
+天时确定的（例如某些预应力场景），上述 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span>
+值还应乘以折减系数 <span class="math inline"><em>k</em><sub><em>t</em></sub></span>（规范推荐值为
+0.85，具体见国家附录）[Ref-1]。</li>
+</ul>
+<h3 id="计算步骤">计算步骤</h3>
+<ol type="1">
+<li><strong>确定 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span></strong>：根据设计选用的混凝土强度等级（如
+C30/37），查表获取对应的特征抗压强度 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>（如
+30 MPa）[Ref-2]。</li>
+<li><strong>确定 <span class="math inline"><em>γ</em><sub><em>c</em></sub></span></strong>：根据设计状况（持久/短暂、偶然或疲劳）查阅规范
+2.4.2.4 节或国家附录，确定材料分项系数（常规情况取 1.5）[Ref-1]。</li>
+<li><strong>确定 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span></strong>：<strong>必须查阅项目所在国的国家附录（National
+Annex）</strong>
+以获取确切值。若无特殊规定且采用规范推荐值，普通混凝土取
+1.0，轻骨料混凝土取 0.85 [Ref-1], [Ref-9]。</li>
+<li><strong>执行计算</strong>：将上述参数代入公式 <span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub> = <em>α</em><sub><em>c</em><em>c</em></sub><em>f</em><sub><em>c</em><em>k</em></sub>/<em>γ</em><sub><em>c</em></sub></span>
+得出设计强度。若涉及 <span class="math inline"><em>t</em> &gt; 28</span>
+天的后期强度评估，需额外乘以 <span class="math inline"><em>k</em><sub><em>t</em></sub></span>
+[Ref-1]。</li>
+</ol>
+<h3 id="指南参考案例">指南参考案例</h3>
+<ul>
+<li><strong>案例背景</strong>：矩形柱截面设计（Example
+5.3）[Ref-23]。</li>
+<li><strong>核心步骤</strong>：已知混凝土特征强度 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub> = 30</span>
+MPa，案例中取 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub> = 0.85</span>，材料分项系数
+<span class="math inline"><em>γ</em><sub><em>m</em></sub></span>（即
+<span class="math inline"><em>γ</em><sub><em>c</em></sub></span>）= 1.5
+[Ref-23]。</li>
+<li><strong>计算过程</strong>：<span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub> = 0.85 × 30/1.5 = 17
+MPa</span> [Ref-23]。</li>
+<li><strong>对应说明</strong>：该案例展示了 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span> 取
+0.85 时的计算路径。工程师在实际应用中，必须核实本国国家附录对 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span>
+的具体取值要求，不可盲目照搬指南案例中的数值。</li>
+</ul>
+<h3 id="依据位置-9">依据位置</h3>
+<ul>
+<li>普通混凝土 <span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>
+公式及参数定义：EN 1992-1-1:2004, 3.1.6 (1)P [Ref-1]</li>
+<li>轻骨料混凝土 <span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>
+规定：EN 1992-1-1:2004, 11.3.5 (1)P [Ref-9]</li>
+<li>龄期 <span class="math inline"><em>t</em> &gt; 28</span>
+天的折减规定：EN 1992-1-1:2004, 3.1.2 (4) [Ref-1]</li>
+<li>混凝土强度等级与 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>
+对应表：EN 1992-1-1:2004, Table 3.1 [Ref-2]</li>
+<li>指南算例参考：DG EN 1992-1-1, Example 5.3 [Ref-23]-23]</li>
+</ul>
+<h3 id="来源-12">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 27，条款 3.1.1, (1)P: (1)P The following
+clauses give principles and rules for normal and high strength concrete.
+(2) Rules for lightweight aggregate concrete are given in Section 11.
+(1)P The compressive strength of concrete is denoted by concrete
+strength</li>
+<li>[2] EN1992-1-1 2004，页 28，条款 Table 3.1: Table 3.1 Strength and
+deformation characteristics for concrete
+<table>
+<tr>
+<td rowspan="1" colspan="15">
+Strength classes for concrete
+</td>
+<td rowspan="1" colspan="1">
+Analytical relation/ Explanation
+</td>
+</tr>
+<tr>
+<td rowspan="1" colspan="1">
+fck</li>
+<li>[3] EN1992-1-1 2004，页 32，条款 Table 3.2: Table 3.2 Nominal
+unrestrained drying shrinkage values <span class="math inline"><strong>ε</strong><sub>cd, 0</sub></span> (in <span class="math inline"><strong>∘</strong><sub><em>I</em><sub>00</sub></sub>)</span>
+for concrete with cement CEM Class N
+<table>
+<tr>
+&lt;td rowspan=2</li>
+<li>[4] EN1992-1-1_2004，页 30，条款 Table 3.3: Table 3.3 Values for
+<span class="math inline"><strong>k</strong><sub>h</sub></span> in
+Expression (3.9)
+<table>
+<tr>
+<td>
+<span class="math inline"><em>h</em><sub>0</sub></span>
+</td>
+<td>
+<span class="math inline">$\underline { { k _ { \mathrm { h } } }
+}$</span></li>
+<li>[5] EN1992-1-1_2004，页 28，条款 : <span class="math display"><em>E</em><sub>cm</sub>(<em>t</em>) = (<em>f</em><sub>cm</sub>(<em>t</em>)/<em>f</em><sub>cm</sub>)<sup>0, 3</sup><em>E</em><sub>cm</sub></span></li>
+<li>[6] EN1992-1-1_2004，页 33，条款 : <span class="math display">$$
+\frac { \sigma _ { \mathrm { c } } } { f _ { \mathrm { c m } } } = \frac
+{ k \eta - \eta ^ { 2 } } { 1 + \left( k - 2 \right) \eta }\tag{3.14}
+$$</span></li>
+<li>[7] EN1992-1-1_2004，页 27，条款 : $$ \begin{array} { r l } { f _ {
+} ( t ) = f _ { } ( t )  ( ) } &amp; { 3 &lt; t &lt; 2 8   . } \ { f _ {
+} ( t ) = f _ { </li>
+<li>[8] EN1992-1-1_2004，页 36，条款 : <span class="math display"><strong>f</strong><sub>ctm, ↑</sub> = max{(1, 6 ⋅ <em>h</em>/1000)<strong>f</strong><sub>ctm</sub>; <strong>f</strong><sub>ctm</sub>}</span></li>
+</ul>
+<h2 id="截面计算中材料分项安全系数为多少">17.
+截面计算中材料分项安全系数为多少？</h2>
+<ul>
+<li>Excel 行号: 18</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-13">答案</h3>
+<h3 id="直接结论-5">直接结论</h3>
+<p>在混凝土结构截面计算中，材料分项安全系数的取值主要取决于验算的极限状态（承载能力极限状态或正常使用极限状态）及荷载组合类型。对于承载能力极限状态（ULS）的基本组合，混凝土分项安全系数
+<span class="math inline"><em>γ</em><sub><em>C</em></sub></span>
+推荐值为 <strong>1.5</strong>，钢筋及预应力筋分项安全系数 <span class="math inline"><em>γ</em><sub><em>S</em></sub></span> 推荐值为
+<strong>1.15</strong>。对于正常使用极限状态（SLS），材料分项安全系数通常取
+<strong>1.0</strong>。</p>
+<hr />
+<h3 id="依据与详细说明-1">依据与详细说明</h3>
+<h4 id="承载能力极限状态-uls">1. 承载能力极限状态 (ULS)</h4>
+<p>根据规范，不同组合下的材料分项安全系数推荐值如下 [Ref-1]： *
+<strong>基本组合 (Fundamental)</strong>：混凝土 <span class="math inline"><em>γ</em><sub><em>C</em></sub> = 1.5</span>；钢筋和预应力筋
+<span class="math inline"><em>γ</em><sub><em>S</em></sub> = 1.15</span>
+[Ref-1]。 * <strong>偶然组合（除火灾外） (Accidental except fire
+situations)</strong>：混凝土 <span class="math inline"><em>γ</em><sub><em>C</em></sub> = 1.2</span>；钢筋和预应力筋
+<span class="math inline"><em>γ</em><sub><em>S</em></sub> = 1.0</span>
+[Ref-1]。 * <strong>偶然组合 - 火灾情况 (Accidental - fire
+situations)</strong>：混凝土 <span class="math inline"><em>γ</em><sub><em>C</em></sub> = 1.0</span>；钢筋和预应力筋
+<span class="math inline"><em>γ</em><sub><em>S</em></sub> = 1.0</span>
+[Ref-1]。</p>
+<h4 id="正常使用极限状态-sls">2. 正常使用极限状态 (SLS)</h4>
+<ul>
+<li>在正常使用极限状态计算中，材料属性的分项安全系数通常取 <span class="math inline"><em>γ</em><sub><em>M</em></sub> = 1.0</span> [Ref-7]
+[Ref-10] [Ref-14]。</li>
+</ul>
+<h4 id="基于质量控制和偏差减小的折减附录a">3.
+基于质量控制和偏差减小的折减（附录A）</h4>
+<p>在满足特定质量控制和尺寸偏差要求的前提下，规范允许对分项安全系数进行折减（以下为规范给出的推荐值）：
+*
+<strong>折减1</strong>：若质量保证系统确保截面尺寸不利偏差在减小范围内，钢筋
+<span class="math inline"><em>γ</em><sub><em>s</em>, <em>r</em><em>e</em><em>d</em>1</sub></span>
+推荐值为 1.1 [Ref-3]；若同时混凝土强度变异系数不超过 10%，混凝土 <span class="math inline"><em>γ</em><sub><em>c</em>, <em>r</em><em>e</em><em>d</em>1</sub></span>
+推荐值为 1.4 [Ref-3]。 * <strong>折减2</strong>：钢筋 <span class="math inline"><em>γ</em><sub><em>s</em>, <em>r</em><em>e</em><em>d</em>2</sub></span>
+推荐值为 1.05，混凝土 <span class="math inline"><em>γ</em><sub><em>c</em>, <em>r</em><em>e</em><em>d</em>2</sub></span>
+推荐值为 1.45 [Ref-2]。 *
+<strong>折减3</strong>：在特定条件且混凝土强度变异系数不超过 10%
+时，混凝土 <span class="math inline"><em>γ</em><sub><em>c</em>, <em>r</em><em>e</em><em>d</em>3</sub></span>
+推荐值为 1.35 [Ref-2]。</p>
+<hr />
+<h3 id="适用条件与限制提醒条件与限制提醒重要">适用条件与限制提醒条件与限制提醒（重要）</h3>
+<ol type="1">
+<li><strong>国家附录 (National Annex)
+优先</strong>：上述附录A中的折减系数以及部分基本参数属于国家决定参数
+(NDP)。实际工程中<strong>必须</strong>查阅项目所在国的国家附录，以确认是否采用推荐值或使用了其他规定值
+[Ref-2] [Ref-3] [Ref-11]。</li>
+<li><strong>疲劳验算不适用</strong>：上述 ULS
+的基本材料分项安全系数<strong>不适用</strong>于疲劳验算，疲劳验算需采用专门的分项系数
+[Ref-10]。</li>
+<li><strong>钢筋强度级别</strong>：<span class="math inline"><em>γ</em><sub><em>S</em></sub> = 1.15</span>
+的取值主要针对特征强度为 500 MPa 的钢筋 [Ref-10]。</li>
+<li><strong>材料设计强度的转换系数</strong>：在计算截面材料设计强度（如混凝土抗压/抗拉设计强度）时，除了除以分项安全系数
+<span class="math inline"><em>γ</em><sub><em>C</em></sub></span>
+外，还需乘以转换系数（如 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span> 和
+<span class="math inline"><em>α</em><sub><em>c</em><em>t</em></sub></span>，推荐值为
+0.85），以考虑长期荷载效应、尺寸效应及局部缺陷等 [Ref-4] [Ref-8]
+[Ref-18]。该转换系数的具体取值同样需查阅国家附录 [Ref-4] [Ref-18]。</li>
+</ol>
+<hr />
+<h3 id="依据位置-10">依据位置</h3>
+<ul>
+<li>[Ref-1] DG_EN1992-1-1__-1-2, Introduction &gt; 2.6.2. Design values,
+Table 2.6, p.24-25</li>
+<li>[Ref-2] EN1992-1-1 2004, p.200</li>
+<li>[Ref-3] EN1992-1-1 2004, A.2.1, p.199</li>
+<li>[Ref-4] EN1992-1-1_2004, 11.3.5, p.188</li>
+<li>[Ref-7] DG_EN1992-1-1__-1-2, 8.1.2. Material properties, p.140</li>
+<li>[Ref-8] DG_EN1990, 6.3.3, p.77-78</li>
+<li>[Ref-10] DG_EN1992-1-1__-1-2, Introduction &gt; 2.6. Material
+properties, p.24-25</li>
+<li>[Ref-11] DG_EN1992-1-1__-1-2, Introduction, p.13-61</li>
+<li>[Ref-14] DG_EN1992-1-1__-1-2, 8.1. General, p.139-140</li>
+<li>[Ref-18] EN1992-1-1_2004, 11.3.5, p.188</li>
+</ul>
+<h3 id="来源-13">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 24，条款 Table 2.6: Table 2.6. Partial
+safety factors for material properties*
+<table>
+<tr>
+<td>
+Combination
+</td>
+<td>
+Concrete, <span class="math inline"><em>γ</em><sub><code>C</code></sub></span>
+</td>
+<td>
+Reinforcement and prestressing tendons, <span class="math inline"><em>γ</em><sub>S</sub></span></li>
+<li>[2] EN1992-1-1 2004，页 200，条款 : the partial safety factors may
+be reduced to γs,red2 and γc,red2. Note: The values of <span class="math inline"><em>γ</em><sub>s, red2</sub></span> and <span class="math inline"><em>γ</em><sub><code>C</code>, <code>r</code><code>e</code><code>d</code>2</sub></span>
+for use in a Country may be found in its</li>
+<li>[3] EN1992-1-1 2004，页 199，条款 : (1) If execution is subjected to
+a quality control system, which ensures that unfavourable deviations of
+cross-section dimensions are within the reduced deviations given in
+Table A.1, the partial safety factor for reinforcement may be</li>
+<li>[4] EN1992-1-1 2004，页 188，条款 11.3.5, (1)P: (1)P The value of
+the design compressive strength is defined as where <span class="math inline"><em>γ</em><sub><code>C</code></sub></span> is the
+partial safety factor for concrete, see 2.4.1.4, and <span class="math inline"><em>α</em><sub>lcc</sub></span> is a coefficient
+according to 3.1.6 (1)P. Note:</li>
+<li>[5] EN1992-1-1_2004，页 16，条款 1.6: P Partial factor for actions
+associated with prestressing, <span class="math inline"><em>P</em></span> Q Partial factor for variable
+actions, Q S Partial factor for reinforcing or prestressing steel S,fat
+Partial factor for reinforcing or prestressing steel under fatigue
+loading</li>
+<li>[6] EN1992-1-1_2004，页 2，条款 : 1. General 1.1 Scope 1.1.1 Scope
+of Eurocode 2 1.1.2 Scope of Part 1-1 of Eurocode 2 1.2 Normative
+references 1.2.1 General reference standards 1.2.2 Other reference
+standards 1.3 Assumptions 1.4 Distinction between principles and</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 140，条款 : Clause 6.5.4 of EN 1990
+states that the partial safety factor applied to material properties
+should generally be 1.0. The properties of the materials which are
+normally significant in serviceability calculations are the modulus
+of</li>
+<li>[8] DG_EN1990，页 77，条款 6.3.3: The design value of a resistance
+may be determined by various means, including: empirical relationships
+involving measured physical properties or chemical composition (e.g. the
+composition of a high-strength concrete with silica fume) from</li>
+</ul>
+<h2 id="混凝土抗压强度标准值设计值与平均强度之间是什么关系">18.
+混凝土抗压强度标准值、设计值与平均强度之间是什么关系？</h2>
+<ul>
+<li>Excel 行号: 19</li>
+<li>层级: Level 1 / 基础概念与符号体系层</li>
+</ul>
+<h3 id="答案-14">答案</h3>
+<h3 id="核心结论">核心结论</h3>
+<p>在欧洲规范（Eurocode）中，混凝土抗压强度的平均强度（<span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub></span>）、标准值（<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>）与设计值（<span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>）之间存在明确的数学换算关系：
+1. <strong>平均强度与标准值</strong>：<span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub> = <em>f</em><sub><em>c</em><em>k</em></sub> + 8
+MPa</span> （针对28天龄期圆柱体强度）。 2.
+<strong>标准值与设计值</strong>：<span class="math inline">$f_{cd} =
+\alpha_{cc} \frac{f_{ck}}{\gamma_c}$</span>。</p>
+<hr />
+<h3 id="详细关系说明">详细关系说明</h3>
+<h4 id="平均强度-f_cm-与-标准值-f_ck-的关系">1. 平均强度 (<span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub></span>) 与
+标准值 (<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>)
+的关系</h4>
+<ul>
+<li><strong>标准值的定义</strong>：混凝土抗压强度标准值 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>
+是指28天圆柱体抗压强度的5%分位值，即在所有测试结果中，仅有不超过5%的概率会低于该强度值
+[Ref-5, Ref-7]。</li>
+<li><strong>数值换算</strong>：在28天龄期时，混凝土圆柱体平均抗压强度
+<span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub></span>
+与标准值 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>
+的差值恒为 8 MPa，即 <span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub> = <em>f</em><sub><em>c</em><em>k</em></sub> + 8
+MPa</span> [Ref-8, Ref-16, Ref-18]。</li>
+<li><strong>早龄期关系</strong>：对于 <span class="math inline">3 &lt; <em>t</em> &lt; 28</span>
+天的早龄期混凝土，其标准值与平均强度的关系同样为 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub>(<em>t</em>) = <em>f</em><sub><em>c</em><em>m</em></sub>(<em>t</em>) − 8
+MPa</span> [Ref-8, Ref-16]。</li>
+</ul>
+<h4 id="标准值-f_ck-与-设计值-f_cd-的关系">2. 标准值 (<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>) 与
+设计值 (<span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>)
+的关系</h4>
+<ul>
+<li><strong>设计值的计算</strong>：抗压强度设计值 <span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>
+是通过将标准值 <span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>
+除以混凝土材料分项安全系数 <span class="math inline"><em>γ</em><sub><em>c</em></sub></span>，并乘以转换系数
+<span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span>
+来确定的 [Ref-6, Ref-11]。</li>
+<li><strong>计算公式</strong>：<span class="math inline">$f_{cd} =
+\alpha_{cc} \frac{f_{ck}}{\gamma_c}$</span> [Ref-6, Ref-11]。</li>
+</ul>
+<hr />
+<h3 id="关键参数与适用条件提醒">关键参数与适用条件提醒</h3>
+<ul>
+<li><strong>系数 <span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span></strong>：该系数用于考虑长期荷载效应对抗压强度的影响以及加载方式带来的不利影响
+[Ref-11, Ref-13]。规范推荐值为 <strong>1.0</strong>，但具体取值（通常在
+0.8 到 1.0 之间）<strong>必须查阅项目所在国的国家附录（National
+Annex）</strong> [Ref-11]。例如，英国国家附录（UK NA）推荐取值为 0.85
+[Ref-13]。</li>
+<li><strong>材料分项系数 <span class="math inline"><em>γ</em><sub><em>c</em></sub></span></strong>：用于覆盖材料性能可能出现的不利偏差，其具体数值需根据设计状况（如持久、短暂或偶然状况）及国家附录确定
+[Ref-2, Ref-11]。</li>
+<li><strong>试件形状差异</strong>：上述 <span class="math inline"><em>f</em><sub><em>c</em><em>m</em></sub></span> 与
+<span class="math inline"><em>f</em><sub><em>c</em><em>k</em></sub></span>
+的直接加减关系基于<strong>圆柱体试件（cylinder）</strong>。若使用立方体试件（cube），其标准值记为
+<span class="math inline"><em>f</em><sub><em>c</em><em>k</em>, <em>c</em><em>u</em><em>b</em><em>e</em></sub></span>，圆柱体与立方体标准值之间存在特定的换算关系，需查阅规范中的强度等级对照表（如
+EN 1992-1-1 的 Table 3.1） [Ref-5, Ref-18]。</li>
+</ul>
+<hr />
+<h3 id="依据位置-11">依据位置</h3>
+<ul>
+<li><strong>符号定义</strong>：EN 1992-1-1:2004, 1.6 [Ref-1]</li>
+<li><strong>标准值定义及与平均强度关系</strong>：EN 1992-1-1:2004, 3.1.2
+[Ref-5, Ref-8, Ref-16]</li>
+<li><strong>设计值计算公式</strong>：EN 1992-1-1:2004, 3.1.6(1)P
+[Ref-11]；DG EN 1990, 6.3.3 [Ref-6]</li>
+<li><strong>强度等级与参数对照表</strong>：DG EN 19921992-1-1, Table 4.1
+[Ref-18]</li>
+<li><strong><span class="math inline"><em>α</em><sub><em>c</em><em>c</em></sub></span>
+系数说明及国家附录差异</strong>：DG EN 1992-1-1, 4.1 [Ref-13]</li>
+</ul>
+<h3 id="来源-14">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 16，条款 1.6: <span class="math inline"><em>d</em><sub>𝔤</sub></span> Largest nominal
+maximum aggregate size <span class="math inline"><strong>θ</strong></span> Eccentricity <span class="math inline"><strong>f</strong><sub><code>C</code></sub></span>
+Compressive strength of concrete <span class="math inline"><strong>f</strong><sub>cd</sub></span> Design value
+of concrete compressive</li>
+<li>[2] DG_EN1990，页 77，条款 6.3.3: The design value of a resistance
+may be determined by various means, including: empirical relationships
+involving measured physical properties or chemical composition (e.g. the
+composition of a high-strength concrete with silica fume) from</li>
+<li>[3] DG EN1990，页 77，条款 6.3.3: The design value of a resistance
+may be determined by various means, including: empirical relationships
+involving measured physical properties or chemical composition (e.g. the
+composition of a high-strength concrete with silica fume) from</li>
+<li>[4] EN1992-1-1_2004，页 27，条款 3.1.2, (1)P: temperature and curing
+conditions. For a mean temperature of <span class="math inline">20<sup>∘</sup>∁</span> and curing in accordance with
+EN 12390 the compressive strength of concrete at various ages <span class="math inline"><strong>f</strong><sub>cm</sub>(<em>t</em>)</span></li>
+<li>[5] EN1992-1-1_2004，页 27，条款 3.1.2, (1)P: (1)P The compressive
+strength of concrete is denoted by concrete strength classes which
+relate to the characteristic (5%) cylinder strength <span class="math inline"><strong>f</strong><sub><code>C</code><code>k</code></sub>,</span>
+, or the cube strength <span class="math inline"><em>f</em><sub><code>C</code><code>K</code><code>,</code> <code>C</code><code>u</code><code>b</code><code>e</code></sub></span>
+,</li>
+<li>[6] DG EN1990，页 77，条款 : <span class="math display">$$ f _ {
+\mathrm { c d } } = \alpha _ { \mathrm { c c } } \frac { f _ { \mathrm {
+c k } } } { \gamma _ { \mathrm { c } } } $$</span></li>
+<li>[7] DG_EN1992-1-1__-1-2，页 63，条款 : In EN 1992-1-1 the
+compressive strength of concrete is denoted by concrete strength
+classes, which relate to the characteristic cylinder strength <span class="math inline"><em>f</em><sub>ck</sub></span> or the cube strength
+<span class="math inline"><em>f̄</em><sub>ck, cube</sub>.</span></li>
+<li>[8] EN1992-1-1 2004，页 27，条款 3.1.2, (1)P: (1)P The compressive
+strength of concrete is denoted by concrete strength classes which
+relate to the characteristic <span class="math inline">(5%)</span>
+cylinder strength <span class="math inline"><strong>f</strong><sub><code>C</code><code>K</code></sub></span>
+, or the cube strength $ _ { </li>
+</ul>
+<h2 id="钢筋的锚固长度与搭接长度受哪些因素影响">19.
+钢筋的锚固长度与搭接长度受哪些因素影响？</h2>
+<ul>
+<li>Excel 行号: 20</li>
+<li>层级: Level 3 / 构造规定与抗震补充层</li>
+</ul>
+<h3 id="答案-15">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+及其相关设计指南，钢筋的锚固长度与搭接长度受钢筋自身属性、混凝土性能、构造细节及受力状态等多方面因素的综合影响。具体影响因素可划分为以下三个层次：</p>
+<h3 id="一-影响基本锚固长度l_brqd的核心因素">一、
+影响基本锚固长度（<span class="math inline"><em>l</em><sub><em>b</em>, <em>r</em><em>q</em><em>d</em></sub></span>）的核心因素</h3>
+<p>基本锚固长度是计算设计锚固长度和搭接长度的基础，主要受以下因素影响：
+1. <strong>钢筋特性</strong>：包括钢筋直径（<span class="math inline"><em>ϕ</em></span>）、钢筋在设计截面处的设计应力（<span class="math inline"><em>σ</em><sub><em>s</em><em>d</em></sub></span>）以及钢筋的表面特征（如光圆或带肋）[Ref-2,
+Ref-4, Ref-11, Ref-14]。对于大直径钢筋，其极限粘结应力会有所降低 [Ref-2,
+Ref-4]。 2.
+<strong>混凝土性能</strong>：极限粘结应力主要取决于混凝土的抗拉强度设计值（<span class="math inline"><em>f</em><sub><em>c</em><em>t</em><em>d</em></sub></span>
+或 <span class="math inline"><em>f</em><sub><em>c</em><em>t</em><em>k</em></sub></span>）[Ref-2,
+Ref-4, Ref-11]。 3. <strong>粘结条件（Bond
+condition）</strong>：与钢筋在混凝土中的位置及浇筑方向有关。规范将其分为“良好（good）”和“较差（poor）”两种粘结条件，较差的粘结条件会显著降低粘结应力（折减系数
+<span class="math inline"><em>η</em><sub>1</sub> = 0.7</span>）[Ref-2,
+Ref-4, Ref-11]。</p>
+<h3 id="二-影响设计锚固长度l_bd的构造与修正因素">二、
+影响设计锚固长度（<span class="math inline"><em>l</em><sub><em>b</em><em>d</em></sub></span>）的构造与修正因素</h3>
+<p>设计锚固长度是在基本锚固长度的基础上，通过乘以一系列修正系数（<span class="math inline"><em>α</em><sub>1</sub> ∼ <em>α</em><sub>5</sub></span>）来确定的，主要受以下构造和受力因素影响：
+1. <strong>钢筋形状（<span class="math inline"><em>α</em><sub>1</sub></span>）</strong>：直筋、标准弯钩、弯折或环形等不同锚固形状的影响
+[Ref-4, Ref-9, Ref-11]。 2. <strong>混凝土保护层厚度（<span class="math inline"><em>α</em><sub>2</sub></span>）</strong>：最小混凝土保护层厚度或钢筋净距对劈裂裂缝的约束影响
+[Ref-4, Ref-9, Ref-11]。 3. <strong>横向钢筋约束（<span class="math inline"><em>α</em><sub>3</sub></span>）</strong>：非焊接横向钢筋（如箍筋）提供的约束作用
+[Ref-4, Ref-9, Ref-11]。 4. <strong>焊接横向钢筋（<span class="math inline"><em>α</em><sub>4</sub></span>）</strong>：沿设计锚固长度内存在的焊接横向钢筋（直径
+<span class="math inline"> &gt; 0.6<em>ϕ</em></span>）的影响 [Ref-4]。
+5. <strong>横向压力（<span class="math inline"><em>α</em><sub>5</sub></span>）</strong>：垂直于潜在劈裂面的横向压力影响
+[Ref-4, Ref-9, Ref-11]。
+<em>注：设计锚固长度还必须满足规范规定的最小锚固长度（<span class="math inline"><em>l</em><sub><em>b</em>, <em>m</em><em>i</em><em>n</em></sub></span>）限值要求
+[Ref-4]。</em></p>
+<h3 id="三-影响搭接长度l_0的特有因素">三、 影响搭接长度（<span class="math inline"><em>l</em><sub>0</sub></span>）的特有因素</h3>
+<p>搭接长度基于基本锚固长度计算，因此受上述所有基本因素的影响 [Ref-3,
+Ref-7]。此外，还受以下搭接特有因素影响： 1.
+<strong>同一截面搭接钢筋比例（<span class="math inline"><em>α</em><sub>6</sub></span>）</strong>：同一截面（包含该截面两侧
+<span class="math inline">0.65<em>l</em><sub>0</sub></span>
+范围内）搭接钢筋面积占总钢筋面积的比例（<span class="math inline"><em>ρ</em><sub>1</sub></span>）。当搭接比例大于 50%
+时，搭接长度需乘以 1.0 至 1.5 的放大系数 [Ref-3, Ref-7]。 2.
+<strong>搭接钢筋的净距</strong>：当搭接钢筋之间的净距大于 4
+倍钢筋直径（<span class="math inline">4<em>ϕ</em></span>）时，搭接长度需要增加，增加量等于净距超出
+<span class="math inline">4<em>ϕ</em></span> 的部分 [Ref-9]。</p>
+<h3 id="四-国家附录与适用条件提示">四、 国家附录与适用条件提示</h3>
+<ul>
+<li><strong>大直径钢筋折减差异</strong>：欧洲规范 EN 1992-1-1
+规定当钢筋直径 <span class="math inline"><em>ϕ</em> &gt; 32 mm</span>
+时需对粘结应力进行折减（系数 <span class="math inline"><em>η</em><sub>2</sub></span>）[Ref-4]。但在<strong>英国国家附录（UK
+National Annex）</strong> 中，大直径钢筋被定义为 <span class="math inline"><em>ϕ</em> &gt; 40
+mm</span>，且其折减计算公式与欧洲规范原版存在差异 [Ref-2,
+Ref-11]。工程师在实际项目中需确认所适用国家附录的具体规定。</li>
+<li><strong>高强混凝土限制</strong>：由于高强混凝土的脆性增加，在计算粘结粘结应力时，混凝土抗拉强度特征值（<span class="math inline"><em>f</em><sub><em>c</em><em>t</em><em>k</em>, 0.05</sub></span>）的上限被限制为
+C60/75 强度等级的值，除非能证明平均粘结强度在此限值之上仍有提高
+[Ref-4]。</li>
+</ul>
+<h3 id="依据位置-12">依据位置</h3>
+<ul>
+<li><strong>基本锚固长度与粘结应力</strong>：[Ref-1] (6.6节), [Ref-2]
+(10.2.4节), [Ref-4] (8.4.2节, 8.4.3节), [Ref-5] (8.4.3节), [Ref-8]
+(6.6节), [Ref-10] (8.4.3节), [Ref-11] (Detailing章节), [Ref-13]
+(10.2节), [Ref-14] (公式8.3)</li>
+<li><strong>设计锚固长度修正系数</strong>：[Ref-4] (8.4.4节及Table
+8.2相关说明), [Ref-9] (10.3节), [Ref-11] (Detailing章节)</li>
+<li><strong>搭接长度及特有修正系数</strong>：[Ref-3] (10.5节), [Ref-7]
+(10.5.2节), [Ref-9] (图10.6说明)</li>
+</ul>
+<h3 id="来源-15">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 111，条款 6.6, (1)P: (1)P The design bond
+stress is limited to a value depending on the surface characteristics of
+the reinforcement, the tensile strength of the concrete and confinement
+of surrounding concrete. This depends on cover, transverse
+reinforcement</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 194，条款 : In EN 1992-1-1 the parameter
+<span class="math inline"><em>l</em><sub>b, reqd</sub></span> (basic
+anchorage length) is used in the calculation of design anchorage and lap
+lengths: where <span class="math inline"><em>ϕ</em></span> is the
+diameter of the bar, <span class="math inline"><em>σ</em><sub>sd</sub></span> is the stress</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 199，条款 : As the length of
+reinforcement bars is generally likely to be less than the length of the
+structure, lapping (or splicing) of bars will be necessary in most
+structural elements. At laps, forces are transmitted from one bar to
+another. This</li>
+<li>[4] EN1992-1-1_2004，页 132，条款 8.4.1, (1)P: (1)P Reinforcing
+bars, wires or welded mesh fabrics shall be so anchored that the bond
+forces are safely transmitted to the concrete avoiding longitudinal
+cracking or spalling. Transverse reinforcement shall be provided if
+necessary. (2)</li>
+<li>[5] EN1992-1-1_2004，页 134，条款 8.4.3, (1)P: (1)P The calculation
+of the required anchorage length shall take into consideration the type
+of steel and bond properties of the bars. (2) The basic required
+anchorage length, <span class="math inline"><em>I</em><sub>b, rqd</sub>,</span> for anchoring
+the force $A _</li>
+<li>[6] EN1992-1-1_2004，页 132，条款 8.4.1, (1)P: (1)P Reinforcing
+bars, wires or welded mesh fabrics shall be so anchored that the bond
+forces are safely transmitted to the concrete avoiding longitudinal
+cracking or spalling. Transverse reinforcement shall be provided if
+necessary. (2)</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 199，条款 : Design lap length is
+calculated by modifying the basic anchorage length (see Section 10.2.4
+above) by applying multipliers: where <span class="math inline"><em>α</em><sub>1</sub>, <em>α</em><sub>2</sub>, <em>α</em><sub>3</sub></span>
+and <span class="math inline"><em>α</em><sub>5</sub></span> are as
+discussed for anchorage and</li>
+<li>[8] EN1992-1-1 2004，页 111，条款 6.6, (1)P: (1)P The design bond
+stress is limited to a value depending on the surface characteristics of
+the reinforcement, the tensile strength of the concrete and confinement
+of surrounding concrete. This depends on cover, transverse
+reinforcement</li>
+</ul>
+<h2 id="什么情况下需要考虑二阶效应">20.
+什么情况下需要考虑二阶效应？</h2>
+<ul>
+<li>Excel 行号: 21</li>
+<li>层级: Level 4 / 复杂场景与多参数耦合层</li>
+</ul>
+<h3 id="答案-16">答案</h3>
+<h3 id="直接结论-6">直接结论</h3>
+<p>在结构设计中，当二阶效应（second order
+effects）可能显著影响结构的整体稳定性，或影响关键截面达到承载能力极限状态（ULS）时，必须考虑二阶效应
+[Ref-4], [Ref-5], [Ref-12]。</p>
+<h3 id="依据与说明-5">依据与说明</h3>
+<h4 id="适用对象与结构类型">1. 适用对象与结构类型</h4>
+<p>二阶效应的相关规定主要针对结构行为受其显著影响的构件和结构，如柱、墙、桩、拱和壳
+[Ref-10],
+[Ref-16]。此外，具有柔性支撑系统的结构极易出现整体二阶效应（global
+second order effects），需特别关注 [Ref-10], [Ref-16]。</p>
+<h4 id="定量判断标准不满足以下条件时即需考虑">2.
+定量判断标准（不满足以下条件时即需考虑）</h4>
+<p>规范提供了判断是否可以忽略二阶效应的界限，若不满足以下忽略条件，则必须考虑二阶效应：
+* <strong>10%
+准则</strong>：如果由于二阶变形引起的相关弯矩或侧移剪力的增加，大于或等于相应一阶弯矩或层剪力的
+10%，则必须考虑 [Ref-1], [Ref-10],
+[Ref-16]。此外，若结构内的轴力超过理论屈曲荷载的
+10%，也不能忽略整体二阶效应 [Ref-1]。 * <strong>孤立构件（Isolated
+members）</strong>：如果构件的长细比 <span class="math inline"><em>λ</em></span>
+大于规范规定的限值大于规范规定的限值 <span class="math inline"><em>λ</em><sub><em>l</em><em>i</em><em>m</em></sub></span>（该限值与有效徐变比、机械配筋率、相对轴力及端弯矩比有关），则必须考虑二阶效应
+[Ref-16]。 * <strong>整体结构（建筑）</strong>：如果不满足 EN 1992-1-1
+第 5.8.3.3
+条给出的整体二阶效应忽略公式（该公式综合考量了总竖向荷载、层数、建筑总高度、混凝土弹性模量及支撑构件截面惯性矩），则必须考虑整体二阶效应
+[Ref-7], [Ref-16]。</p>
+<h4 id="伴随间接作用indirect-actions时的特殊要求">3.
+伴随间接作用（Indirect actions）时的特殊要求</h4>
+<p>在承载能力极限状态（ULS）下，某些间接作用通常可忽略，但当二阶效应很重要时，必须将它们与二阶效应结合考虑：
+*
+<strong>温度效应、收缩、差异沉降</strong>：仅当它们对稳定性验证中的二阶效应影响显著时，才需要在
+ULS 中予以考虑 [Ref-2], [Ref-3], [Ref-9], [Ref-11], [Ref-15]。 *
+<strong>徐变（Creep）</strong>：在进行二阶分析时，<strong>必须</strong>考虑徐变的影响，需结合荷载持续时间采用有效徐变比（effective
+creep ratio）进行计算 [Ref-6]。</p>
+<h4 id="分析前提与注意事项">4. 分析前提与注意事项</h4>
+<ul>
+<li><strong>变形状态验证</strong>：当考虑二阶效应时，必须在变形后的状态下验证结构的平衡和抗力，且变形计算必须考虑开裂、材料非线性和徐变的相关影响（或在假定线性材料属性时通过折减刚度来考虑）
+[Ref-10], [Ref-16]。</li>
+<li><strong>几何缺陷</strong>：必须将几何和轴力位置的不确定性作为基于几何缺陷的附加一阶效应纳入考虑
+[Ref-10], [Ref-16]。</li>
+<li><strong>简化程序限制</strong>：对于规则的钢或混凝土框架，可先进行整体一阶分析，再在构件分析中同时考虑整体和构件二阶效应；但<strong>不应</strong>在不对称或不寻常的情况下使用此简化程序
+[Ref-1]。</li>
+</ul>
+<h3 id="依据位置-13">依据位置</h3>
+<ul>
+<li>[Ref-1] DG EN1990, Background, p. 69</li>
+<li>[Ref-2], [Ref-9] EN1992-1-1_2004, 2.3.1.2 Thermal effects,
+p. 21</li>
+<li>[Ref-3], [Ref-15] EN1992-1-1_2004, 2.3.2.2 Shrinkage and creep,
+p. 22</li>
+<li>[Ref-4], [Ref-5], [Ref-12] EN1992-1-1_2004, 5.1.4 Second order
+effects, p. 54</li>
+<li>[Ref-6] EN1992-1-1_2004, 5.8.4 Creep, p. 68</li>
+<li>[Ref-7] DG_EN1992-1-1__-1-2, Slender columns and beams,
+p. 133-137</li>
+<li>[Ref-10], [Ref-16] EN1992-1-1_2004, 5.8.2 General / 5.8 Analysis of
+second order effects, p. 64-65</li>
+<li>[Ref-11] EN1992-1-1_2004, 2.3.1 Actions and environmental
+influences, p. 20-22</li>
+</ul>
+<h3 id="来源-16">来源</h3>
+<ul>
+<li>[1] DG EN1990，页 69，条款 : In the previous version of the Eurocode
+(ENV 1991-1), an increase of more than <span class="math inline">10%</span> in the effects of actions was proposed,
+but it was recognised that such a value depends on the particular
+construction and/or its structural material.</li>
+<li>[2] EN1992-1-1_2004，页 21，条款 2.3.1.2: (1) Thermal effects should
+be taken into account when checking serviceability limit states. (2)
+Thermal effects should be considered for ultimate limit states only
+where they are significant (e.g. fatigue conditions, in the verification
+of</li>
+<li>[3] EN1992-1-1_2004，页 22，条款 2.3.2.2: (1) Shrinkage and creep
+are time-dependent properties of concrete. Their effects should
+generally be taken into account for the verification of serviceability
+limit states. (2) The effects of shrinkage and creep should be
+considered at</li>
+<li>[4] EN1992-1-1_2004，页 54，条款 5.1.4, (1)P: (1)P Second order
+effects (see EN 1990 Section 1) shall be taken into account where they
+are likely to affect the overall stability of a structure significantly
+and for the attainment of the ultimate limit state at critical sections.
+(2)</li>
+<li>[5] EN1992-1-1 2004，页 54，条款 5.1.4, (1)P: (1)P Second order
+effects (see EN 1990 Section 1) shall be taken into account where they
+are likely to affect the overall stability of a structure significantly
+and for the attainment of the ultimate limit state at critical sections.
+(2)</li>
+<li>[6] EN1992-1-1_2004，页 68，条款 5.8.4, (1)P: (1)P The effect of
+creep shall be taken into account in second order analysis, with due
+consideration of both the general conditions for creep (see 3.1.4) and
+the duration of different loads in the load combination considered. (2)
+The</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 133，条款 : The sections above have been
+concerned exclusively with cases where the second-order effects act
+about the same axis as the first-order moments and where only uniaxial
+moments act. While this will frequently be the case, it will by no</li>
+<li>[8] DG_EN1992-1-1__-1-2，页 38，条款 : As structures subject to
+lateral loads deflect, the vertical loads acting on the structure
+produce additional forces and moments. These are normally referred to as
+second-order effects. Consider a cantilever column shown in Fig. 3.5.
+The</li>
+</ul>
+<h2 id="受弯构件正截面承载力计算的一般步骤是什么">21.
+受弯构件正截面承载力计算的一般步骤是什么？</h2>
+<ul>
+<li>Excel 行号: 22</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-17">答案</h3>
+<h3 id="直接结论-7">直接结论</h3>
+<p>根据当前检索结果，欧洲规范 EN 1992-1-1
+正文中未直接以条款形式列出“受弯构件正截面承载力计算的一般步骤”。但相关官方设计指南中提供了一套适用于任意截面（包括受弯和压弯）的<strong>通用迭代计算步骤</strong>，可用于求解正截面抗弯承载力。</p>
+<h3 id="计算步骤通用迭代法">计算步骤（通用迭代法）</h3>
+<p>对于无法直接套用简化公式的情况，指南推荐采用以下迭代步骤计算截面的抗弯承载力
+[Ref-21]：</p>
+<ol type="1">
+<li><strong>假定中和轴深度</strong>：初步猜测一个中和轴深度 <span class="math inline"><em>x</em></span> 的值 [Ref-21]。</li>
+<li><strong>计算混凝土受压区合力</strong>：使用规范允许的受压应力-应变曲线理想化模型计算受压区的混凝土压力。若采用抛物线-矩形应力图，可能需要数值积分技术；对于简单的手算，采用<strong>矩形应力图</strong>（rectangular
+idealization）最为简便 [Ref-21]。</li>
+<li><strong>计算钢筋内力</strong>：根据假定的中和轴深度和混凝土极限应变，计算每一层钢筋的应变，进而求出对应的钢筋应力和各层钢筋的内力
+[Ref-21]。</li>
+<li><strong>校核平衡并求解</strong>：
+<ul>
+<li>检查截面总压力是否等于总拉力（即满足轴力平衡条件）[Ref-21]。</li>
+<li><strong>若平衡</strong>：说明中和轴深度 <span class="math inline"><em>x</em></span>
+假定正确，直接对内部各力取矩，即可求得截面的抗弯承载力 [Ref-21]。</li>
+<li><strong>若不平衡</strong>：调整中和轴深度 <span class="math inline"><em>x</em></span>
+的值，并返回第2步重新计算，直至满足平衡条件 [Ref-21]。</li>
+</ul></li>
+</ol>
+<h3 id="t型或l型截面翼缘梁的处理原则">T型或L型截面（翼缘梁）的处理原则</h3>
+<ul>
+<li><strong>中和轴在翼缘内</strong>：若极限状态下中和轴位于翼缘厚度范围内，可直接将其等效为矩形截面进行计算
+[Ref-21]。</li>
+<li><strong>中和轴在腹板内</strong>：若中和轴深度大于翼缘厚度，可足够精确地假定翼缘外伸部分全部承受大小为
+<span class="math inline"><em>f</em><sub><em>c</em><em>d</em></sub></span>（混凝土设计抗压强度）的均匀压应力
+[Ref-21]。此时可将截面分为两部分：翼缘外伸部分承担部分弯矩并配置相应钢筋；剩余弯矩由宽度为腹板宽度的矩形截面承担，最后将两部分所需的最后将两部分所需的受拉钢筋面积相加
+[Ref-21]。</li>
+</ul>
+<h3 id="依据与说明-6">依据与说明</h3>
+<ol type="1">
+<li><strong>材料本构模型</strong>：上述步骤中的应力-应变关系需依据 EN
+1992-1-1 中关于混凝土（如第 3.1 节）和钢筋的设计本构模型取值
+[Ref-17]。</li>
+<li><strong>国家附录（National
+Annex）限制</strong>：计算中涉及的材料分项系数（如 <span class="math inline"><em>γ</em><sub><em>m</em></sub></span>）及部分设计参数，必须采用工程项目所在国发布的国家附录中规定的数值，不同国家的取值可能存在差异
+[Ref-20]。</li>
+<li><strong>现有证据不足提醒</strong>：当前检索证据主要提取自设计指南（DG），关于正截面承载力计算的规范基本假定（如平截面假定等）及规范正文的具体强制条款（如第
+6.1 节）未在现有片段中完整体现。实际工程设计时，请务必查阅 EN 1992-1-1
+规范正文第 6 章（承载能力极限状态）的相关强制性规定。</li>
+</ol>
+<h3 id="依据位置-14">依据位置</h3>
+<ul>
+<li><strong>通用迭代计算步骤及T/L型截面处理</strong>：DG_EN1992-1-1,
+Design of sections for bending and axial force &gt; Example 5.2, 页码
+79, 80, 89, 90 [Ref-21]。</li>
+<li><strong>混凝土应力-应变关系</strong>：EN1992-1-1_2004, 3.1.5
+Stress-strain relation for non-linear structural analysis, 页码 33, 34
+[Ref-17]。</li>
+<li><strong>国家附录（NDPs）说明</strong>：DG_EN1990, National Annexes,
+页码 8 [Ref-20]。</li>
+</ul>
+<h3 id="来源-17">来源</h3>
+<ul>
+<li>[1] EN1992-1-1 2004，页 88，条款 : <span class="math display"><em>V</em><sub>Rd, 𝓂ax</sub> = <em>α</em><sub>cw</sub><em>b</em><sub>w</sub><em>z</em> <em>ν</em><sub>1</sub> <em>f</em><sub>cd</sub>/(cot<em>θ</em> + tan<em>θ</em>)</span></li>
+<li>[2] EN1992-1-1 2004，页 88，条款 : $$ V _ { } = _ { } b _ { } z _ {
+} f _ { } (  +   ) / ( 1  +   ^ { 2 }</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 47，条款 : This takes into account the
+non-linear deformation properties of reinforced-concrete sections. This
+method is seldom used in practical design as it is complex, requiring a
+computer and prior knowledge of reinforcement details throughout</li>
+<li>[4] EN1992-1-1 2004，页 163，条款 9.6.1: (1) This clause refers to
+reinforced concrete walls with a length to thickness ratio of 4 or more
+and in which the reinforcement is taken into account in the strength
+analysis. The amount and proper detailing of reinforcement may be</li>
+<li>[5] EN1992-1-1 2004，页 152，条款 9.1, (1)P: (1)P The requirements
+for safety, serviceability and durability are satisfied by following the
+rules given in this section in addition to the general rules given
+elsewhere. (2) The detailing of members should be consistent with the
+design</li>
+<li>[6] EN1992-1-1_2004，页 163，条款 9.6.1: (1) This clause refers to
+reinforced concrete walls with a length to thickness ratio of 4 or more
+and in which the reinforcement is taken into account in the strength
+analysis. The amount and proper detailing of reinforcement may be</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 232，条款 : This method requires
+knowledge of the temperature distribution across the cross-section of
+the member. EN 1992-1-2 provides such profiles for slabs, beams and
+columns in Annex A for standard time-temperature relationships. The
+method may</li>
+<li>[8] EN1992-1-1 2004，页 14，条款 1.1.2, (1)P: (1)P Part 1-1 of
+Eurocode 2 gives a general basis for the design of structures in plain,
+reinforced and prestressed concrete made with normal and light weight
+aggregates together with specific rules for buildings. (2)P The
+following</li>
+</ul>
+<h2 id="后张法预应力损失如何计算">22. 后张法预应力损失如何计算</h2>
+<ul>
+<li>Excel 行号: 23</li>
+<li>层级: Level 4 / 复杂场景与多参数耦合层</li>
+</ul>
+<h3 id="答案-18">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+及其相关设计指南，后张法（post-tensioning）预应力损失的计算分为<strong>瞬时损失</strong>和<strong>随时间变化的损失</strong>两大类。以下是具体的计算步骤、适用公式及参数取值说明。</p>
+<h3 id="瞬时损失-immediate-losses">1. 瞬时损失 (Immediate losses)</h3>
+<p>瞬时损失 <span class="math inline"><em>Δ</em><em>P</em><sub><em>i</em></sub>(<em>x</em>)</span>
+发生在张拉和锚固过程中或刚完成时，主要包括以下四项 [Ref-1]：</p>
+<h4 id="摩擦引起的损失-delta-p_mux">(1) 摩擦引起的损失 <span class="math inline"><em>Δ</em><em>P</em><sub><em>μ</em></sub>(<em>x</em>)</span></h4>
+<p>后张法预应力筋在管道中张拉时，由于管道偏差和曲线线形会产生摩擦损失
+[Ref-6]。 * <strong>计算公式</strong> [Ref-17]： <span class="math display"><em>Δ</em><em>P</em><sub><em>μ</em></sub>(<em>x</em>) = <em>P</em><sub><em>m</em><em>a</em><em>x</em></sub>(1 − <em>e</em><sup>−<em>μ</em>(<em>θ</em> + <em>k</em><em>x</em>)</sup>)</span>
+* <strong>参数说明与取值</strong> [Ref-6]： * <span class="math inline"><em>P</em><sub><em>m</em><em>a</em><em>x</em></sub></span>：张拉端施加的最大张拉力。
+* <span class="math inline"><em>θ</em></span>：从张拉端到计算截面距离
+<span class="math inline"><em>x</em></span>
+内，预应力筋角度变化的总和（不考虑方向或符号）。 * <span class="math inline"><em>μ</em></span>：预应力筋与管道之间的摩擦系数。<strong>优先采用欧洲技术批准（ETA）或制造商提供的数据</strong>；若无数据，可查规范表
+5.1 取值。 * <span class="math inline"><em>k</em></span>：内部预应力筋的无意角度偏差（每单位长度）。若无
+ETA 数据，一般取 <span class="math inline">0.005 &lt; <em>k</em> &lt; 0.01 rad/m</span>。 *
+<span class="math inline"><em>x</em></span>：从张拉端沿预应力筋的距离。
+*
+<strong>适用条件限制</strong>：对于<strong>外部预应力筋</strong>（external
+tendons），由无意角度偏差（即 <span class="math inline"><em>k</em></span> 项）引起的预应力损失可以忽略
+[Ref-6]。</p>
+<h4 id="锚具回缩滑移引起的损失-delta-p_sl">(2) 锚具回缩/滑移引起的损失
+<span class="math inline"><em>Δ</em><em>P</em><sub><em>s</em><em>l</em></sub></span></h4>
+<ul>
+<li><strong>计算说明</strong>：规范正文未直接指定具体计算数值，要求从
+ETA
+文件或锚具制造商处获取回缩量，并在现场进行核实（特别是对于短构件，该损失可能起控制作用）
+[Ref-4], [Ref-21]。</li>
+<li><strong>指南参考参数</strong>：设计指南指出，锚具回缩损失 <span class="math inline"><em>Δ</em><em>P</em></span> 的计算依赖于以下参数
+[Ref-21]：
+<ul>
+<li><span class="math inline"><em>δ</em></span>：锚具回缩量（draw-in）。</li>
+<li><span class="math inline"><em>E</em><sub><em>p</em></sub></span>：预应力筋弹性模量；<span class="math inline"><em>A</em><sub><em>p</em><em>s</em></sub></span>：预应力筋截面积。</li>
+<li><span class="math inline"><em>m</em></span>：由摩擦引起的预应力变化率，可近似取
+<span class="math inline"><em>m</em> = <em>P</em><sub>0</sub><em>μ</em>(<em>α</em> + <em>k</em>)</span>（其中
+<span class="math inline"><em>α</em></span>
+为单位长度的角度偏差）。</li>
+</ul></li>
+</ul>
+<h4 id="混凝土弹性变形引起的损失-delta-p_el">(3)
+混凝土弹性变形引起的损失 <span class="math inline"><em>Δ</em><em>P</em><sub><em>e</em><em>l</em></sub></span></h4>
+<ul>
+<li><strong>计算说明</strong>：由于后张法通常是逐根张拉，先张拉的钢筋会因后续钢筋张拉导致混凝土发生弹性压缩而产生损失。计算方法遵循常规结构力学程序，根据混凝土在预应力作用下的弹性应变进行计算
+[Ref-1], [Ref-4]。</li>
+</ul>
+<h4 id="短期松弛损失-delta-p_r">(4) 短期松弛损失 <span class="math inline"><em>Δ</em><em>P</em><sub><em>r</em></sub></span></h4>
+<ul>
+<li>发生在张拉过程与锚固完成与锚固完成之间的短暂时间段内的钢筋松弛损失
+[Ref-1]。</li>
+</ul>
+<hr />
+<h3 id="随时间变化的损失-time-dependent-losses">2. 随时间变化的损失
+(Time-dependent losses)</h3>
+<p>随时间变化的损失 <span class="math inline"><em>Δ</em><em>P</em><sub><em>c</em> + <em>s</em> + <em>r</em></sub>(<em>x</em>)</span>
+是由混凝土的收缩、徐变以及预应力钢筋的长期松弛共同引起的
+[Ref-1]。规范提供了一个考虑这三者相互作用的简化综合计算公式。</p>
+<h4 id="综合损失计算公式">(1) 综合损失计算公式</h4>
+<ul>
+<li><strong>计算公式 (5.46)</strong> [Ref-15], [Ref-18]： <span class="math display">$$ \Delta P_{c+s+r} = A_p \Delta \sigma_{p,c+s+r} =
+A_p \frac{\varepsilon_{cs} E_p + 0.8 \Delta \sigma_{pr} +
+\frac{E_p}{E_{cm}} \varphi(t, t_0) \sigma_{c,QP}}{1 + \frac{E_p}{E_{cm}}
+\frac{A_p}{A_c} \left(1 + \frac{A_c}{I_c} z_{cp}^2\right) \left[1 + 0.8
+\varphi(t, t_0)\right]} $$</span>
+<em>(注：证据原文中准永久组合下的混凝土应力符号识别为 <span class="math inline"><em>σ</em><sub><em>c</em>, <em>o</em><em>p</em></sub></span>，实际应为
+<span class="math inline"><em>σ</em><sub><em>c</em>, <em>Q</em><em>P</em></sub></span>)</em></li>
+<li><strong>参数说明</strong> [Ref-15]：
+<ul>
+<li><span class="math inline"><em>ε</em><sub><em>c</em><em>s</em></sub></span>：混凝土收缩应变估计值的绝对值（按规范
+3.1.4(6) 计算）。</li>
+<li><span class="math inline"><em>E</em><sub><em>p</em></sub>, <em>E</em><sub><em>c</em><em>m</em></sub></span>：分别为预应力钢和混凝土的弹性模量。</li>
+<li><span class="math inline"><em>φ</em>(<em>t</em>, <em>t</em><sub>0</sub>)</span>：混凝土徐变系数。</li>
+<li><span class="math inline"><em>σ</em><sub><em>c</em>, <em>Q</em><em>P</em></sub></span>：在初始预应力和准永久作用组合下，预应力筋重心处的混凝土应力。</li>
+<li><span class="math inline"><em>A</em><sub><em>p</em></sub>, <em>A</em><sub><em>c</em></sub></span>：预应力筋和混凝土的截面积；<span class="math inline"><em>I</em><sub><em>c</em></sub></span>：混凝土截面惯性矩；<span class="math inline"><em>z</em><sub><em>c</em><em>p</em></sub></span>：预应力筋重心至混凝土截面重心的距离。</li>
+<li><span class="math inline"><em>Δ</em><em>σ</em><sub><em>p</em><em>r</em></sub></span>：由于预应力钢松弛引起的应力变化绝对值。</li>
+<li><strong>相互作用折减</strong>：公式中的系数 <strong>0.8</strong>
+是为了考虑混凝土徐变和收缩会降低钢筋应力，从而相应减少钢筋松弛损失的交互影响
+[Ref-15]。</li>
+</ul></li>
+</ul>
+<h4 id="钢筋松弛损失-delta-sigma_pr-的计算">(2) 钢筋松弛损失 <span class="math inline"><em>Δ</em><em>σ</em><sub><em>p</em><em>r</em></sub></span>
+的计算</h4>
+<p>松弛损失需根据预应力筋的松弛类别（Class 1, 2, 3）单独计算 [Ref-7]。 *
+<strong>初始应力取值</strong>：对于后张法，计算松弛时的初始应力 <span class="math inline"><em>σ</em><sub><em>p</em><em>i</em></sub></span>
+取锚固后的初始预应力绝对值，即 <span class="math inline"><em>σ</em><sub><em>p</em><em>i</em></sub> = <em>σ</em><sub><em>p</em><em>m</em>0</sub></span>
+[Ref-3], [Ref-7]。 * <strong>计算公式 (以 Class 1
+普通松弛钢丝/钢绞线为例，公式 3.28)</strong> [Ref-16]： <span class="math display">$$ \frac{\Delta \sigma_{pr}}{\sigma_{pi}} = 5.39
+\rho_{1000} e^{6.7\mu} \left(\frac{t}{1000}\right)^{0.75(1-\mu)} 10^{-5}
+$$</span> * <strong>参数说明</strong> [Ref-3], [Ref-7]： * <span class="math inline"><em>ρ</em><sub>1000</sub></span>：张拉后 1000
+小时、平均温度 20°C 时的松弛损失百分比。若无测试证书，可假定：Class 1 取
+8%，Class 2（低松弛）取 2.5%，Class 3（热轧及加工钢筋）取 4%。 * <span class="math inline"><em>μ</em> = <em>σ</em><sub><em>p</em><em>i</em></sub>/<em>f</em><sub><em>p</em><em>k</em></sub></span>，其中
+<span class="math inline"><em>f</em><sub><em>p</em><em>k</em></sub></span>
+为预应力钢抗拉强度特征值。 * <span class="math inline"><em>t</em></span>：张拉后的时间（小时）。<strong>长期（最终）松弛损失</strong>可按
+<span class="math inline"><em>t</em> = 500, 000</span> 小时（约 57
+年）进行估算 [Ref-3], [Ref-7]。 *
+<strong>温度限制</strong>：若预应力筋经历热处理（如蒸汽养护）或温度超过
+50°C，松弛损失对温度非常敏感，必须按规范 10.3.2.2 或附录 D 进行专门验证
+[Ref-3], [Ref-7]。</p>
+<hr />
+<h3 id="工程师应用注意事项">3. 工程师应用注意事项</h3>
+<ol type="1">
+<li><strong>数据优先级</strong>：在计算摩擦损失（<span class="math inline"><em>μ</em>, <em>k</em></span>）和锚具回缩量（<span class="math inline"><em>δ</em></span>）时，规范强烈建议<strong>优先采用欧洲技术批准（ETA）文件或制造商提供的测试数据</strong>，而非直接使用规范给出的默认推荐值
+[Ref-4], [Ref-6]。</li>
+<li><strong>国家附录 (National
+Annex)</strong>：计算初始张拉控制应力（决定 <span class="math inline"><em>σ</em><sub><em>p</em><em>i</em></sub></span>
+的上限）时，涉及参数 <span class="math inline"><em>k</em><sub>7</sub></span>（推荐 0.75）和 <span class="math inline"><em>k</em><sub>8</sub></span>（推荐
+0.85），必须核查项目所在国的国家附录是否有修改 [Ref-1]。</li>
+<li><strong>分阶段计算</strong>：如果需要对不同时间区间（阶段）进行更高精度的松弛损失计算，应参考规范附录
+D 的详细计算方法 [Ref-3], [Ref-7]。</li>
+</ol>
+<h3 id="来源-18">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 77，条款 5.10.3, (1)P: (1)P At a given time
+t and distance x (or arc length) from the active end of the tendon the
+mean prestress force <span class="math inline"><em>P</em><sub>m, t</sub>(<em>x</em>)</span> is
+equal to the maximum force <span class="math inline"><em>P</em><sub>max</sub></span> imposed at the
+active end,</li>
+<li>[2] EN1992-1-1_2004，页 78，条款 5.10.4: (1) The following losses
+occurring during pre-tensioning should be considered: (i) during the
+stressing process: loss due to friction at the bends (in the case of
+curved wires or strands) and losses due to wedge draw-in of the
+anchorage</li>
+<li>[3] EN1992-1-1_2004，页 42，条款 3.3.2, (1)P: (7) The relaxation
+loss may be obtained from the manufacturers test certificates or defined
+as the percentage ratio of the variation of the prestressing stress over
+the initial prestressing stress, should be determined by applying one
+of</li>
+<li>[4] DG_EN1992-1-1__-1-2，页 221，条款 : The designer’s attention is
+drawn to the need to allow for losses of prestress when calculating the
+design forces in tendons at the various stages considered in the design.
+The causes of these losses are listed in EN 1992-1-1. Because of</li>
+<li>[5] EN1992-1-1 2004，页 77，条款 5.10.3, (1)P: (1)P At a given time
+<span class="math inline"><em>t</em></span> and distance <span class="math inline"><strong>×</strong></span> (or arc length) from the
+active end of the tendon the mean prestress force <span class="math inline"><em>P</em><sub>m, t</sub>(<em>x</em>)</span> is
+equal to the maximum force <span class="math inline"><em>P</em><sub>max</sub></span> imposed at</li>
+<li>[6] EN1992-1-1 2004，页 79，条款 5.10.5.2: (1) The losses due to
+friction <span class="math inline"><em>Δ</em><em>P</em><sub><em>μ</em></sub>(<em>x</em>)</span>
+in post-tensioned tendons may be estimated from: where: <span class="math inline"><em>θ</em></span> is the sum of the angular
+displacements over a distance x (irrespective of direction or sign)
+<span class="math inline"><em>μ</em></span> is the</li>
+<li>[7] EN1992-1-1 2004，页 42，条款 3.3.2, (1)P: (1)P The properties of
+prestressing steel are given in EN 10138, Parts 2 to 4 or European
+Technical Approval. (2)P The prestressing tendons (wires, strands and
+bars) shall be classified according to: (i) Strength, denoting the value
+of the</li>
+<li>[8] EN1992-1-1_2004，页 75，条款 5.10.1, (1)P: (1)P The prestress
+considered in this Standard is that applied to the concrete by stressed
+tendons. (2) The effects of prestressing may be considered as an action
+or a resistance caused by prestrain and precurvature. The bearing
+capacity</li>
+</ul>
+<h2 id="预应力在各类极限状态下的影响是什么">23.
+预应力在各类极限状态下的影响是什么</h2>
+<ul>
+<li>Excel 行号: 24</li>
+<li>层级: Level 4 / 复杂场景与多参数耦合层</li>
+</ul>
+<h3 id="答案-19">答案</h3>
+<p>基于欧洲规范 EN 1992-1-1
+及其相关设计指南，预应力在承载能力极限状态（ULS）和正常使用极限状态（SLS）下的影响及设计考虑存在显著差异。以下为具体分类说明：</p>
+<h3 id="一-承载能力极限状态-uls-下的影响与设计">一、 承载能力极限状态
+(ULS) 下的影响与设计</h3>
+<ol type="1">
+<li><strong>分项系数取值</strong>：在大多数情况下，预应力是有利影响，ULS
+验证时应使用有利分项系数 <span class="math inline"><em>γ</em><sub><em>p</em>, <em>f</em><em>a</em><em>v</em></sub></span>
+[Ref-1, Ref-4, Ref-6]。EN 1992-1-1 推荐 <span class="math inline"><em>γ</em><sub><em>p</em>, <em>f</em><em>a</em><em>v</em></sub> = 1.0</span>，不利分项系数
+<span class="math inline"><em>γ</em><sub><em>p</em>, <em>u</em><em>n</em><em>f</em><em>a</em><em>v</em></sub> = 1.3</span>
+[Ref-1, Ref-6]。 <em>注意：英国国家附录 (UK NA) 将其修改为 <span class="math inline"><em>γ</em><sub><em>p</em>, <em>f</em><em>a</em><em>v</em></sub> = 0.9</span>
+和 <span class="math inline"><em>γ</em><sub><em>p</em>, <em>u</em><em>n</em><em>f</em><em>a</em><em>v</em></sub> = 1.1</span>
+[Ref-1, Ref-5]。</em></li>
+<li><strong>特殊情况的 ULS 验证</strong>：
+<ul>
+<li>对于外部预应力的整体稳定性极限状态，若预应力增加会产生不利影响，应使用
+<span class="math inline"><em>γ</em><sub><em>p</em>, <em>u</em><em>n</em><em>f</em><em>a</em><em>v</em></sub></span>（推荐值
+1.3）[Ref-6, Ref-16]。</li>
+<li>对于局部效应（如锚固区），也应使用 <span class="math inline"><em>γ</em><sub><em>p</em>, <em>u</em><em>n</em><em>f</em><em>a</em><em>v</em></sub></span>（推荐值
+1.2）[Ref-6, Ref-16]。</li>
+</ul></li>
+<li><strong>截面设计中的应变计算</strong>：ULS 下需考虑初始应变 <span class="math inline"><em>ε</em><sub><em>p</em>0</sub></span>
+乘以分项系数，并加上应变增量 <span class="math inline"><em>Δ</em><em>ε</em><sub><em>p</em></sub></span>
+[Ref-1, Ref-5]。
+<ul>
+<li><strong>有粘结预应力筋</strong>：应变增量等于预应力筋水平处混凝土的应变增量
+[Ref-1, Ref-5]。</li>
+<li><strong>无粘结和外部预应力筋</strong>：应变增量需基于构件变形计算，或假定应力增加
+100 N/mm² [Ref-1, Ref-5]。若使用平均属性计算变形，应力增量需乘以 <span class="math inline"><em>γ</em><sub><em>Δ</em><em>p</em></sub></span>（有利取
+0.8，不利取 1.2）；若使用未开裂截面进行线性分析，则取 <span class="math inline"><em>γ</em><sub><em>Δ</em><em>p</em></sub> = 1.0</span>
+[Ref-1, Ref-5]。</li>
+</ul></li>
+</ol>
+<h3 id="二-正常使用极限状态-sls-下的影响与设计">二、 正常使用极限状态
+(SLS) 下的影响与设计</h3>
+<ol type="1">
+<li><strong>预应力特征值上下限</strong>：SLS
+下荷载和材料属性的分项系数通常为 1.0 [Ref-7, Ref-13,
+Ref-16]。预应力采用上限 (<span class="math inline"><em>r</em><sub><em>s</em><em>u</em><em>p</em></sub></span>)
+或下限 (<span class="math inline"><em>r</em><sub><em>i</em><em>n</em><em>f</em></sub></span>)
+特征值，取对设计更不利的值 [Ref-5]。
+<ul>
+<li>先张或无粘结筋：上限 1.05，.05，下限 0.95（乘以平均值）[Ref-2,
+Ref-5]。</li>
+<li>后张有粘结筋：上限 1.1，下限 0.9 [Ref-2, Ref-5]。</li>
+<li><em>注意：英国国家附录 (UK NA) 简化采用单一值 1.0 [Ref-2,
+Ref-5]；对于受剪设计，EN 和 UK 均取 1.0 [Ref-2]。</em></li>
+</ul></li>
+<li><strong>裂缝控制</strong>：SLS 需考虑特征、频遇和准永久三种荷载组合
+[Ref-5, Ref-7]。根据暴露类别和预应力筋类型，裂缝宽度限制如下 [Ref-3]：
+<ul>
+<li><strong>无粘结筋</strong>（准永久荷载）：所有暴露类别限制为 0.3 mm
+[Ref-3]。</li>
+<li><strong>有粘结筋</strong>（频遇荷载）：X0、XC1 及 XC2~XC4 类别限制为
+0.2 mm；XD、XS 类别要求消压 (Decompression) [Ref-3]。</li>
+<li><strong>有粘结筋</strong>（准永久荷载）：XC2~XC4 类别要求消压
+[Ref-3]。</li>
+</ul></li>
+<li><strong>混凝土应力限制与徐变</strong>：
+<ul>
+<li>在侵蚀性环境（XD, XF, XS）中，建议将 SLS 下的混凝土压应力限制在
+<span class="math inline">0.6<em>f</em><sub><em>c</em><em>k</em></sub></span>，或采取增加保护层/横向约束等措施
+[Ref-13]。</li>
+<li>若准永久组合下压应力超过 <span class="math inline">0.45<em>f</em><sub><em>c</em><em>k</em></sub></span>，应考虑非线性徐变的影响
+[Ref-13]。</li>
+</ul></li>
+</ol>
+<h3 id="三-疲劳及其他时间依存效应">三、 疲劳及其他时间依存效应</h3>
+<ol type="1">
+<li><strong>疲劳极限状态</strong>：疲劳验证时，预应力的有利分项系数
+<span class="math inline"><em>γ</em><sub><em>p</em>, <em>f</em><em>a</em><em>v</em></sub></span>
+推荐值同样可取 1.0 [Ref-4, Ref-6]。</li>
+<li><strong>徐变、收缩与温度效应</strong>：
+<ul>
+<li><strong>SLS</strong>：必须考虑徐变和收缩的影响 [Ref-9,
+Ref-10]。徐变效应应在准永久组合下评估，通常使用永久荷载和预应力平均值
+[Ref-9, Ref-10]。温度效应也应在 SLS 中予以考虑 [Ref-10]。</li>
+<li><strong>ULS</strong>：仅当这些时间依存效应显著时（例如二阶效应重要的稳定性验证）才需考虑；若构件具有足够的延性和转动能力，通常可忽略
+[Ref-9, Ref-10]。</li>
+</ul></li>
+</ol>
+<h3 id="四-依据位置-1">四、 依据位置</h3>
+<ul>
+<li>[Ref-1] DG_EN1992-1-1__-1-2, 11.5.1. Ultimate limit state,
+pp. 216-217</li>
+<li>[Ref-2] DG_EN1992-1-1__-1-2, Table 11.6, pp. 216-217</li>
+<li>[Ref-3] DG_EN1992-1-1__-1-2, Table 11.7, pp. 216-217</li>
+<li>[Ref-4] EN1992-1-1 2004, 2.4.2.2, p. 23</li>
+<li>[Ref-5] DG_EN1992-1-1__-1-2, 11.5. Design of sections for flexure
+and axial load, pp. 216-217</li>
+<li>[Ref-6] EN1992-1-1_2004, 2.4.2.2, pp. 23-24</li>
+<li>[Ref-7] DG_EN1992-1-1__-1-2, 8.1. General, pp. 139-140</li>
+<li>[Ref-9] EN1992-1-1 2004, 2.3.2.2, p. 22</li>
+<li>[Ref-10] EN1992-1-1_2004, 2.3.1.1~2.3.1.3, pp. 20-23</li>
+<li>[Ref-13] DG_EN1992-1-1__-1-2, Serviceability limit states,
+pp. 139-192</li>
+<li>[Ref-16] EN199 EN1992-1-1_2004, 2.4.2.1~2.4.2.3, pp. 23-25</li>
+</ul>
+<h3 id="来源-19">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 216，条款 : EN 1992-1-1 specifies two
+partial safety factors for prestress when considering overall analysis
+and the design of sections: <span class="math inline"><em>γ</em><sub>p, fav</sub> = 1.0</span> and <span class="math inline"><em>γ</em><sub>p, unfav</sub> = 1.3</span> .
+However, the</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 216，条款 Table 11.6: Table 11.6.
+Partial factors to be used for prestress
+<table>
+<tr>
+<td rowspan="2" colspan="2">
+</td>
+<td colspan="4">
+Partial factors
+</td>
+</tr>
+<tr>
+<td colspan="2">
+Serviceability limit state
+</td>
+<td colspan="2">
+Ultimate limit</li>
+<li>[3] DG_EN1992-1-1__-1-2，页 216，条款 Table 11.7: Table 11.7.
+Criteria for controlling cracking
+<table>
+<tr>
+<td rowspan="2">
+Exposure class
+</td>
+<td rowspan="2">
+Unbonded tendons: quasi-permanent loads
+</td>
+<td colspan="2">
+Bonded tendons
+</td>
+</tr>
+<tr>
+<td>
+Frequent loads
+</td>
+<td>
+Quasi-permanent</li>
+<li>[4] EN1992-1-1 2004，页 23，条款 2.4.2.2: (1) Prestress in most
+situations is intended to be favourable and for the ultimate limit state
+verification the value of <span class="math inline">𝒲, 𝔣𝔞𝔳</span> should
+be used. The design value of prestress may be based on the mean value
+of</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 216，条款 : EN 1992-1-1 specifies two
+partial safety factors for prestress when considering overall analysis
+and the design of sections: <span class="math inline"><em>γ</em><sub>p, fav</sub> = 1.0</span> and <span class="math inline"><em>γ</em><sub>p, unfav</sub> = 1.3</span> .
+However, the</li>
+<li>[6] EN1992-1-1_2004，页 23，条款 2.4.2.2: (1) Prestress in most
+situations is intended to be favourable and for the ultimate limit state
+verification the value of <span class="math inline">𝒲, 𝔣𝔞𝔳</span> should
+be used. The design value of prestress may be based on the mean value
+of</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 139，条款 : EN 1990 (clause 6.5.3)
+defines three combinations of actions which may need to be considered
+when designing for a serviceability limit state. These are:
+Characteristic combination: • Frequent combination: Quasi-permanent
+combination: It</li>
+<li>[8] EN1992-1-1 2004，页 148，条款 : values, depending on the design
+situation: or <span class="math inline">$\begin{array} { r } { l _ {
+\mathsf { p t } 1 } = 0 , 8 \ l _ { \mathsf { p t } } } \\ { \quad } \\
+{ l _ { \mathsf { p t } 2 } = 1 , 2 \ l _ { \mathsf { p t } } }
+\end{array}$</span> Note: Normally</li>
+</ul>
+<h2 id="剪应力一般验证程序是怎样的">24. 剪应力一般验证程序是怎样的</h2>
+<ul>
+<li>Excel 行号: 25</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-20">答案</h3>
+<p>根据欧洲规范 EN
+1992-1-1（混凝土结构设计），剪应力（剪力）的验证程序主要分为<strong>一般剪切（梁、板等构件）</strong>和<strong>冲切（板柱节点、基础）</strong>
+两类。以下是基于规范条文整理的标准化验证步骤：</p>
+<h3 id="一-一般剪切验证程序梁板等构件">一、
+一般剪切验证程序（梁、板等构件）</h3>
+<p>一般剪切验证基于桁架模型，核心是对比设计剪力与构件的抗剪承载力。</p>
+<p><strong>1. 确定设计剪力 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub></span></strong>
+计算由外部荷载和预应力（粘结或无粘结）在目标截面引起的设计剪力 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub></span>
+[Ref-1, Ref-6]。</p>
+<p><strong>2. 验算无抗剪钢筋的抗剪承载力 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span></strong>
+* <strong>若 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> ≤ <em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span></strong>：理论上无需通过计算配置抗剪钢筋，但仍需按规范第9.2.2节配置<strong>最小抗剪钢筋</strong>
+[Ref-1, Ref-6]。 *
+<em>豁免条件</em>：对于能够横向重分布荷载的板（如实心板、肋形板或空心板），或不显著影响结构整体抗力和稳定性的次要构件（如跨度
+<span class="math inline"> ≤ 2 m</span> 的过梁），可省略最小抗剪钢筋
+[Ref-1, Ref-6]。 * <strong>若 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> &gt; <em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span></strong>：必须配置足够的抗剪钢筋，进入步骤4
+[Ref-1, Ref-6]。</p>
+<p><strong>3. 验算截面最大抗剪承载力 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>（防止混凝土压杆压碎）</strong>
+在构件的任何部位，设计剪力（扣除倾斜弦杆的贡献后，即 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> − <em>V</em><sub><em>c</em><em>c</em><em>d</em></sub> − <em>V</em><sub><em>t</em><em>d</em></sub></span>）均不得超过由混凝土压杆压碎控制的极限值
+<span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+[Ref-1, Ref-6]。</p>
+<p><strong>4. 计算所需抗剪钢筋</strong>
+当需要配置抗剪钢筋时，构件的总抗剪承载力 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em></sub></span>
+应满足 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> ≤ <em>V</em><sub><em>R</em><em>d</em></sub></span>
+[Ref-1, Ref-6]。 * 总承载力公式：<span class="math inline"><em>V</em><sub><em>R</em><em>d</em></sub> = <em>V</em><sub><em>R</em><em>d</em>, <em>s</em></sub> + <em>V</em><sub><em>c</em><em>c</em><em>d</em></sub> + <em>V</em><sub><em>t</em><em>d</em></sub></span>
+[Ref-2, Ref-6]。 * 抗剪钢筋提供的承载力（公式6.8）：<span class="math inline">$V_{Rd,s} = \frac{A_{sw}}{s} z f_{ywd}
+\cot\theta$</span> [Ref-3]。 <em>(注：<span class="math inline"><em>A</em><sub><em>s</em><em>w</em></sub></span>
+为抗剪钢筋截面积，<span class="math inline"><em>s</em></span>
+为间距，<span class="math inline"><em>z</em></span> 为内力臂，<span class="math inline"><em>f</em><sub><em>y</em><em>w</em><em>d</em></sub></span>
+为抗剪钢筋设计屈服强度，<span class="math inline"><em>θ</em></span>
+为混凝土压杆倾角)</em>。</p>
+<p><strong>5. 纵向钢筋附加拉力验算</strong>
+纵向受拉钢筋必须具备足够的锚固和截面积，以抵抗由剪力引起的附加拉力
+[Ref-6]。</p>
+<p><strong>6. 支座附近的特殊规定</strong>
+对于主要承受均布荷载的构件，距支座边缘小于有效高度 <span class="math inline"><em>d</em></span>
+的范围内无需验算设计剪力，但抗剪钢筋必须延伸至支座，且支座边缘处的剪力仍不得超过
+<span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+[Ref-6]。</p>
+<hr />
+<h3 id="二-冲切验证程序板柱节点基础">二、
+冲切验证程序（板柱节点、基础）</h3>
+<p>冲切验证主要针对集中荷载或支座反力作用在相对较小区域的情况，验证基于控制截面上的剪应力进行。</p>
+<p><strong>1. 确定控制截面</strong>
+验证应在<strong>柱周边（或加载区域周边）</strong>以及<strong>基本控制周长
+<span class="math inline"><em>u</em><sub>1</sub></span></strong>（通常距加载区域
+<span class="math inline">2.0<em>d</em></span>）处进行 [Ref-4, Ref-8,
+Ref-10, Ref-14]。</p>
+<p><strong>2. 计算设计冲切剪应力 <span class="math inline"><em>v</em><sub><em>E</em><em>d</em></sub></span></strong>
+* 若支座反力对控制周长存在偏心，最大剪应力需乘以放大系数 <span class="math inline"><em>β</em></span>。 * 计算公式（公式6.38）：<span class="math inline">$v_{Ed} = \beta \frac{V_{Ed}}{u_i d}$</span>
+[Ref-10, Ref-17]。</p>
+<p><strong>3. 验算最大冲切剪应力（防局部压碎）</strong>
+在柱周边或加载区域周边，设计冲切剪应力不得超过最大限值：<span class="math inline"><em>v</em><sub><em>E</em><em>d</em></sub> ≤ <em>v</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+[Ref-4, Ref-10]。</p>
+<p><strong>4. 验算是否需要冲切钢筋</strong> * <strong>若 <span class="math inline"><em>v</em><sub><em>E</em><em>d</em></sub> ≤ <em>v</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span></strong>（无冲切钢筋的板抗力）：无需配置冲切钢筋
+[Ref-4, Ref-10]。 * <strong>若 <span class="math inline"><em>v</em><sub><em>E</em><em>d</em></sub> &gt; <em>v</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span></strong>：必须配置冲切钢筋，并需向外扩展计算，找到不再需要冲切钢筋需要冲切钢筋的外围控制周长
+<span class="math inline"><em>u</em><sub><em>o</em><em>u</em><em>t</em>, <em>e</em><em>f</em></sub></span>
+[Ref-4, Ref-10, Ref-14]。</p>
+<hr />
+<h3 id="三-适用条件与注意事项提醒">三、 适用条件与注意事项提醒</h3>
+<ol type="1">
+<li><strong>国家附录（National
+Annex）参数</strong>：规范中涉及的诸多关键参数（如 <span class="math inline"><em>C</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>、<span class="math inline"><em>v</em><sub><em>m</em><em>i</em><em>n</em></sub></span>、<span class="math inline"><em>k</em><sub>1</sub></span>、<span class="math inline">cot <em>θ</em></span>
+的限值范围等）均允许各国自行规定。工程师在实际计算时，<strong>必须查阅项目所在国的国家附录</strong>以获取准确数值
+[Ref-13, Ref-14]。</li>
+<li><strong>倾斜弦杆构件</strong>：对于具有倾斜受压或受拉弦杆的变截面构件，必须计算并计入混凝土受压区剪力分量
+<span class="math inline"><em>V</em><sub><em>c</em><em>c</em><em>d</em></sub></span>
+和受拉钢筋剪力分量 <span class="math inline"><em>V</em><sub><em>t</em><em>d</em></sub></span>
+[Ref-1, Ref-6]。</li>
+<li><strong>底部加载情况</strong>：若荷载作用在截面底部附近（如牛腿或悬挂荷载），除常规抗剪钢筋外，还需配置足够的竖向钢筋将荷载直接传递至截面顶部
+[Ref-6]。</li>
+</ol>
+<h3 id="四-依据位置-2">四、 依据位置</h3>
+<ul>
+<li><strong>一般剪切验证程序</strong>：EN 1992-1-1:2004, 第6.2.1节
+(1)P~(9) [Ref-1, Ref-6]；第6.2.3节 公式(6.8) [Ref-3]。</li>
+<li><strong>冲切验证程序</strong>：EN 1992-1-1:2004, 第6.4.1节
+[Ref-8]；第6.4.3节 (1)P~(3) 及公式(6.38) [Ref-4, Ref-10, Ref-17]。</li>
+<li><strong>参数与国家附录说明</strong>：EN 1992-1-1:2004,
+第6.2.2节及6.4.4节 [Ref-13, Ref-14]。</li>
+</ul>
+<h3 id="来源-20">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 84，条款 6.2.1, (1)P: (1)P For the
+verification of the shear resistance the following symbols are defined:
+<span class="math inline">$V _ { \sf R d , c }$</span> is the design
+shear resistance of the member without shear reinforcement. <span class="math inline">$V _ { \sf R d , s }$</span> is the design value of
+the shear</li>
+<li>[2] EN1992-1-1 2004，页 84，条款 : <span class="math display"><em>V</em><sub>Rd</sub> = <em>V</em><sub>Rd, s</sub> + <em>V</em><sub>ccd</sub> + <em>V</em><sub>td</sub></span></li>
+<li>[3] EN1992-1-1_2004，页 88，条款 : <span class="math display">$$ V _
+{ \mathrm { R d , \thinspace s } } = \frac { A _ { \mathrm { s w } } } {
+s } z f _ { \mathrm { y w d } } \thinspace { \sf c o t } \theta\tag{6.8}
+$$</span></li>
+<li>[4] EN1992-1-1_2004，页 101，条款 6.4.3, (1)P: (1)P The design
+procedure for punching shear is based on checks at the face of the
+column and at the basic control perimeter <span class="math inline"><em>u</em><sub>1</sub></span> . If shear
+reinforcement is required a further perimeter <span class="math inline"><em>u</em><sub>out,</sub></span> ef (see figure</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 237，条款 : punching shear 98–106 basic
+control perimeter 98–9 design shear force 99–101 enhancement factor 102
+resistance of slabs without shear reinforcement 102–3 reinforcement
+103–6, 198 radius of gyration 111 rectangular column sections,
+design</li>
+<li>[6] EN1992-1-1 2004，页 84，条款 6.2.1, (1)P: (1)P For the
+verification of the shear resistance the following symbols are defined:
+<span class="math inline">$V _ { \sf R d , c }$</span> is the design
+shear resistance of the member without shear reinforcement. <span class="math inline">$V _ { \sf R d , s }$</span> is the design value of
+the shear</li>
+<li>[7] EN1992-1-1_2004，页 2，条款 : 4.4.1 Concrete cover 4.4.1.1
+General 4.4.1.2 Minimum cover, cmin 4.4.1.3 Allowance in design for
+tolerance 5. Structural analysis 5.1 General 5.1.1 General requirements
+5.1.2 Special requirements for foundations 5.1.3 Load cases and</li>
+<li>[8] EN1992-1-1_2004，页 97，条款 6.4.1, (1)P: (1)P The rules in this
+Section complement those given in 6.2 and cover punching shear in solid
+slabs, waffle slabs with solid areas over columns, and foundations. (2)P
+Punching shear can result from a concentrated load or reaction
+acting</li>
+</ul>
+<h2 id="单向板的设计步骤包括哪些">25. 单向板的设计步骤包括哪些</h2>
+<ul>
+<li>Excel 行号: 26</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-21">答案</h3>
+<p>基于欧洲规范 EN 1992-192-1-1 及其相关指南，单向板（One-way spanning
+slab）的设计步骤可系统归纳为结构判定、内力分析、极限状态验算及构造细部设计等核心环节。以下为可直接使用的设计步骤及核查要点：</p>
+<h3 id="结构判定与建模">1. 结构判定与建模</h3>
+<ul>
+<li><strong>单向板界定</strong>：对于主要承受均布荷载的板，若满足以下任一条件，可视为单向板进行设计
+[Ref-3]：
+<ol type="1">
+<li>具有两个自由（无支撑）且大致平行的边缘；</li>
+<li>为四边支撑的矩形板的中心部分，且长跨与短跨之比大于 2。</li>
+</ol></li>
+</ul>
+<h3 id="荷载布置与内力分析">2. 荷载布置与内力分析</h3>
+<ul>
+<li><strong>荷载组合布置</strong>：需考虑交替跨加载（设计可变荷载+永久荷载）与相邻跨加载等不同布置方式，以获取弯矩和剪力的包络图
+[Ref-22]。</li>
+<li><strong>支座弯矩简化与调整</strong>（无论采用何种分析方法均适用）
+[Ref-5], [Ref-7]：
+<ul>
+<li><strong>无转动约束支座</strong>（如墙体）：连续板的设计支座弯矩可减小
+<span class="math inline"><em>F</em><sub><em>E</em><em>d</em>, <em>s</em><em>u</em><em>p</em><em>p</em></sub><em>t</em>/8</span>（<span class="math inline"><em>F</em><sub><em>E</em><em>d</em>, <em>s</em><em>u</em><em>p</em><em>p</em></sub></span>
+为支座反力，<span class="math inline"><em>t</em></span>
+为支座宽度）。</li>
+<li><strong>整体浇筑支座</strong>：临界设计弯矩可取支座边缘处的弯矩。</li>
+<li><strong>刚性支座</strong>：支座边缘的设计弯矩不得小于假定完全固定时计算值的
+65%。</li>
+</ul></li>
+<li><strong>指南简化计算（可选）</strong>：若满足以下条件，可直接使用指南提供的弯矩和剪力系数表（如指南表3.3）进行计算，但<strong>不允许</strong>进行弯矩重分布
+[Ref-18], [Ref-23]：
+<ol type="1">
+<li>特征可变荷载不超过特征永久荷载；</li>
+<li>荷载主要为均布且跨越三个或更多跨；</li>
+<li>跨度变化不超过最长跨的 15%；</li>
+<li>端柱与板的刚度比不超过 1.0。</li>
+</ol></li>
+</ul>
+<h3 id="承载能力极限状态-uls-设计">3. 承载能力极限状态 (ULS) 设计</h3>
+<ul>
+<li><strong>受弯配筋计算</strong>：根据内力包络图计算主受力方向的受弯钢筋面积。对于脆性破坏风险较小的板，最小配筋面积
+<span class="math inline"><em>A</em><sub><em>s</em>, <em>m</em><em>i</em><em>n</em></sub></span>
+可取 ULS 验算所需面积的 1.2 倍 [Ref-4], [Ref-12]。</li>
+<li><strong>塑性分析限制</strong>：若采用塑性分析（弯矩重分布），必须验证转动能力，或满足以下<strong>免算转动能力</strong>的条件
+[Ref-6]：
+<ol type="1">
+<li>受压区高度限制：<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em> ≤ 0.25</span>（混凝土
+<span class="math inline">≤</span> C50/60）或 <span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em> ≤ 0.15</span>（混凝土
+<span class="math inline">≥</span> C55/67）；</li>
+<li>钢筋必须为 B 级或 C 级（不推荐使用 A 级）；</li>
+<li>中间支座弯矩与跨中弯矩之比在 0.5 到 2 之间。
+<em>(注：若进行显式转动能力验算，屈服铰区域的 <span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+不得超过 0.45 或 0.35 [Ref-1], [Ref-2]。)</em></li>
+</ol></li>
+</ul>
+<h3 id="正常使用极限状态-sls-验算">4. 正常使用极限状态 (SLS) 验算</h3>
+<ul>
+<li><strong>挠度控制</strong>：通常可通过限制<strong>跨高比（span/effective
+depth）</strong> 来免除详细的挠度计算。根据规范表
+7.4N，无轴压钢筋混凝土单向板的基本跨高比系数 <span class="math inline"><em>K</em></span> 为 [Ref-9]：
+<ul>
+<li>简支单向板：<span class="math inline"><em>K</em> = 1.0</span></li>
+<li>连续单向板端跨：<span class="math inline"><em>K</em> = 1.3</span></li>
+<li>连续单向板内部跨：<span class="math inline"><em>K</em> = 1.5</span>
+<em>(注：需根据实际配筋率 <span class="math inline"><em>ρ</em></span>
+查表获取具体限值，并乘以 <span class="math inline"><em>K</em></span>
+值。)</em></li>
+</ul></li>
+</ul>
+<h3 id="构造与细部设计-detailing">5. 构造与细部设计 (Detailing)</h3>
+<ul>
+<li><strong>横向分布钢筋</strong>：单向板必须提供不小于主受力钢筋面积
+<strong>20%</strong>
+的次要横向钢筋。但在支座附近若无横向弯矩，则顶部主筋无需配置横向钢筋
+[Ref-4], [Ref-12]。</li>
+<li><strong>钢筋间距限制</strong>：需符合国家附录（NDP）规定。规范推荐的最大间距
+<span class="math inline"><em>s</em><sub><em>m</em><em>a</em><em>x</em>, <em>s</em><em>l</em><em>a</em><em>b</em><em>s</em></sub></span>
+为 [Ref-4], [Ref-12]：
+<ul>
+<li>一般区域：主筋 <span class="math inline">3<em>h</em> ≤ 400
+mm</span>，次筋 <span class="math inline">$3.5h \le 450\text50\text{
+mm}$</span>（<span class="math inline"><em>h</em></span> 为板厚）；</li>
+<li>集中荷载或最大弯矩区域：主筋 <span class="math inline">2<em>h</em> ≤ 250 mm</span>，次筋 <span class="math inline">3<em>h</em> ≤ 400 mm</span>。</li>
+</ul></li>
+<li><strong>支座锚固与截断</strong> [Ref-4], [Ref-12]：
+<ul>
+<li><strong>简支板</strong>：至少一半的计算跨中钢筋应延伸至支座并按规范锚固。</li>
+<li><strong>部分固定边缘</strong>（分析中未考虑固定作用时）：顶部钢筋需能承受相邻跨最大弯矩的至少
+<strong>25%</strong>（端支座可减至
+<strong>15%</strong>），并从支座边缘延伸至少 <strong>0.2
+倍</strong>相邻跨长。</li>
+</ul></li>
+<li><strong>自由边缘</strong>：沿无支撑的自由边缘，必须配置纵向和横向的边缘钢筋（U型或闭合箍筋形式）
+[Ref-4], [Ref-12]。</li>
+</ul>
+<h3 id="防火设计-如适用">6. 防火设计 (如适用)</h3>
+<ul>
+<li><strong>单向板界定</strong>：若板不满足四边支撑条件，在防火设计中必须按单向板处理
+[Ref-8]。</li>
+<li><strong>连续板支座配筋要求</strong>：对于连续单向板，若出现以下情况之一，中间支座处必须提供至少
+<strong>0.5% <span class="math inline"><em>A</em><sub><em>c</em></sub></span></strong>
+的顶部钢筋 [Ref-8]：
+<ol type="1">
+<li>使用冷加工钢筋；</li>
+<li>端支座无固定或未按照 EN 1992-1-1 进行细部设计；</li>
+<li>荷载效应无法在横向进行分布。</li>
+</ol></li>
+<li><strong>截面尺寸与保护层</strong>：需根据目标耐火极限（如 R60,
+R90），查规范表格确定最小楼板厚度及钢筋轴线距离（保护层厚度 +
+钢筋半径），以满足承载力(R)和隔热性(I)要求 [Ref-11]。</li>
+</ul>
+<hr />
+<h3 id="工程师注意事项适用条件与国家附录">⚠️
+工程师注意事项（适用条件与国家附录）</h3>
+<ol type="1">
+<li><strong>国家附录 (NDP) 差异</strong>：钢筋最大间距限值
+[Ref-4]、塑性分析的基本允许转动角 <span class="math inline"><em>θ</em><sub><em>p</em><em>l</em>, <em>d</em></sub></span>
+[Ref-1]
+等参数，各国国家附录可能采用与规范推荐值不同的数值，设计时必须查阅项目所在国的
+National Annex。</li>
+<li><strong>支撑构件设计</strong>：在评估支撑单向连续板的构件（如梁、墙）上的荷载时，可假定支座无转动约束；但在设计支撑构件（如柱子）本身时，必须考虑板连续性带来的弯矩传递效应
+[Ref-5], [Ref-7]。</li>
+<li><strong>指南参考说明</strong>：上述步骤 2 中提及的“指南表 3.3
+弯矩系数”属于非矛盾性补充信息（指南
+DG_EN1992-1-1），可大幅简化手算过程，但前提是必须严格满足其 4
+项前置假设条件 [Ref-18], [Ref-23]。</li>
+</ol>
+<h3 id="来源-21">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 62，条款 5.6.3: (1) The simplified procedure
+for continuous beams and continuous one way spanning slabs is based on
+the rotation capacity of beam/slab zones over a length of approximately
+1,2 times the depth of section. It is assumed that these zones</li>
+<li>[2] EN1992-1-1 2004，页 62，条款 5.6.3: (1) The simplified procedure
+for continuous beams and continuous one way spanning slabs is based on
+the rotation capacity of beam/slab zones over a length of approximately
+1,2 times the depth of section. It is assumed that these zones</li>
+<li>[3] EN1992-1-1 2004，页 57，条款 5.3.1, (1)P: (1)P The elements of a
+structure are classified, by consideration of their nature and function,
+as beams, columns, slabs, walls, plates, arches, shells etc. Rules are
+provided for the analysis of the commoner of these elements and of</li>
+<li>[4] EN1992-1-1_2004，页 158，条款 9.3.1.1, 9.3.1.2: (1) For the
+minimum and the maximum steel percentages in the main direction 9.2.1.1
+(1) and (3) apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs
+where the risk of brittle failure is small, $A _ { , \mathsf { m i
+n</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 61，条款 : For the design of beams, the
+bending moment coefficients given in Fig. 3.20 or Table 3.3 may be used,
+noting the conditions to be complied with, which are discussed in
+Section 3.8.1. EN 1992-1-1 permits the following simplifications</li>
+<li>[6] EN1992-1-1_2004，页 61，条款 5.6.1, (1)P: (1)P Methods based on
+plastic analysis shall only be used for the check at ULS. (2)P The
+ductility of the critical sections shall be sufficient for the envisaged
+mechanism to be formed. (3)P The plastic analysis should be based either
+on</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 61，条款 : EN 1992-1-1 permits the
+following simplifications regardless of the method of analysis used: (1)
+At a support assumed to offer no restraint to rotation (e.g. over
+walls), a beam or a slab which is continuous over it may be designed for
+a</li>
+<li>[8] DG_EN1992-1-1__-1-2，页 232，条款 : The data for two-way
+spanning slabs are applicable only to slabs supported on all four edges.
+If this is not met, the slab should be treated as one-way spanning. The
+thickness of the slab for continuous slabs is the same as for
+simply</li>
+</ul>
+<h2 id="单向板构造配筋有什么规定">26. 单向板构造配筋有什么规定</h2>
+<ul>
+<li>Excel 行号: 27</li>
+<li>层级: Level 3 / 构造规定与抗震补充层</li>
+</ul>
+<h3 id="答案-22">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1（Eurocode 2）的规定，单向实心板（one-way
+spanning solid slabs）的构造配筋（detailing
+reinforcement）在受弯、支座锚固、边缘构造及抗剪等方面有明确的要求。以下为整合后的具体规定：</p>
+<h3 id="受弯配筋与钢筋间距">1. 受弯配筋与钢筋间距</h3>
+<ul>
+<li><strong>主方向配筋率</strong>：主方向的最小和最大配筋率需符合一般受弯构件的规定。但对于脆性破坏风险较小的板，最小配筋面积
+<span class="math inline"><em>A</em><sub><em>s</em>, <em>m</em><em>i</em><em>n</em></sub></span>
+可取承载能力极限状态（ULS）计算所需面积的 1.2 倍 [Ref-1]。</li>
+<li><strong>横向分布筋（次要配筋）</strong>：单向板必须配置次要横向配筋，其截面积不应小于主筋面积的
+<strong>20%</strong>
+[Ref-1]。但在支座附近区域，若不存在横向弯矩，则主顶部钢筋无需配置横向分布筋
+[Ref-1]。</li>
+<li><strong>钢筋最大间距</strong>：钢筋间距不应超过 <span class="math inline"><em>s</em><sub><em>m</em><em>a</em><em>x</em>, <em>s</em><em>l</em><em>a</em><em>b</em><em>s</em></sub></span>，规范推荐值如下（<span class="math inline"><em>h</em></span> <span class="math inline"><em>h</em></span> 为板总厚度）[Ref-1]：
+<ul>
+<li><strong>一般区域</strong>：主筋间距 <span class="math inline"> ≤ 3<em>h</em></span> 且 <span class="math inline"> ≤ 400 mm</span>；次要筋间距 <span class="math inline"> ≤ 3.5<em>h</em></span> 且 <span class="math inline"> ≤ 450 mm</span>。</li>
+<li><strong>集中荷载或最大弯矩区域</strong>：主筋间距 <span class="math inline"> ≤ 2<em>h</em></span> 且 <span class="math inline"> ≤ 250 mm</span>；次要筋间距 <span class="math inline"> ≤ 3<em>h</em></span> 且 <span class="math inline"> ≤ 400 mm</span>。</li>
+</ul></li>
+</ul>
+<h3 id="支座与边缘构造配筋">2. 支座与边缘构造配筋</h3>
+<ul>
+<li><strong>简支支座锚固</strong>：在简支板中，至少
+<strong>一半</strong> 的跨中计算受拉钢筋应延伸至支座，并按规范 8.4.4
+节的要求进行锚固 [Ref-1]。</li>
+<li><strong>未考虑固结的支座（部分固结）</strong>：若板边缘存在部分固结但在结构分析中未予考虑，顶部构造钢筋应能承受相邻跨最大弯矩的至少
+<strong>25%</strong>（在端支座处该比例可降至
+<strong>15%</strong>）[Ref-1]。该钢筋应从支座边缘向跨内延伸至少
+<strong>0.2 倍</strong>
+相邻跨长，在内部支座处应连续，在端支座处应可靠锚固 [Ref-1]。</li>
+<li><strong>板角防翘起</strong>：若支座处的构造布置限制了板角的翘起（lifting），应配置合适的防翘起钢筋
+[Ref-1]。</li>
+<li><strong>自由边缘配筋</strong>：沿无支撑的自由边缘，板通常应配置纵向和横向边缘钢筋（板的正常受力配筋可兼作边缘配筋）[Ref-1]。</li>
+</ul>
+<h3 id="抗剪配筋构造要求">3. 抗剪配筋构造要求</h3>
+<ul>
+<li><strong>最小厚度限制</strong>：若板需要配置抗剪钢筋，板的总厚度至少应为
+<strong>200 mm</strong> [Ref-3]。</li>
+<li><strong>抗剪钢筋形式</strong>：当剪力设计值 <span class="math inline">|<em>V</em><sub><em>E</em><em>d</em></sub>| ≤ 1/3<em>V</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+时，抗剪钢筋可全部采用弯起钢筋或抗剪钢筋组件 [Ref-3]。</li>
+<li><strong>抗剪钢筋间距</strong>：抗剪钢筋（如箍筋）的最大横向间距不应超过
+<strong>1.5d</strong>（<span class="math inline"><em>d</em></span>
+为有效高度）[Ref-3]。</li>
+</ul>
+<h3 id="塑性分析附加要求如适用">4. 塑性分析附加要求（如适用）</h3>
+<ul>
+<li>若连续单向板采用塑性分析（考虑塑性铰转动能力），在塑性铰区域，受压区高度与有效高度之比
+<span class="math inline"><em>x</em><sub><em>u</em></sub>/<em>d</em></span>
+必须满足：混凝土强度等级 <span class="math inline">≤</span> C50/60
+时不超过 <strong>0.45</strong>；<span class="math inline">≥</span>
+C55/67 时不超过 <strong>0.35</strong> [Ref-9]。</li>
+</ul>
+<hr />
+<h3 id="适用条件与注意事项-1">⚠️ 适用条件与注意事项</h3>
+<ol type="1">
+<li><strong>适用范围</strong>：上述第 9.3
+节的规定适用于单向和双向实心板，前提是板的宽度 <span class="math inline"><em>b</em></span> 和有效跨度 <span class="math inline"><em>l</em><sub><em>e</em><em>f</em><em>f</em></sub></span>
+均不小于 <span class="math inline">5<em>h</em></span> [Ref-10]。</li>
+<li><strong>国家附录（National Annex）差异</strong>：钢筋最大间距 <span class="math inline"><em>s</em><sub><em>m</em><em>a</em><em>x</em>, <em>s</em><em>l</em><em>a</em><em>b</em><em>s</em></sub></span>
+的具体限值可能因国家而异，<strong>必须查阅项目所在国的国家附录</strong>以确认是否采用了规范推荐值或进行了修改
+[Ref-1]。</li>
+<li><strong>预制叠合板</strong>：对于带有叠合层（topping）的预制板系统，弯曲和横向分布配筋可完全布置在叠合层内，但构造细节必须与结构分析模型（如假定双向受力）保持一致
+[Ref-5]。</li>
+</ol>
+<h3 id="依据位置-15">依据位置</h3>
+<ul>
+<li>[Ref-1] EN 1992-1-1:2004, 章节 9.3.1.1, 9.3.1.2, 9.3.1.3, 9.3.1.4
+(页码 158-159)</li>
+<li>[Ref-3] EN 1992-1-1:2004, 章节 9.3.2 (页码 159-160)</li>
+<li>[Ref-5] EN 1992-1-1:2004, 章节 10.9.3 (页码 175-177)</li>
+<li>[Ref-9] EN 1992-1-1:2004, 章节 5.6.3 (页码 62-63)</li>
+<li>[Ref-10] EN 1992-1-1:2004, 章节 9.3 (页码3 (页码 158)</li>
+</ul>
+<h3 id="来源-22">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 158，条款 9.3.1.1, 9.3.1.2: (1) For the
+minimum and the maximum steel percentages in the main direction 9.2.1.1
+(1) and (3) apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs
+where the risk of brittle failure is small, $A _ { , \mathsf { m i
+n</li>
+<li>[2] DG_EN1992-1-1__-1-2，页 209，条款 : Concentration of
+reinforcement over the columns will generally be required to meet the
+serviceability requirements. In the absence of rigorous calculations,
+top reinforcement with an area of 0.5At, should be placed in a width
+equal to the</li>
+<li>[3] EN1992-1-1_2004，页 159，条款 9.3.2: (1) A slab in which shear
+reinforcement is provided should have a depth of at least 200 mm. (2) In
+detailing the shear reinforcement, the minimum value and definition of
+reinforcement ratio in 9.2.2 apply, unless modified by the
+following.</li>
+<li>[4] EN1992-1-1_2004，页 158，条款 9.3.1.1, 9.3.1.2: (1) For the
+minimum and the maximum steel percentages in the main direction 9.2.1.1
+(1) and (3) apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs
+where the risk of brittle failure is small, $A _ { , \mathsf { m i
+n</li>
+<li>[5] EN1992-1-1_2004，页 175，条款 10.9.3, (1)P: (9) Transverse
+reinforcement for bending and other action effects may lie entirely
+within the topping. The detailing should be consistent with the
+structural model, e.g. if two-way spanning is assumed. (10) Webs or ribs
+in isolated slab</li>
+<li>[6] EN1992-1-1 2004，页 158，条款 9.3.1.1: (1) For the minimum and
+the maximum steel percentages in the main direction 9.2.1.1 (1) and (3)
+apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs where the
+risk of brittle failure is small, $A _ { , \mathsf { m i n</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 230，条款 : Section 5 of EN 1992-1-2
+sets out minimum dimensions and axis distances (cover plus half the
+diameter of the reinforcement bar) for different types of structural
+element for fire exposure periods of 30, 60, 90, 120, 180 and 240 min.
+Some</li>
+<li>[8] DG_EN1992-1-1__-1-2，页 232，条款 : The data for two-way
+spanning slabs are applicable only to slabs supported on all four edges.
+If this is not met, the slab should be treated as one-way spanning. The
+thickness of the slab for continuous slabs is the same as for
+simply</li>
+</ul>
+<h2 id="单向板分布筋的配置有什么规定">27.
+单向板分布筋的配置有什么规定</h2>
+<ul>
+<li>Excel 行号: 28</li>
+<li>层级: Level 3 / 构造规定与抗震补充层</li>
+</ul>
+<h3 id="答案-23">答案</h3>
+<p>根据欧洲规范 EN
+1992-1-1，单向板分布筋（次要横向钢筋）的配置主要受配筋量比例、最大间距以及支座区域受力状态的限制。</p>
+<h3 id="依据与说明-7">依据与说明</h3>
+<ol type="1">
+<li><p><strong>配筋量要求</strong>
+单向板必须配置次要横向钢筋（分布筋），其截面积不应小于主要受力钢筋（主筋）截面积的
+20% [Ref-1]。</p></li>
+<li><p><strong>支座区域的豁免条件</strong>
+在靠近支座的区域，如果经分析确认不存在横向弯矩，则不需要为顶部的主要受力钢筋配置横向分布筋
+[Ref-1]。</p></li>
+<li><p><strong>最大间距限制</strong> 分布筋的间距不应超过规定的最大间距
+<span class="math inline"><em>s</em><sub>max, slabs</sub></span>
+[Ref-1]。规范给出的推荐值如下：</p>
+<ul>
+<li><strong>一般区域</strong>：分布筋的最大间距为 <span class="math inline">3.5<em>h</em></span> 且不超过 <span class="math inline">450 mm</span>（其中 <span class="math inline"><em>h</em></span> 为板的总厚度） [Ref-1]。</li>
+<li><strong>集中荷载区域或最大弯矩区域</strong>：分布筋的最大间距要求更严，为
+<span class="math inline">3<em>h</em></span> 且不超过 <span class="math inline">400 mm</span> [Ref-1]。</li>
+</ul></li>
+</ol>
+<h3 id="注意事项-1">注意事项</h3>
+<ul>
+<li><strong>国家附录（National Annex）差异</strong>：规范中关于最大间距
+<span class="math inline"><em>s</em><sub>max, slabs</sub></span>
+的数值为推荐值。具体工程项目所在国家的国家附录可能会对该限值进行修改，设计时必须核查并采用当地国家附录中规定的值
+[Ref-1]。</li>
+<li><strong>主筋规定的关联影响</strong>：主方向钢筋的最小和最大配筋率需满足规范第
+9.2.1.1 节的规定 [Ref-1]。由于分布筋面积是按主筋面积的 20%
+计算，因此主筋的计算结果将直接决定分布筋的绝对配置量。</li>
+</ul>
+<h3 id="依据位置-16">依据位置</h3>
+<ul>
+<li>《EN 1992-1-1:2004》第 9.3.1.1 节第 (2)、(3) 款，第 158-159 页
+[Ref-1]。</li>
+</ul>
+<h3 id="来源-23">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 158，条款 9.3.1.1: (1) For the minimum and
+the maximum steel percentages in the main direction 9.2.1.1 (1) and (3)
+apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs where the
+risk of brittle failure is small, $A _ { , \mathsf { m i n</li>
+<li>[2] EN1992-1-1_2004，页 158，条款 9.3.1.1, 9.3.1.2: (1) For the
+minimum and the maximum steel percentages in the main direction 9.2.1.1
+(1) and (3) apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs
+where the risk of brittle failure is small, $A _ { , \mathsf { m i
+n</li>
+<li>[3] EN1992-1-1 2004，页 158，条款 9.3.1.1: (1) For the minimum and
+the maximum steel percentages in the main direction 9.2.1.1 (1) and (3)
+apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs where the
+risk of brittle failure is small, $A _ { , \mathsf { m i n</li>
+<li>[4] EN1992-1-1_2004，页 158，条款 9.3.1.1, 9.3.1.2: (1) For the
+minimum and the maximum steel percentages in the main direction 9.2.1.1
+(1) and (3) apply. Note: In addition to Note 2 of 9.2.1.1 (1), for slabs
+where the risk of brittle failure is small, $A _ { , \mathsf { m i
+n</li>
+<li>[5] EN1992-1-1 2004，页 62，条款 5.6.3: (1) The simplified procedure
+for continuous beams and continuous one way spanning slabs is based on
+the rotation capacity of beam/slab zones over a length of approximately
+1,2 times the depth of section. It is assumed that these zones</li>
+<li>[6] EN1992-1-1 2004，页 158，条款 9.3: (1) This section applies to
+one-way and two-way solid slabs for which <span class="math inline"><em>b</em></span> and <span class="math inline"><em>I</em><sub>eff</sub></span> are not less than
+<span class="math inline">5<em>h</em></span> (see 5.3.1).</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 232，条款 : The data for two-way
+spanning slabs are applicable only to slabs supported on all four edges.
+If this is not met, the slab should be treated as one-way spanning. The
+thickness of the slab for continuous slabs is the same as for
+simply</li>
+<li>[8] DG_EN1992-1-1_<em>-1-2，页 223，条款 : Guidance is provided in
+EN 1992-1-1 for estimating the transmission lengths in pretensioned
+members. A distinction is drawn between the transmission length over
+which the prestressing force is fully transmitted to the concrete $l
+</em> {</li>
+</ul>
+<h2 id="构件在哪些情况下无需设计抗剪力钢筋">28.
+构件在哪些情况下无需设计抗剪力钢筋</h2>
+<ul>
+<li>Excel 行号: 29</li>
+<li>层级: Level 5 / 易错点与边界条件测试层</li>
+</ul>
+<h3 id="答案-24">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+的规定，构件“无需设计抗剪钢筋”可分为<strong>无需计算抗剪钢筋</strong>和<strong>可完全省略最小抗剪钢筋</strong>两个层面。具体适用情况如下：</p>
+<h3 id="一-无需计算抗剪钢筋的情况">一、 无需计算抗剪钢筋的情况</h3>
+<ol type="1">
+<li><strong>一般构件区域</strong>：在构件的某些区域，如果由外部荷载和预应力产生的设计剪力
+<span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub></span>
+小于或等于无抗剪钢筋构件的设计抗剪承载力 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>，则该区域无需计算抗剪钢筋
+[Ref-1] [Ref-4] [Ref-5]。</li>
+<li><strong>T型截面翼缘与腹板交界处</strong>腹板交界处**：对于翼缘与腹板交界处的纵向剪力，如果设计纵向剪应力
+<span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub></span>
+小于或等于 <span class="math inline"><em>k</em><em>f</em><sub><em>c</em><em>t</em><em>d</em></sub></span>，则不需要提供除抗弯钢筋之外的额外抗剪钢筋
+[Ref-4]。</li>
+</ol>
+<h3 id="二-可完全省略最小抗剪钢筋的情况">二、
+可完全省略最小抗剪钢筋的情况</h3>
+<p>原则上，当计算表明不需要抗剪钢筋时，仍应根据规范第 9.2.2
+节配置最小抗剪钢筋 [Ref-1] [Ref-4]
+[Ref-5]。但在以下特定情况下，<strong>可完全省略最小抗剪钢筋</strong>
+[Ref-1] [Ref-4] [Ref-5]： 1.
+<strong>具备荷载横向重分布能力的板类构件</strong>：如实心板、肋形板或空心板。
+2.
+<strong>次要构件</strong>：对结构整体抗力和稳定性没有显著贡献的构件（例如跨度
+<span class="math inline"> ≤ 2 m</span> 的过梁）。</p>
+<h3 id="三-特殊材料与验算场景的补充规定">三、
+特殊材料与验算场景的补充规定</h3>
+<ol type="1">
+<li><strong>轻骨料混凝土构件</strong>：对于轻骨料混凝土，无需设计抗剪钢筋时的抗剪承载力
+<span class="math inline"><em>V</em><sub><em>l</em><em>R</em><em>d</em>, <em>c</em></sub></span>
+需采用专门的公式（Expression
+11.6.2）进行计算，其计算逻辑与普通混凝土类似，但参数取值不同 [Ref-9]
+[Ref-16]。</li>
+<li><strong>疲劳验算</strong>：对于在承载能力极限状态（ULS）下无需设计抗剪钢筋的构件，在进行疲劳验算时，若频繁荷载组合下的最大和最小设计剪力（<span class="math inline"><em>V</em><sub><em>E</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+和 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em>, <em>m</em><em>i</em><em>n</em></sub></span>）满足规范
+6.8.7
+节的限制条件，可假定混凝土自身足以抵抗剪切引起的疲劳效应，无需额外配置抗剪钢筋
+[Ref-6]。</li>
+</ol>
+<h3 id="四-国家附录national-annex及前提提醒">四、 国家附录（National
+Annex）及前提提醒</h3>
+<p>在实际工程计算中，以下关键参数的取值必须核查项目所在国的<strong>国家附录（National
+Annex）</strong>，不得直接默认使用推荐值： - 计算普通混凝土 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>
+时的参数 <span class="math inline"><em>C</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>、<span class="math inline"><em>v</em><sub><em>m</em><em>i</em><em>n</em></sub></span>
+和 <span class="math inline"><em>k</em><sub>1</sub></span> [Ref-4]。 -
+计算轻骨料混凝土 <span class="math inline"><em>V</em><sub><em>l</em><em>R</em><em>d</em>, <em>c</em></sub></span>
+时的参数 <span class="math inline"><em>C</em><sub><em>l</em><em>R</em><em>d</em>, <em>c</em></sub></span>、<span class="math inline"><em>v</em><sub><em>l</em>, <em>m</em><em>i</em><em>n</em></sub></span>
+和 <span class="math inline"><em>k</em><sub>1</sub></span> [Ref-9]。 -
+T型截面翼缘纵向剪力判定条件 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> ≤ <em>k</em><em>f</em><sub><em>c</em><em>t</em><em>d</em></sub></span>
+中的参数 <span class="math inline"><em>k</em></span>（规范推荐值为 <span class="math inline">0.4</span>） [Ref-4]。</p>
+<table style="width:6%;">
+<colgroup>
+<col style="width: 5%" />
+</colgroup>
+<tbody>
+<tr>
+<td><strong>依据位置：</strong> - [Ref-1] EN 1992-1-1:2004, 6.2.1 (3),
+(4), 页码 84-85 - [Ref-4] EN 1992-1-1:2004, 6.2.1 (3), (4) 及 6.2.2,
+6.2.4 (6), 页码 84-92 - [Ref-5] EN 1992-1-1:2004, 6.2.1 (3), (4), 页码
+84-85 - [Ref-6] EN 1992-1-1:2004, 6.8.7 (4), 页码 116-117 - [Ref-9] EN
+1992-1-1:2004, 11.6.1 (1), 页码 189-190 - [Ref-16] EN 1992-1-1:2004,
+11.6.1 (Expression 11.6.2), 页码 189-190</td>
+</tr>
+<tr>
+<td>### 来源</td>
+</tr>
+<tr>
+<td>- [1] EN1992-1-1_2004，页 84，条款 6.2.1, (1)P: (1)P For the
+verification of the shear resistance the following symbols are defined:
+<span class="math inline">$V _ { \sf R d , c }$</span> is the design
+shear resistance of the member without shear reinforcement. <span class="math inline">$V _ { \sf R d , s }$</span> is the design value of
+the shear - [2] EN1992-1-1 2004，页 84，条款 : <span class="math display"><em>V</em><sub>Rd</sub> = <em>V</em><sub>Rd, s</sub> + <em>V</em><sub>ccd</sub> + <em>V</em><sub>td</sub></span>
+- [3] EN1992-1-1_2004，页 88，条款 : <span class="math display">$$ V _ {
+\mathrm { R d , \thinspace s } } = \frac { A _ { \mathrm { s w } } } { s
+} z f _ { \mathrm { y w d } } \thinspace { \sf c o t } \theta\tag{6.8}
+$$</span> - [4] EN1992-1-1_2004，页 84，条款 6.2.1, (1)P: (1)P For the
+verification of the shear resistance the following symbols are defined:
+<span class="math inline">$V _ { \sf R d , c }$</span> is the design
+shear resistance of the member without shear reinforcement. <span class="math inline">$V _ { \sf R d , s }$</span> is the design value of
+the shear - [5] EN1992-1-1 2004，页 84，条款 6.2.1, (1)P: (1)P For the
+verification of the shear resistance the following symbols are defined:
+<span class="math inline">$V _ { \sf R d , c }$</span> is the design
+shear resistance of the member without shear reinforcement. <span class="math inline">$V _ { \sf R d , s }$</span> is the design value of
+the shear - [6] EN1992-1-1_2004，页 116，条款 6.8.7: (3) Expression
+(6.77) also applies to the compression struts of members subjected to
+shear. In this case the concrete strength <span class="math inline"><strong>f</strong><sub>cd, fat</sub></span> should
+be reduced by the strength reduction factor (see 6.2.2 (6)). - [7]
+EN1992-1-1 2004，页 159，条款 9.3.2: (1) A slab in which shear
+reinforcement is provided should have a depth of at least <span class="math inline">200 mm</span> . (2) In detailing the shear
+reinforcement, the minimum value and definition of reinforcement ratio
+in 9.2.2 apply, unless - [8] DG_EN1992-1-1__-1-2，页 97，条款 : This
+area is probably of limited importance for beams where some shear
+reinforcement will always be provided but is of major importance for
+slabs where it is often very inconvenient to provide shear
+reinforcement. It is of particular</td>
+</tr>
+<tr>
+<td>## 29. 需要设计剪力筋的构件有什么特征</td>
+</tr>
+<tr>
+<td>- Excel 行号: 30 - 层级: Level 4 / 复杂场景与多参数耦合层</td>
+</tr>
+<tr>
+<td>### 答案</td>
+</tr>
+<tr>
+<td>根据欧洲规范 EN 1992-1-1
+的规定，需要设计（配置）剪力筋的构件主要根据其<strong>受力状态</strong>和<strong>构件类型</strong>表现出以下特征。具体可分为“必须通过计算配置”、“仅需构造配置”以及“冲切特殊配置”三种情况：</td>
+</tr>
+<tr>
+<td>### 1. 必须通过计算配置剪力筋的构件（计算控制） *
+<strong>力学特征</strong>：在构件的特定区域内，由外部荷载和预应力（粘结或非粘结）产生的剪力设计值
+<span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub></span>
+<strong>大于</strong> 无剪力筋构件的混凝土抗剪承载力设计值 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>（即满足
+<span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> &gt; <em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>）[Ref-1,
+Ref-10, Ref-15]。 *
+<strong>设计要求</strong>：必须提供足够的计算剪力筋，使得筋，使得该区域的抗剪承载力满足
+<span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> ≤ <em>V</em><sub><em>R</em><em>d</em></sub></span>
+[Ref-1, Ref-10,
+Ref-15]。同时，构件任何部位的总剪力（扣除翼缘贡献后）不得超过由混凝土受压腹杆压碎控制的极限抗剪承载力上限
+<span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+[Ref-15]。</td>
+</tr>
+<tr>
+<td>### 2. 仅需配置最小剪力筋的构件（构造控制） *
+<strong>力学特征</strong>：在 <span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> ≤ <em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>
+的区域，理论上混凝土自身已足以抵抗剪力，不需要通过计算配置剪力筋 [Ref-1,
+Ref-10, Ref-15]。 *
+<strong>设计要求</strong>：除下文提到的“豁免构件”外，此类构件（如常规的混凝土梁）<strong>仍必须按照构造要求配置最小剪力筋</strong>
+[Ref-1, Ref-10, Ref-15]。最小剪力筋需满足规范第 9.2.2
+节的构造规定，例如：箍筋与构件纵轴的夹角应在 <span class="math inline">45<sup>∘</sup></span> 到 <span class="math inline">90<sup>∘</sup></span>
+之间，且至少有一定比例（推荐值为
+50%）必须为包裹纵向受拉钢筋和受压区的封闭式箍筋 [Ref-17]。</td>
+</tr>
+<tr>
+<td>### 3. 受冲切作用的板类构件（冲切控制） *
+<strong>力学特征</strong>：对于平板（Flat
+slabs）或基础等承受集中荷载或柱反力的构件，当控制周长上的冲切剪力设计值超过混凝土的抗冲切承载力时
+[Ref-13, Ref-20]。 *
+<strong>设计要求</strong>：需要配置冲切剪力筋（如抗冲切箍筋或弯起钢筋）。冲切剪力筋应布置在加载区域（或柱面）与不需要剪力筋的外侧控制周长之间，至少布置两圈，且第一圈剪力筋距离加载面或柱面的距离不得超过
+<span class="math inline"><em>d</em>/2</span>（<span class="math inline"><em>d</em></span> 为有效高度）[Ref-13,
+Ref-20]。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="补充可豁免配置剪力筋的构件特征无需设计">💡
+补充：可豁免配置剪力筋的构件特征（无需设计）</h3>
+<p>规范明确指出，即使在计算不需要剪力筋（<span class="math inline"><em>V</em><sub><em>E</em><em>d</em></sub> ≤ <em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>）的情况下，以下两类构件也可以<strong>完全省略</strong>最小剪力筋
+[Ref-1, Ref-10, Ref-15]： 1.
+<strong>能够进行横向荷载重分布的板类构件</strong>：如实心板、肋形板或空心板。
+2.
+<strong>次要构件</strong>：对结构整体抗力和稳定性没有显著贡献的构件（例如跨度
+<span class="math inline"> ≤ 2 m</span> 的过梁）。</p>
+<h3 id="工程师注意事项国家附录限制">⚠️
+工程师注意事项（国家附录限制）</h3>
+<ul>
+<li><strong>参数取值</strong>：计算 <span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>
+时的关键参数（如 <span class="math inline"><em>C</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>、<span class="math inline"><em>v</em><sub><em>m</em><em>i</em><em>n</em></sub></span>、<span class="math inline"><em>k</em><sub>1</sub></span>）以及最小剪力筋配筋率下限
+<span class="math inline"><em>ρ</em><sub><em>w</em>, <em>m</em><em>i</em><em>n</em></sub></span>
+的具体数值，需查阅项目所在国的<strong>国家附录（National
+Annex）</strong>，规范仅提供了推荐值 [Ref-1, Ref-17]。</li>
+<li>** strut 角度限制**：在计算配置剪力筋时，混凝土受压腹杆倾角 <span class="math inline"><em>θ</em></span> 的余切值 <span class="math inline">cot <em>θ</em></span> 受到限制（规范推荐限制为 <span class="math inline">1 ≤ cot <em>θ</em> ≤ 2.5</span>），具体限值同样需以国家附录为准
+[Ref-2, Ref-11, Ref-16]。</li>
+</ul>
+<h3 id="来源-24">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 84，条款 6.2.1, (1)P: (1)P For the
+verification of the shear resistance the following symbols are defined:
+<span class="math inline">$V _ { \sf R d , c }$</span> is the design
+shear resistance of the member without shear reinforcement. <span class="math inline">$V _ { \sf R d , s }$</span> is the design value of
+the shear</li>
+<li>[2] EN1992-1-1_2004，页 88，条款 : <span class="math display">1 ≤ cot <em>θ</em> ≤ 2, 5</span></li>
+<li>[3] EN1992-1-1_2004，页 85，条款 : <span class="math display"><em>V</em><sub>Rd, c</sub> = [<em>C</em><sub>Rd, c</sub><em>k</em>(100 <em>ρ</em><sub>1</sub> <em>f</em><sub>ck</sub>)<sup>1/3</sup> + <em>k</em><sub>1</sub> <em>σ</em><sub>cp</sub>] <em>b</em><sub>w</sub><em>d</em></span></li>
+<li>[4] EN1992-1-1_2004，页 85，条款 : <span class="math display">$$ k =
+1 + \sqrt { \frac { 2 0 0 } { d } } \leq 2 , 0 \mathrm { ~ w i t h ~ } d
+\mathrm { ~ i n ~ m m } $$</span></li>
+<li>[5] EN1992-1-1_2004，页 85，条款 : <span class="math display"><em>V</em><sub>Rd, c</sub> = (<em>V</em><sub>min</sub> + <em>k</em><sub>1</sub><em>σ</em><sub>cp</sub>)<em>b</em><sub>w</sub><em>d</em></span></li>
+<li>[6] EN1992-1-1_2004，页 88，条款 : <span class="math display"><em>V</em><sub>Rd, 𝓂ax</sub> = <em>α</em><sub>cw</sub><em>b</em><sub>w</sub><em>z</em> <em>ν</em><sub>1</sub> <em>f</em><sub>cd</sub>/(cot<em>θ</em> + tan<em>θ</em>)</span></li>
+<li>[7] EN1992-1-1_2004，页 91，条款 : <span class="math display"><em>V</em><sub>Ed</sub>= <em>Δ</em><em>F</em><sub>d</sub>/(<em>h</em><sub>f</sub> ⋅ <em>Δ</em><em>x</em>)</span></li>
+<li>[8] EN1992-1-1_2004，页 88，条款 : <span class="math display"><em>ν</em><sub>1</sub>  = 0, 6 for <em>f</em><sub>ck</sub> ≤ 60 MPa</span></li>
+</ul>
+<h2 id="结构抗扭转设计程序是怎样的">30. 结构抗扭转设计程序是怎样的</h2>
+<ul>
+<li>Excel 行号: 31</li>
+<li>层级: Level 2 / 构件极限状态计算层</li>
+</ul>
+<h3 id="答案-25">答案</h3>
+<p>根据欧洲规范 EN 1992-1-1
+及其配套设计指南，混凝土结构抗扭转设计的程序可系统地划分为扭转类型识别、截面建模、承载力验算与配筋计算等步骤。以下是可供工程师直接使用的设计程序说明：</p>
+<h3 id="一-扭转类型识别与设计前提">一、 扭转类型识别与设计前提</h3>
+<p>在开始计算前，必须首先识别扭转的性质，以决定设计的深度： 1.
+<strong>平衡扭转（Equilibrium
+torsion）</strong>：当结构的静力平衡直接依赖于构件的抗扭承载力时（例如悬挑雨篷的边缘梁），必须进行涵盖承载能力极限状态（ULS）和正常使用极限状态（SLS）的完整抗扭设计
+[Ref-5], [Ref-6], [Ref-9]。 2. <strong>协调扭转（Compatibility
+torsion）</strong>：在超静定结构中，若扭转仅由变形协调引起，且结构稳定性不依赖抗扭承载力（例如单侧有梁板框架的边缘梁），通常在
+ULS
+下无需进行抗扭承载力计算。但必须配置规范规定的最小抗扭钢筋（箍筋和纵筋）以防止过度开裂
+[Ref-5], [Ref-6], [Ref-9]。</p>
+<h3 id="二-截面建模与扭矩分配">二、 截面建模与扭矩分配</h3>
+<ol type="1">
+<li><strong>等效薄壁截面</strong>：截面抗扭承载力基于薄壁闭合截面计算（通过闭合剪流满足平衡），实心截面可等效为薄壁截面
+[Ref-5], [Ref-6]。</li>
+<li><strong>复杂截面划分</strong>：复杂形状（如 T
+形截面）可划分为一系列子截面，每个子截面等效为薄壁截面，总抗扭承载力为各子截面承载力之和
+[Ref-5], [Ref-6]。</li>
+<li><strong>扭矩分配</strong>：作用扭矩在各子截面上的分配应与其未开裂抗扭刚度成正比
+[Ref-5], [Ref-6]。</li>
+<li><strong>翘曲扭转</strong>：对于闭合薄壁和实心截面，通常可忽略翘曲扭转；对于开口薄壁构件，可能需要考虑翘曲扭转，并按弯曲、轴向力和剪切的设计规则进行计算
+[Ref-13]。</li>
+</ol>
+<h3 id="三-抗扭设计计算步骤uls">三、 抗扭设计计算步骤（ULS）</h3>
+<h4 id="步骤-1确定等效截面几何参数">步骤 1：确定等效截面几何参数</h4>
+<ul>
+<li><strong>等效壁厚 <span class="math inline"><em>t</em><sub><em>e</em><em>f</em>, <em>i</em></sub></span></strong>：取
+<span class="math inline"><em>A</em>/<em>u</em></span>（<span class="math inline"><em>A</em></span> 为外轮廓总面积，<span class="math inline"><em>u</em></span>
+为外轮廓周长），但不应小于纵向钢筋中心到边缘距离的两倍；对于空心截面，等效壁厚不应大于实际壁厚
+[Ref-5]。</li>
+<li><strong><span class="math inline"><em>A</em><sub><em>k</em></sub></span></strong>：连接墙中心线包围的面积（包括内部空心部分）
+[Ref-5]。</li>
+<li><strong><span class="math inline"><em>u</em><sub><em>k</em></sub></span></strong>：面积
+<span class="math inline"><em>A</em><sub><em>k</em></sub></span> 的周长
+[Ref-5]。</li>
+</ul>
+<h4 id="步骤-2验算截面尺寸限制混凝土压杆承载力">步骤
+2：验算截面尺寸限制（混凝土压杆承载力）</h4>
+<ul>
+<li>受扭和受剪构件的最大承载力受混凝土压杆抗压能力限制 [Ref-1]。</li>
+<li>需满足规范规定的剪扭组合截面限制条件，确保设计效应不超过包含 <span class="math inline"><em>T</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>（设计抗扭承载力）和
+<span class="math inline"><em>V</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>（最大设计抗剪承载力）的组合上限
+[Ref-1]。</li>
+<li>选择混凝土压杆倾角 <span class="math inline"><em>θ</em></span>（<span class="math inline">cot <em>θ</em></span> 通常限制在 1.0 到 2.5
+之间），使得设计扭矩 <span class="math inline"><em>T</em><sub><em>E</em><em>d</em></sub></span>
+不超过最大抗扭承载力 <span class="math inline"><em>T</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+[Ref-7], [Ref-8]。</li>
+</ul>
+<h4 id="步骤-3计算抗扭横向钢筋箍筋">步骤
+3：计算抗扭横向钢筋（箍筋）</h4>
+<ul>
+<li>所需抗扭横向钢筋面积按指南公式计算：<span class="math inline"><em>A</em><sub><em>s</em><em>w</em></sub>/<em>s</em> = <em>T</em><sub><em>E</em><em>d</em></sub>/(2<em>A</em><sub><em>k</em></sub><em>f</em><sub><em>y</em><em>w</em>, <em>d</em></sub>cot <em>θ</em>)</span>，其中
+<span class="math inline"><em>f</em><sub><em>y</em><em>w</em>, <em>d</em></sub></span>
+为横向钢筋设计屈服强度 [Ref-7], [Ref-8]。</li>
+<li><strong>剪扭叠加</strong>：当剪力和扭矩共同作用时，抗剪箍筋和抗扭箍筋可叠加，且必须假设相同的压杆倾角
+<span class="math inline"><em>θ</em></span> [Ref-5]。</li>
+</ul>
+<h4 id="步骤-4计算抗扭纵向钢筋">步骤 4：计算抗扭纵向钢筋</h4>
+<ul>
+<li>纵筋总面积 <span class="math inline">∑<em>A</em><sub><em>s</em><em>l</em></sub></span>
+根据规范公式 (6.28) 计算： <span class="math display">$$ \frac{\sum
+A_{sl} f_{yd}}{u_k} = \frac{T_{Ed}}{2 A_k} \cot\theta $$</span> 其中
+<span class="math inline"><em>f</em><sub><em>y</em><em>d</em></sub></span>
+为纵筋设计屈服强度 [Ref-2], [Ref-5]。</li>
+<li><strong>布置与叠加原则</strong>：纵筋通常应沿截面边长 <span class="math inline"><em>z</em><sub><em>i</em></sub></span>
+均匀分布（较小截面可集中在两端）
+[Ref-1]。在受压弦杆中，纵筋可按可用压力比例减少；在受拉弦杆中，抗扭纵筋应与其他受力纵筋叠加
+[Ref-1]。</li>
+</ul>
+<h3 id="四-豁免条件仅需最小配筋的情况">四、
+豁免条件（仅需最小配筋的情况）</h3>
+<p>对于近似矩形的实心截面，如果满足 <span class="math inline"><em>T</em><sub><em>E</em><em>d</em></sub> ≤ <em>T</em><sub><em>R</em><em>d</em>, <em>c</em></sub></span>（扭转开裂扭矩，可通过设定剪应力
+<span class="math inline"><em>τ</em><sub><em>t</em>, <em>i</em></sub> = <em>f</em><sub><em>c</em><em>t</em><em>d</em></sub></span>
+确定），且剪力也满足相应的免算条件，则无需进行抗扭承载力计算，仅需按规范配置最小抗扭钢筋
+[Ref-1]。</p>
+<h3 id="五-依据位置">五、 依据位置</h3>
+<ul>
+<li>**位置</li>
+<li><strong>规范 EN 1992-1-1:2004</strong>：
+<ul>
+<li>扭转类型与一般规定：条款 6.3.1(1)P ~ (5) [Ref-5], [Ref-6],
+[Ref-12]</li>
+<li>设计程序与配筋计算：条款 6.3.2(1) ~ (5) 及公式 (6.26) ~ (6.28)
+[Ref-1], [Ref-2], [Ref-3], [Ref-4], [Ref-5]</li>
+<li>翘曲扭转：条款 6.3.3 [Ref-13]</li>
+</ul></li>
+<li><strong>设计指南 DG_EN1992-1-1</strong>：
+<ul>
+<li>扭转概念与验证步骤总结：章节 6.4.1, 6.4.3 [Ref-7], [Ref-8],
+[Ref-9]</li>
+</ul></li>
+</ul>
+<p><em>注：在实际工程中，若存在轴向应力（如预应力构件），计算最大抗扭承载力
+<span class="math inline"><em>T</em><sub><em>R</em><em>d</em>, <em>m</em><em>a</em><em>x</em></sub></span>
+时需按规范引入轴向应力影响系数 <span class="math inline"><em>α</em><sub><em>c</em><em>w</em></sub></span>
+进行修正 [Ref-7], [Ref-8]。</em></p>
+<h3 id="来源-25">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 95，条款 6.3.2: In compressive chords, the
+longitudinal reinforcement may be reduced in proportion to the available
+compressive force. In tensile chords the longitudinal reinforcement for
+torsion should be added to the other reinforcement. The</li>
+<li>[2] EN1992-1-1_2004，页 95，条款 : <span class="math display">$$
+\frac { \sum A _ { \mathrm { s l } } \mathsf { f } _ { \mathrm { y d } }
+} { u _ { \mathrm { k } } } = \frac { T _ { \mathrm { E d } } } { 2 A _
+{ \mathrm { k } } } \mathsf { c o t } \theta\tag{6.28} $$</span></li>
+<li>[3] EN1992-1-1_2004，页 95，条款 : <span class="math display">$$
+\tau _ { \mathrm { t , i } } t _ { \mathrm { e f , i } } = \frac { T _ {
+\mathrm { E d } } } { 2 A _ { \mathrm { k } } }\tag{6.26} $$</span></li>
+<li>[4] EN1992-1-1_2004，页 95，条款 : <span class="math display">$$ V _
+{ \sf E d , i } = \tau _ { { \sf t } , { \sf i } } t _ { { \sf e f } , {
+\sf i } } z _ { \sf i }\tag{6.27} $$</span></li>
+<li>[5] EN1992-1-1_2004，页 94，条款 6.3.1, (1)P: (1)P Where the static
+equilibrium of a structure depends on the torsional resistance of
+elements of the structure, a full torsional design covering both
+ultimate and serviceability limit states shall be made. (2) Where, in
+statically</li>
+<li>[6] EN1992-1-1_2004，页 94，条款 6.3.1, (1)P: (1)P Where the static
+equilibrium of a structure depends on the torsional resistance of
+elements of the structure, a full torsional design covering both
+ultimate and serviceability limit states shall be made. (2) Where, in
+statically</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 107，条款 : In normal building
+structures, torsion generally arises as a secondary effect, and specific
+calculations are not necessary. Torsional cracking is generally
+adequately controlled by reinforcement provided to resist shear. Even
+when torsion</li>
+<li>[8] DG_EN1992-1-1__-1-2，页 108，条款 : In EN 1992-1-1, the
+torsional resistance is calculated on the basis of a thin-walled closed
+cross-section. Solid sections are replaced by equivalent thin-walled
+sections. The wall thickness is taken as A/u, where A is the total area
+of</li>
+</ul>
+<h2 id="单向板或双向板连续板在计算跨高比限值时k值取多少">31.
+单向板或双向板连续板在计算跨高比限值时K值取多少？</h2>
+<ul>
+<li>Excel 行号: 32</li>
+<li>层级: Level 5 / 易错点与边界条件测试层</li>
+</ul>
+<h3 id="答案-26">答案</h3>
+<h3 id="直接结论-8">直接结论</h3>
+<p>在计算单向板或双向连续板的跨高比限值时，结构体系系数 <span class="math inline"><em>K</em></span>
+的推荐取值根据跨度位置（端跨或中间跨）有所不同： -
+<strong>端跨</strong>（End span）：<span class="math inline"><em>K</em> = 1.3</span> -
+<strong>中间跨</strong>（Interior span）：<span class="math inline"><em>K</em> = 1.5</span></p>
+<h3 id="依据与说明-8">依据与说明</h3>
+<ol type="1">
+<li><strong>端跨与中间跨的区分</strong>：
+<ul>
+<li>连续单向板，或仅在一个长边方向连续的双向板，其<strong>端跨</strong>的
+<span class="math inline"><em>K</em></span> 值取 1.3 [Ref-1]。</li>
+<li>单向或双向连续板的<strong>中间跨</strong>，其 <span class="math inline"><em>K</em></span> 值取 1.5 [Ref-1]。</li>
+</ul></li>
+<li><strong>双向板的跨度取值要求</strong>：
+<ul>
+<li>对于双向板，跨高比验算必须基于<strong>较短的跨度</strong>（shorter
+span）进行计算 [Ref-1]。</li>
+</ul></li>
+<li><strong>国家附录（National Annex）优先原则</strong>：
+<ul>
+<li>上述 <span class="math inline"><em>K</em></span> 值为欧洲规范（EN
+1992-1-1）给出的推荐值。各成员国可在其国家附录中对 <span class="math inline"><em>K</em></span>
+值进行修改，实际工程中必须查阅并采用项目所在国的国家附录规定值
+[Ref-4]。</li>
+</ul></li>
+<li><strong>轻骨料混凝土（LWAC）修正</strong>：
+<ul>
+<li>若连续板采用轻骨料混凝土，按上述 <span class="math inline"><em>K</em></span>
+值计算得出的基本跨高比限值还需额外乘以折减系数 <span class="math inline"><em>η</em><sub><em>E</em></sub><sup>0.15</sup></span>
+[Ref-8]。</li>
+</ul></li>
+</ol>
+<h3 id="依据位置-17">依据位置</h3>
+<ul>
+<li>[Ref-1] EN1992-1-1_2004, 7.4.2, Table 7.4N 及 Note 2 (页码:
+127-129)</li>
+<li>[Ref-4] EN1992-1-1 2004, 7.4.2 (页码: 127-129)</li>
+<li>[Ref-8] EN1992-1-1 2004, 11.7 (页码: 191)1)</li>
+</ul>
+<h3 id="来源-26">来源</h3>
+<ul>
+<li>[1] EN1992-1-1_2004，页 127，条款 Table 7: Table 7.4N: Basic ratios
+of span/effective depth for reinforced concrete members without axial
+compression
+<table>
+<tr>
+<td>
+Structural System
+</td>
+<td>
+K
+</td>
+<td>
+Concrete highly stressed <span class="math inline"><em>ρ</em> = 1, 5%</span>
+</td>
+<td>
+Concrete lightly</li>
+<li>[2] EN1992-1-1_2004，页 127，条款 7.4.2, (1)P: (1)P Generally, it is
+not necessary to calculate the deflections explicitly as simple rules,
+for example limits to span/depth ratio may be formulated, which will be
+adequate for avoiding deflection problems in normal circumstances.
+More</li>
+<li>[3] EN1992-1-1_2004，页 126，条款 7.4.1, (1)P: (1)P The deformation
+of a member or structure shall not be such that it adversely affects its
+proper functioning or appearance. (2) Appropriate limiting values of
+deflection taking into account the nature of the structure, of the
+finishes,</li>
+<li>[4] EN1992-1-1 2004，页 127，条款 7.4.2, (1)P: (1)P Generally, it is
+not necessary to calculate the deflections explicitly as simple rules,
+for example limits to span/depth ratio may be formulated, which will be
+adequate for avoiding deflection problems in normal circumstances.
+More</li>
+<li>[5] DG_EN1992-1-1__-1-2，页 183，条款 : As has been seen, the
+calculation of deflections is a tedious operation and the results will
+be of limited reliability. Most codes therefore do not require explicit
+calculations to be carried out to check deflections except in
+special</li>
+<li>[6] DG_EN1992-1-1__-1-2，页 183，条款 : The result of this exercise
+can be presented in the form of the set of curves shown in Figure 8.17
+combined with the values of k given in Table 7.4N in Eurocode 2. Figure
+8.17 is drawn for k ¼ 1 and therefore, to obtain the appropriate</li>
+<li>[7] DG_EN1992-1-1__-1-2，页 183，条款 : Thus, for an elastic
+material, limiting the span/depth ratio will limit the ratio of the
+deflection to the span. This is an entirely rigorous way of controlling
+the deflection in these circumstances provided that the limits to
+deflection</li>
+<li>[8] EN1992-1-1 2004，页 191，条款 11.7, (1)P: (1)P The basic ratios
+of span/effective depth for reinforced concrete members without axial
+compression, given in 7.4.2, should be reduced by a factor <span class="math inline"><em>η</em><sub>E</sub><sup>0, 15</sup></span> when
+applied to LWAC.</li>
+</ul>
+<h2 id="x500的中间跨框架柱的冲切周长是多少">32.
+500x500的中间跨框架柱的冲切周长是多少？</h2>
+<ul>
+<li>Excel 行号: 33</li>
+<li>层级: Level 5 / 易错点与边界条件测试层</li>
+</ul>
+<h3 id="答案-27">答案</h3>
+<p>根据欧洲规范 EN
+1992-1-1，冲切验算涉及两个关键的“冲切周长”概念：<strong>柱周边周长（<span class="math inline"><em>u</em><sub>0</sub></span>）</strong>和<strong>基本控制周长（<span class="math inline"><em>u</em><sub>1</sub></span>）</strong>。对于
+500×500 mm 的中间跨框架柱（内部柱），具体取值与计算规则如下：</p>
+<h3 id="柱周边周长-u_0">1. 柱周边周长 (<span class="math inline"><em>u</em><sub>0</sub></span>)</h3>
+<ul>
+<li><strong>明确数值</strong>：<strong>2000 mm</strong>。</li>
+<li><strong>依据与说明</strong>：<span class="math inline"><em>u</em><sub>0</sub></span>
+主要用于验算柱周边的最大冲切剪应力（防止混凝土局部压碎）。规范明确规定，对于内部柱（interior
+column），<span class="math inline"><em>u</em><sub>0</sub></span>
+等于柱截面的周长 [Ref-2]。因此，<span class="math inline"><em>u</em><sub>0</sub> = 4 × 500 = 2000
+mm</span>。</li>
+</ul>
+<h3 id="基本控制周长-u_1">2. 基本控制周长 (<span class="math inline"><em>u</em><sub>1</sub></span>)</h3>
+<ul>
+<li><strong>确定规则</strong>：位于距离柱边缘 <strong><span class="math inline">2.0<em>d</em></span></strong> 处 [Ref-5]。 5]。</li>
+<li><strong>依据与说明</strong>：<span class="math inline"><em>u</em><sub>1</sub></span>
+主要用于验算混凝土自身的抗冲切承载力以及判断是否需要配置抗冲切钢筋。规范规定基本控制周长通常取在距离加载区域（柱边缘）<span class="math inline">2.0<em>d</em></span>
+的位置，并应以使周长长度最小化的方式构建
+[Ref-5]。对于矩形内部柱，其几何形状为柱截面外扩 <span class="math inline">2<em>d</em></span>
+形成的带圆角矩形（由4条直线段和4个半径为 <span class="math inline">2<em>d</em></span> 的四分之一圆弧组成）。</li>
+<li><strong>证据局限说明</strong>：根据当前检索结果，规范正文中未直接提供
+<span class="math inline"><em>u</em><sub>1</sub></span>
+的代数展开计算公式（如 <span class="math inline">2(<em>c</em><sub>1</sub> + <em>c</em><sub>2</sub>) + 2<em>π</em> ⋅ 2<em>d</em></span>），实际工程中需根据上述几何定义进行计算，或参考具体国家附录及设计指南。</li>
+</ul>
+<h3 id="适用条件与限制提醒">3. 适用条件与限制提醒</h3>
+<p>在实际应用上述周长时，请务必核对以下项目条件： * <strong>有效高度
+<span class="math inline"><em>d</em></span> 的取值</strong>：计算 <span class="math inline"><em>u</em><sub>1</sub></span> 时，<span class="math inline"><em>d</em></span>
+应取板在两个正交方向（y向和z向）上有效高度的平均值，即 <span class="math inline"><em>d</em> = (<em>d</em><sub><em>y</em></sub> + <em>d</em><sub><em>z</em></sub>)/2</span>
+[Ref-4]。 *
+<strong>洞口折减影响</strong>：如果柱附近存在楼板洞口，且柱边缘到洞口边缘的最短距离不超过
+<span class="math inline">6<em>d</em></span>，则基本控制周长 <span class="math inline"><em>u</em><sub>1</sub></span>
+中位于“从加载区域中心向洞口轮廓所作两条切线之间”的部分应被视为无效，必须从总周长中扣除
+[Ref-5]。 * <strong>柱位置前提</strong>：上述 <span class="math inline"><em>u</em><sub>0</sub></span>
+取柱全周长的规则仅适用于<strong>内部柱</strong>。若该柱实际为边柱或角柱，<span class="math inline"><em>u</em><sub>0</sub></span> 和 <span class="math inline"><em>u</em><sub>1</sub></span>
+的计算规则及有效周长将发生改变 [Ref-2], [Ref-5]。</p>
+<h3 id="依据位置-18">依据位置</h3>
+<ul>
+<li><span class="math inline"><em>u</em><sub>0</sub></span>
+内部柱定义：EN 1992-1-1 2004, 条款 6.4.5(3) [Ref-2]</li>
+<li><span class="math inline"><em>u</em><sub>1</sub></span>
+距离与构建原则：EN 1992-1-1 2004, 条款 6.4.2(1) [Ref-5]</li>
+<li>洞口导致周长无效的规则：EN 1992-1-1 2004, 条款 6.4.2(3) [Ref-5]</li>
+<li>平均有效高度 <span class="math inline"><em>d</em></span> 的定义：EN
+1992-1-1 2004, 条款 6.4.3(3) [Ref-4]</li>
+</ul>
+<h3 id="来源-27">来源</h3>
+<ul>
+<li>[1] DG_EN1992-1-1__-1-2，页 110，条款 : Having chosen a basic form
+for the perimeter, it is next necessary to consider the distance from
+the loaded area at which it should be located. Since the treatment of
+shear is empirical, there is no absolutely defined answer to this</li>
+<li>[2] EN1992-1-1 2004，页 104，条款 6.4.4: (1) The punching shear
+resistance of a slab should be assessed for the basic control section
+according to 6.4.2. The design punching shear resistance [MPa] may be
+calculated as follows: where: <span class="math inline"><strong>f</strong><sub><code>C</code><code>K</code></sub></span></li>
+<li>[3] DG_EN1992-1-1__-1-2，页 110，条款 : Punching shear is a local
+shear failure around a concentrated load on a slab. The most common
+situations where punching shear has to be considered is the region
+immediately surrounding a column in a flat slab or where a column is
+supported</li>
+<li>[4] EN1992-1-1 2004，页 101，条款 6.4.3, (1)P: (1)P The design
+procedure for punching shear is based on checks at the face of the
+column and at the basic control perimeter <span class="math inline"><em>u</em><sub>1</sub></span> . If shear
+reinforcement is required a further perimeter uout,ef (see figure 6.22)
+should be found</li>
+<li>[5] EN1992-1-1_2004，页 97，条款 6.4.1, (1)P: (1)P The rules in this
+Section complement those given in 6.2 and cover punching shear in solid
+slabs, waffle slabs with solid areas over columns, and foundations. (2)P
+Punching shear can result from a concentrated load or reaction
+acting</li>
+<li>[6] EN1992-1-1 2004，页 97，条款 6.4.1, (1)P: (1)P The rules in this
+Section complement those given in 6.2 and cover punching shear in solid
+slabs, waffle slabs with solid areas over columns, and foundations. (2)P
+Punching shear can result from a concentrated load or reaction
+acting</li>
+<li>[7] EN1992-1-1_2004，页 97，条款 6.4.1, (1)P: (1)P The rules in this
+Section complement those given in 6.2 and cover punching shear in solid
+slabs, waffle slabs with solid areas over columns, and foundations. (2)P
+Punching shear can result from a concentrated load or reaction
+acting</li>
+<li>[8] EN1992-1-1_2004，页 101，条款 6.4.3, (1)P: (1)P The design
+procedure for punching shear is based on checks at the face of the
+column and at the basic control perimeter <span class="math inline"><em>u</em><sub>1</sub></span> . If shear
+reinforcement is required a further perimeter <span class="math inline"><em>u</em><sub>out,</sub></span> ef (see figure</li>
+</ul>
+</body>
+</html>

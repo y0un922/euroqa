@@ -2,7 +2,7 @@
   "config": {
     "vector_top_k": 30,
     "bm25_top_k": 30,
-    "rerank_top_n": 10,
+    "rerank_top_n": 15,
     "eval_top_k": 1
   },
   "metrics": {
