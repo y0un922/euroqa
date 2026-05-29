@@ -1086,13 +1086,6 @@ def build_prompt(
     for i, chunk in enumerate(ordered_citable, 1):
         parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]", config))
 
-    if ref_chunks:
-        parts.append("交叉引用补充：\n")
-        for index, ref_chunk in enumerate(ref_chunks, 1):
-            parts.append(
-                _format_prompt_chunk_block(ref_chunk, f"[CrossRef-{index}]", config)
-            )
-
     parts.append("证据元数据：\n")
     for i, chunk in enumerate(ordered_citable, 1):
         parts.append(f"{_format_prompt_metadata_line(chunk, f'[Ref-{i}]', config)}\n")

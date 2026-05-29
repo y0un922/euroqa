@@ -136,6 +136,20 @@ class TestBuildPrompt:
         assert "[Ref-2]" in prompt
         assert sample_table_chunk.content in prompt
 
+    def test_ref_chunks_use_ref_labels_only(self, sample_text_chunk, sample_table_chunk):
+        prompt = build_prompt(
+            "test",
+            [sample_text_chunk],
+            [],
+            ref_chunks=[sample_table_chunk],
+        )
+
+        assert "交叉引用补充：" not in prompt
+        assert "[CrossRef-1]" not in prompt
+        assert "[Ref-1]" in prompt
+        assert "[Ref-2]" in prompt
+        assert sample_table_chunk.content in prompt
+
 
 def test_count_tokens_uses_unified_tokenizer(monkeypatch):
     monkeypatch.setattr(
