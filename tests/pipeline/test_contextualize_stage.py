@@ -1,6 +1,7 @@
 """Tests for Stage 3.5 contextual chunk enrichment."""
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -200,6 +201,46 @@ async def test_enrich_chunks_progress_callback_can_be_async(stage_chunks, docume
         )
 
     assert len(async_calls) == len(stage_chunks)
+
+
+@pytest.mark.asyncio
+async def test_enrich_chunks_reports_progress_as_each_chunk_finishes(
+    stage_chunks,
+    document_tree,
+):
+    progress_events: list[dict] = []
+    release_slow = asyncio.Event()
+
+    async def fake_contextualize_chunk(request):
+        if request.chunk_content == "First text chunk.":
+            await release_slow.wait()
+        return _result_for_kind(request.chunk_kind)
+
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+        instance = contextualizer_cls.return_value
+        instance.generate_doc_summary = AsyncMock(return_value="Document summary.")
+        instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
+        task = asyncio.create_task(
+            enrich_chunks(
+                stage_chunks,
+                PipelineConfig(contextualize_concurrency=len(stage_chunks)),
+                tree=document_tree,
+                progress_callback=progress_events.append,
+            )
+        )
+        for _ in range(100):
+            if progress_events:
+                break
+            await asyncio.sleep(0.01)
+
+        assert progress_events
+        assert len(progress_events) < len(stage_chunks)
+        assert progress_events[0]["completed"] == 1
+        release_slow.set()
+        await task
+
+    assert len(progress_events) == len(stage_chunks)
+    assert progress_events[-1]["completed"] == len(stage_chunks)
 
 
 @pytest.mark.asyncio

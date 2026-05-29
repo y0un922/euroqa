@@ -76,13 +76,15 @@ def _is_active_pipeline_state(state: object | None) -> bool:
     return getattr(state, "stage", None) not in {PipelineStage.READY, PipelineStage.ERROR}
 
 
-def _ensure_documents_deletable(doc_ids: list[str]) -> None:
+def _ensure_documents_deletable(doc_ids: list[str], config) -> None:
     """Raise when any requested document is still being processed."""
     tm = get_task_manager()
     blocked = [
         doc_id
         for doc_id in doc_ids
-        if _is_active_pipeline_state(tm.get_status(doc_id))
+        if _is_active_pipeline_state(
+            tm.get_status_or_persisted(doc_id, config.parsed_dir)
+        )
     ]
     if blocked:
         raise HTTPException(
@@ -174,7 +176,7 @@ async def _document_has_indexed_chunks(
 async def _get_document_status(doc_id: str, config) -> DocumentStatus:
     """查询 TaskManager 获取文档当前状态，若无任务状态则检查是否已完成索引。"""
     tm = get_task_manager()
-    state = tm.get_status(doc_id)
+    state = tm.get_status_or_persisted(doc_id, config.parsed_dir)
     if state is not None:
         return _STAGE_TO_STATUS.get(state.stage, DocumentStatus.READY)
 
@@ -196,7 +198,7 @@ async def _get_document_status(doc_id: str, config) -> DocumentStatus:
 async def _build_external_document_status(doc_id: str, config) -> DocumentStatusItem:
     """Build one batch status item using the interface-document contract."""
     tm = get_task_manager()
-    state = tm.get_status(doc_id)
+    state = tm.get_status_or_persisted(doc_id, config.parsed_dir)
     if state is not None:
         status = _STAGE_TO_STATUS.get(state.stage, DocumentStatus.READY)
         error = None
@@ -212,7 +214,7 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
             status=_normalize_external_status(status),
             progress=state.progress,
             stage=status.value,
-            message=state.error or _status_message(status),
+            message=state.error or state.message or _status_message(status),
             chunk_count=_read_indexed_chunk_count(doc_id, config.parsed_dir)
             if status == DocumentStatus.READY else None,
             error=error,
@@ -300,7 +302,7 @@ async def _enqueue_document_parse(
 ) -> DocumentParseResponse:
     """Enqueue one document parse request using the external contract."""
     tm = get_task_manager()
-    state = tm.get_status(request.doc_id)
+    state = tm.get_status_or_persisted(request.doc_id, config.parsed_dir)
     if _is_active_pipeline_state(state):
         raise HTTPException(status_code=409, detail="该文档正在解析中，不可重复触发")
 
@@ -317,7 +319,7 @@ async def _enqueue_document_parse(
 async def _delete_one_document(doc_id: str, config) -> DocumentDeleteItem:
     """Delete one document and return an external-contract result item."""
     tm = get_task_manager()
-    state = tm.get_status(doc_id)
+    state = tm.get_status_or_persisted(doc_id, config.parsed_dir)
     if _is_active_pipeline_state(state):
         return DocumentDeleteItem(
             doc_id=doc_id,
@@ -363,7 +365,7 @@ async def _delete_one_document(doc_id: str, config) -> DocumentDeleteItem:
 async def _delete_one_document_index(doc_id: str, config) -> DocumentDeleteItem:
     """Delete indexed data for one doc_id, regardless of local PDF state."""
     tm = get_task_manager()
-    state = tm.get_status(doc_id)
+    state = tm.get_status_or_persisted(doc_id, config.parsed_dir)
     if _is_active_pipeline_state(state):
         return DocumentDeleteItem(
             doc_id=doc_id,
@@ -580,7 +582,7 @@ async def batch_delete_documents(
     config=Depends(get_config),
 ) -> DocumentDeleteBatchResponse:
     """批量删除文档索引数据。"""
-    _ensure_documents_deletable(request.doc_ids)
+    _ensure_documents_deletable(request.doc_ids, config)
 
     try:
         from pipeline.config import PipelineConfig
@@ -614,12 +616,12 @@ async def batch_delete_documents(
 # -- SSE 状态流 --
 
 @router.get("/documents/{doc_id}/status")
-async def document_status_stream(doc_id: str):
+async def document_status_stream(doc_id: str, config=Depends(get_config)):
     """SSE 端点：推送 pipeline 处理进度。"""
     tm = get_task_manager()
 
     async def event_generator():
-        queue = tm.subscribe(doc_id)
+        queue = tm.subscribe(doc_id, config.parsed_dir)
         try:
             while True:
                 try:

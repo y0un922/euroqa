@@ -112,6 +112,7 @@ class Contextualizer:
         )
         self._model = config.contextualize_llm_model or config.llm_model
         self._retry_attempts = max(1, config.contextualize_retry_attempts)
+        self._request_timeout_seconds = config.contextualize_request_timeout_seconds
 
     async def generate_doc_summary(self, source_title: str, doc_outline_text: str) -> str:
         prompt = (
@@ -193,6 +194,7 @@ class Contextualizer:
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.1,
                     max_tokens=max_tokens,
+                    timeout=self._request_timeout_seconds,
                 )
                 content = response.choices[0].message.content
                 return content.strip() if content else ""

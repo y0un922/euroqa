@@ -81,6 +81,14 @@ class _FakeRedis:
         self.hashes.setdefault(key, {})[field] = value
 
 
+class _FakeTaskManagerBase:
+    def get_status_or_persisted(self, doc_id, parsed_dir):
+        return self.get_status(doc_id)
+
+    def subscribe(self, doc_id, parsed_dir=None):
+        return self.subscribe(doc_id)
+
+
 class TestRedisConversationManager:
     @pytest.mark.anyio
     async def test_reads_mixed_legacy_and_role_messages_as_history(self):
@@ -1662,7 +1670,7 @@ class TestDocumentsEndpoint:
             parsed_dir=str(tmp_path / "parsed"),
         )
 
-        class _FakeTaskManager:
+        class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
@@ -1929,7 +1937,7 @@ class TestDocumentsEndpoint:
 
         enqueued: list[str] = []
 
-        class _FakeTaskManager:
+        class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
@@ -1979,7 +1987,7 @@ class TestDocumentsEndpoint:
 
         enqueued: list[str] = []
 
-        class _FakeTaskManager:
+        class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
@@ -2039,7 +2047,7 @@ class TestDocumentsEndpoint:
         enqueued: list[str] = []
         uploaded: list[dict[str, object]] = []
 
-        class _FakeTaskManager:
+        class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
@@ -2191,6 +2199,92 @@ class TestDocumentsEndpoint:
         assert result["error"]["detail"] == "文档不存在或尚未上传"
         assert result["error"]["stage"] == "not_found"
 
+    def test_batch_document_status_reads_persisted_error_state(
+        self, client, tmp_path: Path
+    ):
+        doc_id = "DOC_STALE"
+        parsed_doc_dir = tmp_path / "parsed" / doc_id
+        parsed_doc_dir.mkdir(parents=True)
+        (parsed_doc_dir / "status.json").write_text(
+            json.dumps(
+                {
+                    "doc_id": doc_id,
+                    "stage": "error",
+                    "progress": 1.0,
+                    "message": "服务重启导致解析中断,请重试",
+                    "error": "服务重启导致解析中断,请重试",
+                    "attempts": 2,
+                    "created_at": "2026-05-29T00:00:00Z",
+                    "updated_at": "2026-05-29T00:01:00Z",
+                    "heartbeat_at": "2026-05-29T00:01:00Z",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            parsed_dir=str(tmp_path / "parsed"),
+            pdf_dir=str(tmp_path / "pdfs"),
+            es_url="http://127.0.0.1:1",
+        )
+
+        resp = client.post(
+            "/api/v1/documents/status",
+            json={"docIds": [doc_id]},
+        )
+
+        assert resp.status_code == 200
+        result = resp.json()["results"][0]
+        assert result["status"] == "failed"
+        assert result["stage"] == "error"
+        assert result["message"] == "服务重启导致解析中断,请重试"
+        assert result["error"]["detail"] == "服务重启导致解析中断,请重试"
+
+    def test_batch_document_status_prefers_index_marker_over_stale_status_json(
+        self, client, tmp_path: Path
+    ):
+        doc_id = "DOC_READY"
+        parsed_doc_dir = tmp_path / "parsed" / doc_id
+        parsed_doc_dir.mkdir(parents=True)
+        (parsed_doc_dir / "status.json").write_text(
+            json.dumps(
+                {
+                    "doc_id": doc_id,
+                    "stage": "indexing",
+                    "progress": 0.88,
+                    "message": "正在写入索引",
+                    "error": None,
+                    "attempts": 1,
+                    "created_at": "2026-05-29T00:00:00Z",
+                    "updated_at": "2026-05-29T00:01:00Z",
+                    "heartbeat_at": "2026-05-29T00:01:00Z",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (parsed_doc_dir / ".indexed").write_text(
+            json.dumps({"milvus": 7, "elasticsearch": 7}),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            parsed_dir=str(tmp_path / "parsed"),
+            pdf_dir=str(tmp_path / "pdfs"),
+            es_url="http://127.0.0.1:1",
+        )
+
+        resp = client.post(
+            "/api/v1/documents/status",
+            json={"docIds": [doc_id]},
+        )
+
+        assert resp.status_code == 200
+        result = resp.json()["results"][0]
+        assert result["status"] == "success"
+        assert result["stage"] == "ready"
+        assert result["progress"] == 1.0
+        assert result["chunkCount"] == 7
+
     def test_batch_delete_documents_contract_is_summary_and_mocked(
         self, client, tmp_path: Path
     ):
@@ -2317,7 +2411,7 @@ class TestDocumentsEndpoint:
 
         delete_call = AsyncMock(return_value={"milvus": 3, "elasticsearch": 4})
 
-        class _FakeTaskManager:
+        class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 if doc_id == "ACTIVE_DOC":
                     return SimpleNamespace(stage="indexing")

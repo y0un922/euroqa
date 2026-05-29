@@ -35,6 +35,9 @@ class PipelineConfig(BaseSettings):
     context_summary_enabled: bool = True
     contextualize_concurrency: int = 8
     contextualize_retry_attempts: int = 2
+    contextualize_request_timeout_seconds: float = 120.0
+    parse_stale_timeout_seconds: float = 1200.0
+    parse_watchdog_interval_seconds: float = 60.0
 
     embedding_provider: Literal["local", "remote"] = "local"
     embedding_api_url: str = ""

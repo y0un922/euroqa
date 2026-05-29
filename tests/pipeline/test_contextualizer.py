@@ -123,6 +123,22 @@ async def test_generate_doc_summary_prompt_contains_title_and_outline():
     prompt = kwargs["messages"][0]["content"]
     assert "Design of concrete structures" in prompt
     assert "1 General" in prompt
+    assert kwargs["timeout"] == 120.0
+
+
+@pytest.mark.asyncio
+async def test_call_llm_uses_configured_request_timeout():
+    create = AsyncMock(return_value=_chat_response("Summary text."))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(
+            PipelineConfig(contextualize_request_timeout_seconds=7.5)
+        )
+        result = await contextualizer.generate_doc_summary("Title", "Outline")
+
+    assert result == "Summary text."
+    assert create.await_args.kwargs["timeout"] == 7.5
 
 
 @pytest.mark.asyncio

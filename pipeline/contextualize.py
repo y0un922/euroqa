@@ -68,15 +68,21 @@ async def _contextualize_source_chunks(
     total = len(chunks)
     completed = 0
 
-    async def _one(chunk: Chunk) -> ContextualizeResult:
+    async def _one(chunk: Chunk) -> tuple[Chunk, ContextualizeResult | Exception]:
         async with semaphore:
-            request = _build_request(chunk, chunk_lookup, doc_summary)
-            return await contextualizer.contextualize_chunk(request)
+            try:
+                request = _build_request(chunk, chunk_lookup, doc_summary)
+                result = await contextualizer.contextualize_chunk(request)
+                return chunk, result
+            except Exception as exc:
+                return chunk, exc
 
-    results = await asyncio.gather(*(_one(chunk) for chunk in chunks), return_exceptions=True)
+    tasks = [asyncio.create_task(_one(chunk)) for chunk in chunks]
 
-    for chunk, result in zip(chunks, results):
+    for task in asyncio.as_completed(tasks):
+        chunk, result = await task
         completed += 1
+
         if isinstance(result, Exception):
             logger.warning(
                 "contextualize_failed",
