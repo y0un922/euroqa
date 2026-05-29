@@ -9,17 +9,11 @@ from collections.abc import Iterable
 
 import structlog
 from pymilvus.exceptions import MilvusException
-from pymilvus import (
-    Collection,
-    CollectionSchema,
-    DataType,
-    FieldSchema,
-    connections,
-    utility,
-)
+from pymilvus import Collection, connections
 
 from pipeline.config import PipelineConfig
-from shared.elasticsearch_client import build_async_elasticsearch
+from shared.elasticsearch_client import ensure_es_index, build_async_elasticsearch
+from shared.milvus_schema import ensure_collection
 from shared.model_clients import build_embedding_client
 from server.models.schemas import Chunk
 
@@ -42,22 +36,7 @@ def _init_milvus_collection(config: PipelineConfig) -> Collection:
             "or update MILVUS_HOST/MILVUS_PORT before rerunning Stage 4."
         ) from exc
 
-    if utility.has_collection(config.milvus_collection):
-        return Collection(config.milvus_collection)
-
-    fields = [
-        FieldSchema("chunk_id", DataType.VARCHAR, is_primary=True, max_length=64),
-        FieldSchema("embedding", DataType.FLOAT_VECTOR, dim=1024),
-        FieldSchema("source", DataType.VARCHAR, max_length=128),
-        FieldSchema("element_type", DataType.VARCHAR, max_length=16),
-    ]
-    schema = CollectionSchema(fields, description="Eurocode chunks")
-    collection = Collection(config.milvus_collection, schema)
-    collection.create_index(
-        "embedding",
-        {"metric_type": "COSINE", "index_type": "HNSW", "params": {"M": 16, "efConstruction": 256}},
-    )
-    return collection
+    return ensure_collection(config.milvus_collection)
 
 
 async def index_to_milvus(chunks: list[Chunk], config: PipelineConfig) -> int:
@@ -81,75 +60,6 @@ async def index_to_milvus(chunks: list[Chunk], config: PipelineConfig) -> int:
     collection.flush()
     logger.info("milvus_indexed", count=len(to_embed))
     return len(to_embed)
-
-
-_ES_MAPPING = {
-    "mappings": {
-        "properties": {
-            "chunk_id": {"type": "keyword"},
-            "content": {"type": "text", "analyzer": "standard"},
-            "embedding_text": {"type": "text", "analyzer": "standard"},
-            "source": {"type": "keyword"},
-            "source_title": {
-                "type": "keyword",
-                "fields": {
-                    "text": {
-                        "type": "text",
-                        "analyzer": "standard",
-                    }
-                },
-            },
-            "section_path": {
-                "type": "keyword",
-                "fields": {
-                    "text": {
-                        "type": "text",
-                        "analyzer": "standard",
-                    }
-                },
-            },
-            "page_numbers": {"type": "integer"},
-            "clause_ids": {
-                "type": "keyword",
-                "fields": {
-                    "text": {
-                        "type": "text",
-                        "analyzer": "standard",
-                    }
-                },
-            },
-            "element_type": {"type": "keyword"},
-            "cross_refs": {"type": "keyword"},
-            "object_type": {"type": "keyword"},
-            "object_label": {"type": "keyword"},
-            "object_id": {"type": "keyword"},
-            "object_aliases": {
-                "type": "keyword",
-                "fields": {
-                    "text": {
-                        "type": "text",
-                        "analyzer": "standard",
-                    }
-                },
-            },
-            "ref_labels": {
-                "type": "keyword",
-                "fields": {
-                    "text": {
-                        "type": "text",
-                        "analyzer": "standard",
-                    }
-                },
-            },
-            "ref_object_ids": {"type": "keyword"},
-            "parent_chunk_id": {"type": "keyword"},
-            "parent_text_chunk_id": {"type": "keyword"},
-            "bbox": {"type": "float"},
-            "bbox_page_idx": {"type": "integer"},
-            "page_file_index": {"type": "integer"},
-        }
-    }
-}
 
 
 async def delete_document_from_milvus(
@@ -254,8 +164,7 @@ async def index_to_elasticsearch(chunks: list[Chunk], config: PipelineConfig) ->
     es = build_async_elasticsearch(config.es_url)
 
     try:
-        if not await es.indices.exists(index=config.es_index):
-            await es.indices.create(index=config.es_index, body=_ES_MAPPING)
+        await ensure_es_index(es, config.es_index)
 
         for chunk in chunks:
             doc = {

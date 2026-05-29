@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from elasticsearch import NotFoundError
 
 from shared.elasticsearch_client import build_async_elasticsearch
+from shared.milvus_schema import ensure_collection
 from shared.model_clients import build_embedding_client, build_rerank_client
 from shared.reference_graph import (
     build_object_id,
@@ -152,11 +154,11 @@ class HybridRetriever:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _import_milvus() -> tuple[type, Any]:
+    def _import_milvus() -> Any:
         """延迟导入 pymilvus。"""
-        from pymilvus import Collection, connections
+        from pymilvus import connections
 
-        return Collection, connections
+        return connections
 
     # ------------------------------------------------------------------
     # 懒初始化属性
@@ -177,13 +179,16 @@ class HybridRetriever:
             collection=self.config.milvus_collection,
         )
         try:
-            collection_cls, milvus_connections = self._import_milvus()
+            milvus_connections = self._import_milvus()
             await asyncio.to_thread(
                 milvus_connections.connect,
                 host=self.config.milvus_host,
                 port=self.config.milvus_port,
             )
-            collection = collection_cls(self.config.milvus_collection)
+            collection = await asyncio.to_thread(
+                ensure_collection,
+                self.config.milvus_collection,
+            )
             await asyncio.to_thread(collection.load)
             self._collection = collection
             logger.info(
@@ -204,12 +209,12 @@ class HybridRetriever:
                 "milvus_collection_lazy_initialization",
                 collection=self.config.milvus_collection,
             )
-            collection_cls, milvus_connections = self._import_milvus()
+            milvus_connections = self._import_milvus()
             milvus_connections.connect(
                 host=self.config.milvus_host,
                 port=self.config.milvus_port,
             )
-            self._collection = collection_cls(self.config.milvus_collection)
+            self._collection = ensure_collection(self.config.milvus_collection)
             self._collection.load()
         return self._collection
 
@@ -309,7 +314,15 @@ class HybridRetriever:
             },
             "size": top_k,
         }
-        resp = await es.search(index=self.config.es_index, body=body)
+        try:
+            resp = await es.search(index=self.config.es_index, body=body)
+        except NotFoundError:
+            logger.warning(
+                "bm25_search_index_missing",
+                index=self.config.es_index,
+                query=query[:80],
+            )
+            return []
 
         return [
             {

@@ -1,6 +1,7 @@
 """Test hybrid retrieval layer (mock external services)."""
 
 import pytest
+from elasticsearch import NotFoundError
 
 from server.config import ServerConfig
 from server.core.retrieval import HybridRetriever
@@ -115,6 +116,26 @@ class TestBm25Search:
             "clause_ids.text^4",
             "object_aliases.text^5",
         ]
+
+    @pytest.mark.asyncio
+    async def test_bm25_search_returns_empty_when_index_missing(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(es_index="missing_chunks")
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                raise NotFoundError(
+                    message="index_not_found_exception",
+                    meta=None,
+                    body={"error": {"type": "index_not_found_exception"}},
+                )
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        retriever._get_es = _fake_get_es
+
+        assert await retriever._bm25_search("empty index", 5, {}) == []
 
 
 class TestCrossDocAggregation:

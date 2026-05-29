@@ -6,7 +6,6 @@ from pymilvus.exceptions import MilvusException
 
 from pipeline.config import PipelineConfig
 from pipeline.index import (
-    _ES_MAPPING,
     _init_milvus_collection,
     delete_document_from_milvus,
     delete_document_sources_from_elasticsearch,
@@ -14,6 +13,8 @@ from pipeline.index import (
     index_to_milvus,
 )
 from server.models.schemas import Chunk, ChunkMetadata, ElementType
+from shared.elasticsearch_client import ES_INDEX_MAPPING
+from shared.milvus_schema import ensure_collection
 
 
 class _FakeCollection:
@@ -47,7 +48,7 @@ class _FakeEmbeddingClient:
 
 
 def test_es_mapping_keeps_keyword_fields_with_text_subfields_for_bm25():
-    properties = _ES_MAPPING["mappings"]["properties"]
+    properties = ES_INDEX_MAPPING["mappings"]["properties"]
 
     for field_name in (
         "source_title",
@@ -188,3 +189,35 @@ def test_init_milvus_collection_raises_actionable_error_when_server_unavailable(
         _init_milvus_collection(PipelineConfig())
 
     assert "localhost:19530" in str(exc_info.value)
+
+
+def test_ensure_collection_creates_canonical_schema_and_hnsw_index(monkeypatch):
+    calls: dict[str, object] = {}
+
+    class _FakeCollection:
+        def __init__(self, name, schema=None):
+            calls["name"] = name
+            calls["schema"] = schema
+            self.index_args = None
+
+        def create_index(self, field_name, index_params):
+            self.index_args = (field_name, index_params)
+            calls["index_args"] = self.index_args
+
+    monkeypatch.setattr("shared.milvus_schema.utility.has_collection", lambda name: False)
+    monkeypatch.setattr("shared.milvus_schema.Collection", _FakeCollection)
+
+    collection = ensure_collection("chunks")
+
+    assert calls["name"] == "chunks"
+    field_names = [field.name for field in calls["schema"].fields]
+    assert field_names == ["chunk_id", "embedding", "source", "element_type"]
+    assert calls["index_args"] == (
+        "embedding",
+        {
+            "metric_type": "COSINE",
+            "index_type": "HNSW",
+            "params": {"M": 16, "efConstruction": 256},
+        },
+    )
+    assert collection is not None
