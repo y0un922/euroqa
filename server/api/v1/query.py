@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import inspect
 import time
 
 from agents import Agent
+from openai import APIConnectionError, APITimeoutError, InternalServerError
 import structlog
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
@@ -28,7 +30,13 @@ from server.core.generation import (
     generate_answer_stream,
     postprocess_citations,
 )
+from server.errors import (
+    LLMUnavailableError,
+    QAError,
+    RetrievalUnavailableError,
+)
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
+from server.retry import with_retry
 from shared.spot_check import (
     SpotCheckRecorder,
     flush_current_recorder,
@@ -40,7 +48,7 @@ from shared.spot_check import (
 router = APIRouter()
 logger = structlog.get_logger(__name__)
 
-_qa_agent: Agent[QADeps] | None = None
+_qa_agents: dict[str, Agent[QADeps]] = {}
 
 
 _QUESTION_TYPE_LABELS = {
@@ -95,11 +103,13 @@ async def _get_conversation_state(
 
 
 def _get_or_build_agent(config: ServerConfig) -> Agent[QADeps]:
-    """Return the lazily constructed QA agent."""
-    global _qa_agent
-    if _qa_agent is None:
-        _qa_agent = build_qa_agent(config)
-    return _qa_agent
+    """Return a cached QA agent keyed by resolved agent LLM config."""
+    cache_key = (
+        f"{config.resolved_agent_llm_base_url}:{config.resolved_agent_llm_model}"
+    )
+    if cache_key not in _qa_agents:
+        _qa_agents[cache_key] = build_qa_agent(config)
+    return _qa_agents[cache_key]
 
 
 def _conversation_state_for_agent(
@@ -496,7 +506,17 @@ async def _run_agent_dispatch(
         req=req,
     )
     agent = _get_or_build_agent(runtime_config)
-    decision, bundle = await run_qa_agent(agent, req.question, deps, max_turns=5)
+    try:
+        async with asyncio.timeout(runtime_config.agent_timeout_seconds):
+            decision, bundle = await with_retry(
+                lambda: run_qa_agent(agent, req.question, deps, max_turns=5),
+                max_attempts=2,
+                retryable=(APITimeoutError, APIConnectionError, InternalServerError),
+            )
+    except asyncio.TimeoutError:
+        raise LLMUnavailableError("agent 决策超时")
+    except (APITimeoutError, APIConnectionError, InternalServerError) as exc:
+        raise LLMUnavailableError(f"agent LLM 不可用: {exc}") from exc
     return decision, bundle, conv, deps
 
 
@@ -743,218 +763,95 @@ async def query_stream(
         )
         token = set_current_recorder(recorder)
         try:
-            logger.info(
-                "query_start",
-                question=req.question[:100],
-                session_id=req.session_id,
-            )
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="agent_thinking",
-                        status="running",
-                        title="分析问题",
-                        summary="Agent 正在理解问题并决定策略...",
-                        started_at=started_at,
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-            agent_t0 = time.perf_counter()
-            decision, bundle, conv, deps = await _run_agent_dispatch(
-                req=req,
-                runtime_config=runtime_config,
-                retriever=retriever,
-                glossary=glossary,
-                conv_mgr=conv_mgr,
-            )
-            decision = await _ensure_retrieve_called_for_compose_rag(
-                decision=decision,
-                bundle=bundle,
-                deps=deps,
-                question=req.question,
-                conversation_id=conv.conversation_id,
-            )
-            logger.info(
-                "agent_end",
-                action=decision.action,
-                tool_calls=len(bundle.tool_trace),
-                duration_ms=int((time.perf_counter() - agent_t0) * 1000),
-            )
-            final_action = decision.action
-            _record_agent_spot_check(recorder, decision, bundle)
-            summary, facts = _agent_stage_summary(decision, bundle)
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="agent_thinking",
-                        status="completed",
-                        title="分析问题",
-                        summary=summary,
-                        started_at=started_at,
-                        facts=facts,
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-
-            if decision.action != "compose_rag":
-                payload = _build_agent_chat_payload(decision=decision, bundle=bundle)
+            async with asyncio.timeout(runtime_config.request_deadline_seconds):
+                logger.info(
+                    "query_start",
+                    question=req.question[:100],
+                    session_id=req.session_id,
+                )
                 yield {
                     "event": "progress",
                     "data": json.dumps(
                         _progress_event(
-                            stage=decision.action,
-                            status="completed",
-                            title="生成回复",
-                            summary="Agent 已生成直接回复。",
+                            stage="agent_thinking",
+                            status="running",
+                            title="分析问题",
+                            summary="Agent 正在理解问题并决定策略...",
                             started_at=started_at,
-                            facts={"action": decision.action},
                         ),
                         ensure_ascii=False,
                     ),
                 }
-                yield {
-                    "event": "chunk",
-                    "data": json.dumps(
-                        {"text": decision.direct_reply or "", "done": False},
-                        ensure_ascii=False,
-                    ),
-                }
-                data = _external_done_payload(
-                    payload,
-                    question_type=None,
-                    groundedness=None,
-                    title=None,
-                    answer_mode=decision.action,
+                agent_t0 = time.perf_counter()
+                decision, bundle, conv, deps = await _run_agent_dispatch(
+                    req=req,
+                    runtime_config=runtime_config,
+                    retriever=retriever,
+                    glossary=glossary,
+                    conv_mgr=conv_mgr,
                 )
-                data["request_id"] = get_contextvars().get("request_id", "")
-                if _uses_external_session(req):
-                    title = await _add_conversation_turn(
-                        conv_mgr,
-                        conv.conversation_id,
-                        req.question,
-                        str(data.get("answer") or ""),
-                        sources=[],
-                        related_refs=[],
-                        retrieval_context=data.get("retrievalContext")
-                        or data.get("retrieval_context"),
-                        question_type=None,
-                        answer_mode=decision.action,
-                        tool_trace=bundle.tool_trace,
-                        response_payload=data,
-                    )
-                    data["title"] = title
-                yield {"event": "done", "data": json.dumps(data, ensure_ascii=False)}
-                return
-
-            logger.info(
-                "retrieve_end",
-                chunk_count=len(bundle.chunks),
-                ref_chunk_count=len(bundle.ref_chunks),
-                groundedness=bundle.groundedness,
-            )
-            summary, facts = _retrieval_summary(bundle)
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="retrieving",
-                        status="completed",
-                        title="检索规范条文",
-                        summary=summary,
-                        started_at=started_at,
-                        facts=facts,
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-
-            yield {
-                "event": "progress",
-                "data": json.dumps(
-                    _progress_event(
-                        stage="generating",
-                        status="running",
-                        title="生成回答",
-                        summary="正在基于检索证据组织回答...",
-                        started_at=started_at,
-                        facts={
-                            "evidence_count": len(bundle.chunks)
-                            + len(bundle.ref_chunks),
-                            "guide_count": len(bundle.guide_chunks),
-                            "example_count": len(bundle.guide_example_chunks),
-                        },
-                    ),
-                    ensure_ascii=False,
-                ),
-            }
-
-            generate_t0 = time.perf_counter()
-            answer_parts: list[str] = []
-            reasoning_parts: list[str] = []
-            history = (
-                list(getattr(conv, "history", []) or [])[
-                    -config.max_conversation_rounds :
-                ]
-                if _uses_external_session(req)
-                else []
-            )
-            async for event_type, data in generate_answer_stream(
-                question=req.question,
-                chunks=bundle.chunks,
-                parent_chunks=bundle.parent_chunks,
-                scores=bundle.scores,
-                glossary_terms=bundle.glossary_hits,
-                conversation_history=history,
-                config=runtime_config,
-                ref_chunks=bundle.ref_chunks,
-                guide_chunks=bundle.guide_chunks,
-                guide_example_chunks=bundle.guide_example_chunks,
-                groundedness=bundle.groundedness,
-                resolved_refs=bundle.resolved_refs,
-                unresolved_refs=bundle.unresolved_refs,
-            ):
-                if event_type == "reasoning":
-                    text = data.get("text") if isinstance(data, dict) else None
-                    if isinstance(text, str):
-                        reasoning_parts.append(text)
-                if event_type == "chunk":
-                    text = data.get("text") if isinstance(data, dict) else None
-                    if isinstance(text, str):
-                        answer_parts.append(text)
-                if event_type == "done":
-                    logger.info(
-                        "generate_end",
-                        duration_ms=int(
-                            (time.perf_counter() - generate_t0) * 1000
+                decision = await _ensure_retrieve_called_for_compose_rag(
+                    decision=decision,
+                    bundle=bundle,
+                    deps=deps,
+                    question=req.question,
+                    conversation_id=conv.conversation_id,
+                )
+                logger.info(
+                    "agent_end",
+                    action=decision.action,
+                    tool_calls=len(bundle.tool_trace),
+                    duration_ms=int((time.perf_counter() - agent_t0) * 1000),
+                )
+                final_action = decision.action
+                _record_agent_spot_check(recorder, decision, bundle)
+                summary, facts = _agent_stage_summary(decision, bundle)
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(
+                        _progress_event(
+                            stage="agent_thinking",
+                            status="completed",
+                            title="分析问题",
+                            summary=summary,
+                            started_at=started_at,
+                            facts=facts,
                         ),
+                        ensure_ascii=False,
+                    ),
+                }
+
+                if decision.action != "compose_rag":
+                    payload = _build_agent_chat_payload(
+                        decision=decision, bundle=bundle
                     )
-                    answer_text = data.get("answer") if isinstance(data, dict) else None
-                    if not isinstance(answer_text, str):
-                        answer_text = "".join(answer_parts)
-                    # Citation 后处理：归一化格式变体、剔除越界编号、句内去重
-                    num_sources = (
-                        len(data.get("sources", [])) if isinstance(data, dict) else 0
-                    )
-                    normalized_answer = postprocess_citations(answer_text, num_sources)
-                    title = None
-                    thinking = "".join(reasoning_parts)
-                    final_groundedness = bundle.groundedness
-                    data = {
-                        **data,
-                        "groundedness": bundle.groundedness,
-                        "normalized_answer": normalized_answer,
+                    yield {
+                        "event": "progress",
+                        "data": json.dumps(
+                            _progress_event(
+                                stage=decision.action,
+                                status="completed",
+                                title="生成回复",
+                                summary="Agent 已生成直接回复。",
+                                started_at=started_at,
+                                facts={"action": decision.action},
+                            ),
+                            ensure_ascii=False,
+                        ),
                     }
-                    if thinking:
-                        data["thinking"] = thinking
+                    yield {
+                        "event": "chunk",
+                        "data": json.dumps(
+                            {"text": decision.direct_reply or "", "done": False},
+                            ensure_ascii=False,
+                        ),
+                    }
                     data = _external_done_payload(
-                        data,
-                        question_type=data.get("question_type"),
-                        groundedness=bundle.groundedness,
-                        title=title,
+                        payload,
+                        question_type=None,
+                        groundedness=None,
+                        title=None,
+                        answer_mode=decision.action,
                     )
                     data["request_id"] = get_contextvars().get("request_id", "")
                     if _uses_external_session(req):
@@ -962,25 +859,206 @@ async def query_stream(
                             conv_mgr,
                             conv.conversation_id,
                             req.question,
-                            normalized_answer,
-                            sources=data.get("sources", []),
-                            related_refs=data.get("relatedRefs", []),
+                            str(data.get("answer") or ""),
+                            sources=[],
+                            related_refs=[],
                             retrieval_context=data.get("retrievalContext")
                             or data.get("retrieval_context"),
-                            question_type=data.get("questionType"),
-                            engineering_context=data.get("engineeringContext")
-                            or data.get("engineering_context"),
-                            answer_mode=data.get("answerMode"),
-                            groundedness=data.get("groundedness"),
-                            thinking=thinking or None,
+                            question_type=None,
+                            answer_mode=decision.action,
                             tool_trace=bundle.tool_trace,
                             response_payload=data,
                         )
                         data["title"] = title
+                    yield {
+                        "event": "done",
+                        "data": json.dumps(data, ensure_ascii=False),
+                    }
+                    return
+
+                logger.info(
+                    "retrieve_end",
+                    chunk_count=len(bundle.chunks),
+                    ref_chunk_count=len(bundle.ref_chunks),
+                    groundedness=bundle.groundedness,
+                )
+                summary, facts = _retrieval_summary(bundle)
                 yield {
-                    "event": event_type,
-                    "data": json.dumps(data, ensure_ascii=False),
+                    "event": "progress",
+                    "data": json.dumps(
+                        _progress_event(
+                            stage="retrieving",
+                            status="completed",
+                            title="检索规范条文",
+                            summary=summary,
+                            started_at=started_at,
+                            facts=facts,
+                        ),
+                        ensure_ascii=False,
+                    ),
                 }
+
+                yield {
+                    "event": "progress",
+                    "data": json.dumps(
+                        _progress_event(
+                            stage="generating",
+                            status="running",
+                            title="生成回答",
+                            summary="正在基于检索证据组织回答...",
+                            started_at=started_at,
+                            facts={
+                                "evidence_count": len(bundle.chunks)
+                                + len(bundle.ref_chunks),
+                                "guide_count": len(bundle.guide_chunks),
+                                "example_count": len(bundle.guide_example_chunks),
+                            },
+                        ),
+                        ensure_ascii=False,
+                    ),
+                }
+
+                generate_t0 = time.perf_counter()
+                answer_parts: list[str] = []
+                reasoning_parts: list[str] = []
+                history = (
+                    list(getattr(conv, "history", []) or [])[
+                        -config.max_conversation_rounds :
+                    ]
+                    if _uses_external_session(req)
+                    else []
+                )
+                async for event_type, data in generate_answer_stream(
+                    question=req.question,
+                    chunks=bundle.chunks,
+                    parent_chunks=bundle.parent_chunks,
+                    scores=bundle.scores,
+                    glossary_terms=bundle.glossary_hits,
+                    conversation_history=history,
+                    config=runtime_config,
+                    ref_chunks=bundle.ref_chunks,
+                    guide_chunks=bundle.guide_chunks,
+                    guide_example_chunks=bundle.guide_example_chunks,
+                    groundedness=bundle.groundedness,
+                    resolved_refs=bundle.resolved_refs,
+                    unresolved_refs=bundle.unresolved_refs,
+                ):
+                    if event_type == "reasoning":
+                        text = data.get("text") if isinstance(data, dict) else None
+                        if isinstance(text, str):
+                            reasoning_parts.append(text)
+                    if event_type == "chunk":
+                        text = data.get("text") if isinstance(data, dict) else None
+                        if isinstance(text, str):
+                            answer_parts.append(text)
+                    if event_type == "done":
+                        logger.info(
+                            "generate_end",
+                            duration_ms=int((time.perf_counter() - generate_t0) * 1000),
+                        )
+                        answer_text = (
+                            data.get("answer") if isinstance(data, dict) else None
+                        )
+                        if not isinstance(answer_text, str):
+                            answer_text = "".join(answer_parts)
+                        # Citation 后处理：归一化格式变体、剔除越界编号、句内去重
+                        num_sources = (
+                            len(data.get("sources", []))
+                            if isinstance(data, dict)
+                            else 0
+                        )
+                        normalized_answer = postprocess_citations(
+                            answer_text, num_sources
+                        )
+                        title = None
+                        thinking = "".join(reasoning_parts)
+                        final_groundedness = bundle.groundedness
+                        data = {
+                            **data,
+                            "groundedness": bundle.groundedness,
+                            "normalized_answer": normalized_answer,
+                        }
+                        if thinking:
+                            data["thinking"] = thinking
+                        data = _external_done_payload(
+                            data,
+                            question_type=data.get("question_type"),
+                            groundedness=bundle.groundedness,
+                            title=title,
+                        )
+                        data["request_id"] = get_contextvars().get("request_id", "")
+                        if _uses_external_session(req):
+                            title = await _add_conversation_turn(
+                                conv_mgr,
+                                conv.conversation_id,
+                                req.question,
+                                normalized_answer,
+                                sources=data.get("sources", []),
+                                related_refs=data.get("relatedRefs", []),
+                                retrieval_context=data.get("retrievalContext")
+                                or data.get("retrieval_context"),
+                                question_type=data.get("questionType"),
+                                engineering_context=data.get("engineeringContext")
+                                or data.get("engineering_context"),
+                                answer_mode=data.get("answerMode"),
+                                groundedness=data.get("groundedness"),
+                                thinking=thinking or None,
+                                tool_trace=bundle.tool_trace,
+                                response_payload=data,
+                            )
+                            data["title"] = title
+                    yield {
+                        "event": event_type,
+                        "data": json.dumps(data, ensure_ascii=False),
+                    }
+        except asyncio.TimeoutError:
+            logger.error("stream_request_timeout", error_type="timeout")
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"code": 504, "message": "请求处理超时，请简化问题或稍后重试"},
+                    ensure_ascii=False,
+                ),
+            }
+        except LLMUnavailableError as e:
+            logger.error(
+                "stream_llm_unavailable",
+                error_type="llm_unavailable",
+                detail=str(e),
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"code": e.code, "message": e.message},
+                    ensure_ascii=False,
+                ),
+            }
+        except RetrievalUnavailableError as e:
+            logger.error(
+                "stream_retrieval_unavailable",
+                error_type="retrieval_unavailable",
+                detail=str(e),
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"code": e.code, "message": e.message},
+                    ensure_ascii=False,
+                ),
+            }
+        except QAError as e:
+            logger.error(
+                "stream_qa_error",
+                error_type=type(e).__name__,
+                detail=str(e),
+            )
+            yield {
+                "event": "error",
+                "data": json.dumps(
+                    {"code": e.code, "message": e.message},
+                    ensure_ascii=False,
+                ),
+            }
         except Exception:
             logger.exception("stream_pipeline_failed")
             yield {

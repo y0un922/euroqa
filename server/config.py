@@ -1,4 +1,5 @@
 """Server configuration."""
+
 import logging
 
 from pydantic import model_validator
@@ -84,6 +85,9 @@ class ServerConfig(BaseSettings):
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_secure: bool = False
+
+    request_deadline_seconds: int = 120
+    agent_timeout_seconds: int = 30
 
     log_json: bool = False
 
