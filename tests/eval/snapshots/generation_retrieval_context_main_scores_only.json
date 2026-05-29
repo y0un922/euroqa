@@ -1,0 +1,25 @@
+{
+  "case": "main_scores_only",
+  "retrieval_context": {
+    "chunks": [
+      {
+        "chunk_id": "chunk_023",
+        "clause": "2.3(1)",
+        "content": "2.3 Design working life\n(1) The design working life should be specified.\nNOTE Indicative categories are given in Table 2.1.\n[-> Table 2.1 - Indicative design working life]",
+        "display_title": "EN 1990:2002",
+        "document_id": "EN1990_2002",
+        "file": "EN 1990:2002",
+        "page": "28",
+        "score": 0.91,
+        "section": "Section 2 Requirements > 2.3 Design working life",
+        "title": "EN 1990:2002"
+      }
+    ],
+    "guide_chunks": [],
+    "guide_example_chunks": [],
+    "parent_chunks": [],
+    "ref_chunks": [],
+    "resolved_refs": [],
+    "unresolved_refs": []
+  }
+}

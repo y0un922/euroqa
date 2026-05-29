@@ -1,0 +1,25 @@
+{
+  "case": "table_source_metadata",
+  "sources": [
+    {
+      "bbox": [
+        186.0,
+        591.0,
+        858.0,
+        768.0
+      ],
+      "clause": "Table 2.1",
+      "display_title": "EN 1990:2002",
+      "document_id": "EN1990_2002",
+      "element_type": "table",
+      "file": "EN 1990:2002",
+      "highlight_text": "Table 2.1 - Indicative design working life\n| Category | Years | Examples |\n|1|10|Temporary structures|\n|2|10-25|Replaceable structural parts|\n|3|15-30|Agricultural and similar structures|\n|4|50|Building structures and other common structures|\n|5|100|Monumental building structures, bridges, and other civil engineering structures|",
+      "locator_text": "Table 2.1 - Indicative design working life | Category | Years | Examples | |1|10|Temporary structures| |2|10-25|Replaceable structural parts| |3|15-30|Agricultural and similar structures| |4|50|Building structures and other common",
+      "original_text": "Table 2.1 - Indicative design working life\n| Category | Years | Examples |\n|1|10|Temporary structures|\n|2|10-25|Replaceable structural parts|\n|3|15-30|Agricultural and similar structures|\n|4|50|Building structures and other common structures|\n|5|100|Monumental building structures, bridges, and other civil engineering structures|",
+      "page": "28",
+      "section": "Section 2 Requirements > 2.3 Design working life",
+      "title": "EN 1990:2002",
+      "translation": ""
+    }
+  ]
+}

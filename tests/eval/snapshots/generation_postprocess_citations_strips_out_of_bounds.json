@@ -1,0 +1,8 @@
+{
+  "case": "strips_out_of_bounds",
+  "input": {
+    "answer": "有效依据 [Ref-1]，无效依据 [Ref-0] 和 [Ref-9]。",
+    "num_sources": 3
+  },
+  "output": "有效依据 [Ref-1]，无效依据  和 。"
+}

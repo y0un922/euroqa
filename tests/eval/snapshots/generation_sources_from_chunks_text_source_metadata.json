@@ -1,0 +1,25 @@
+{
+  "case": "text_source_metadata",
+  "sources": [
+    {
+      "bbox": [
+        186.0,
+        362.0,
+        858.0,
+        420.0
+      ],
+      "clause": "2.3(1)",
+      "display_title": "EN 1990:2002",
+      "document_id": "EN1990_2002",
+      "element_type": "text",
+      "file": "EN 1990:2002",
+      "highlight_text": "2.3 Design working life\n(1) The design working life should be specified.\nNOTE Indicative categories are given in Table 2.1.",
+      "locator_text": "2.3 Design working life (1) The design working life should be specified. NOTE Indicative categories are given in Table 2.1.",
+      "original_text": "2.3 Design working life\n(1) The design working life should be specified.\nNOTE Indicative categories are given in Table 2.1.\n[-> Table 2.1 - Indicative design working life]",
+      "page": "28",
+      "section": "Section 2 Requirements > 2.3 Design working life",
+      "title": "EN 1990:2002",
+      "translation": ""
+    }
+  ]
+}

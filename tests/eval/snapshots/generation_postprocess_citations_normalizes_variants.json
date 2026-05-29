@@ -1,0 +1,8 @@
+{
+  "case": "normalizes_variants",
+  "input": {
+    "answer": "结论见【Ref 1】和(ref-2)，但 Ref 自然语言不应改写。",
+    "num_sources": 2
+  },
+  "output": "结论见[Ref-1]和[Ref-2]，但 Ref 自然语言不应改写。"
+}

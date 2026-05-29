@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "baseline_version": "v0.1.0",
+    "created_at": "2026-05-29",
+    "git_sha": "eeb5721",
+    "tolerance": 0.02
+  },
+  "config": {
+    "vector_top_k": 30,
+    "bm25_top_k": 30,
+    "rerank_top_n": 15,
+    "eval_top_k": 1
+  },
+  "metrics": {
+    "avg_section_recall": 1.0,
+    "avg_keyword_recall": 1.0,
+    "anchor_hit_rate": null,
+    "anchor_hit_rate_measured_questions": 0,
+    "grounded_mode_accuracy": 1.0,
+    "grounded_mode_accuracy_measured_questions": 1,
+    "direct_ref_resolution_rate": 1.0,
+    "direct_ref_resolution_measured_questions": 1,
+    "reference_closure_rate": 1.0,
+    "reference_closure_measured_questions": 1,
+    "noise_intrusion_rate": null,
+    "noise_intrusion_measured_questions": 0,
+    "over_answer_rate": null,
+    "over_answer_rate_note": "placeholder: 当前脚本仅评估 retrieval/routing，不调用 generation，无法真实计算 over-answer_rate。",
+    "pass_rate": 1.0,
+    "pass_count": 1,
+    "total": 1,
+    "measured_questions": 1
+  }
+}

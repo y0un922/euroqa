@@ -1,0 +1,8 @@
+{
+  "case": "keeps_empty_answer",
+  "input": {
+    "answer": "",
+    "num_sources": 4
+  },
+  "output": ""
+}

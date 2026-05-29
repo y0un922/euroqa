@@ -1,0 +1,8 @@
+{
+  "case": "dedupes_within_sentence",
+  "input": {
+    "answer": "同一句重复 [Ref-1] 与 [Ref-1]。下一句仍可再次引用 [Ref-1]！",
+    "num_sources": 1
+  },
+  "output": "同一句重复 [Ref-1] 与 。下一句仍可再次引用 [Ref-1]！"
+}

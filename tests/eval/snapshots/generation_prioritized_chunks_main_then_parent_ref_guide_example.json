@@ -1,0 +1,29 @@
+{
+  "case": "main_then_parent_ref_guide_example",
+  "ordered_chunk_ids": [
+    "chunk_023",
+    "chunk_t_2_1",
+    "guide-1",
+    "guide-example-1"
+  ],
+  "ordered_clauses": [
+    [
+      "2.3(1)"
+    ],
+    [
+      "Table 2.1"
+    ],
+    [
+      "Guide 1"
+    ],
+    [
+      "Example 1"
+    ]
+  ],
+  "ordered_sources": [
+    "EN 1990:2002",
+    "EN 1990:2002",
+    "Designers Guide",
+    "Designers Guide"
+  ]
+}
