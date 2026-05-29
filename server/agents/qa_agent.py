@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from agents import Agent, ModelSettings, Runner, set_tracing_disabled
+from agents import Agent, ModelSettings, Runner, set_trace_processors
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -11,6 +11,7 @@ from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.tools.lookup_glossary import lookup_glossary
 from server.agents.tools.retrieve import retrieve
+from server.agents.tracing import StructlogTracingProcessor
 from server.config import ServerConfig
 
 _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x 系列）的专家问答助手。
@@ -53,7 +54,7 @@ class AgentDecision(BaseModel):
 
 
 def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
-    set_tracing_disabled(disabled=True)
+    set_trace_processors([StructlogTracingProcessor()])
     client = AsyncOpenAI(
         api_key=config.resolved_agent_llm_api_key,
         base_url=config.resolved_agent_llm_base_url,

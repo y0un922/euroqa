@@ -10,6 +10,7 @@ from agents import Agent
 import structlog
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
+from structlog.contextvars import get_contextvars
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
@@ -399,6 +400,7 @@ def _progress_event(
         "summary": summary,
         "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
         "facts": facts or {},
+        "request_id": get_contextvars().get("request_id", ""),
     }
 
 
@@ -734,11 +736,18 @@ async def query_stream(
 
     async def event_generator():
         started_at = time.perf_counter()
+        final_action: str | None = None
+        final_groundedness: str | None = None
         recorder = (
             SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
         )
         token = set_current_recorder(recorder)
         try:
+            logger.info(
+                "query_start",
+                question=req.question[:100],
+                session_id=req.session_id,
+            )
             yield {
                 "event": "progress",
                 "data": json.dumps(
@@ -752,6 +761,7 @@ async def query_stream(
                     ensure_ascii=False,
                 ),
             }
+            agent_t0 = time.perf_counter()
             decision, bundle, conv, deps = await _run_agent_dispatch(
                 req=req,
                 runtime_config=runtime_config,
@@ -766,6 +776,13 @@ async def query_stream(
                 question=req.question,
                 conversation_id=conv.conversation_id,
             )
+            logger.info(
+                "agent_end",
+                action=decision.action,
+                tool_calls=len(bundle.tool_trace),
+                duration_ms=int((time.perf_counter() - agent_t0) * 1000),
+            )
+            final_action = decision.action
             _record_agent_spot_check(recorder, decision, bundle)
             summary, facts = _agent_stage_summary(decision, bundle)
             yield {
@@ -813,6 +830,7 @@ async def query_stream(
                     title=None,
                     answer_mode=decision.action,
                 )
+                data["request_id"] = get_contextvars().get("request_id", "")
                 if _uses_external_session(req):
                     title = await _add_conversation_turn(
                         conv_mgr,
@@ -832,6 +850,12 @@ async def query_stream(
                 yield {"event": "done", "data": json.dumps(data, ensure_ascii=False)}
                 return
 
+            logger.info(
+                "retrieve_end",
+                chunk_count=len(bundle.chunks),
+                ref_chunk_count=len(bundle.ref_chunks),
+                groundedness=bundle.groundedness,
+            )
             summary, facts = _retrieval_summary(bundle)
             yield {
                 "event": "progress",
@@ -868,6 +892,7 @@ async def query_stream(
                 ),
             }
 
+            generate_t0 = time.perf_counter()
             answer_parts: list[str] = []
             reasoning_parts: list[str] = []
             history = (
@@ -901,6 +926,12 @@ async def query_stream(
                     if isinstance(text, str):
                         answer_parts.append(text)
                 if event_type == "done":
+                    logger.info(
+                        "generate_end",
+                        duration_ms=int(
+                            (time.perf_counter() - generate_t0) * 1000
+                        ),
+                    )
                     answer_text = data.get("answer") if isinstance(data, dict) else None
                     if not isinstance(answer_text, str):
                         answer_text = "".join(answer_parts)
@@ -911,6 +942,7 @@ async def query_stream(
                     normalized_answer = postprocess_citations(answer_text, num_sources)
                     title = None
                     thinking = "".join(reasoning_parts)
+                    final_groundedness = bundle.groundedness
                     data = {
                         **data,
                         "groundedness": bundle.groundedness,
@@ -924,6 +956,7 @@ async def query_stream(
                         groundedness=bundle.groundedness,
                         title=title,
                     )
+                    data["request_id"] = get_contextvars().get("request_id", "")
                     if _uses_external_session(req):
                         title = await _add_conversation_turn(
                             conv_mgr,
@@ -958,6 +991,12 @@ async def query_stream(
                 ),
             }
         finally:
+            logger.info(
+                "query_end",
+                total_ms=int((time.perf_counter() - started_at) * 1000),
+                action=final_action,
+                groundedness=final_groundedness,
+            )
             flush_current_recorder()
             reset_current_recorder(token)
 

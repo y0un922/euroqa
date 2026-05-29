@@ -85,6 +85,8 @@ class ServerConfig(BaseSettings):
     minio_secret_key: str = "minioadmin"
     minio_secure: bool = False
 
+    log_json: bool = False
+
     debug_pipeline_dir: str = "data/debug_runs"
     parsed_dir: str = "data/parsed"
     glossary_path: str = "data/glossary.json"
