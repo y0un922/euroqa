@@ -8,6 +8,13 @@ from shared.tokenizers import count_for_llm
 _enc = tiktoken.get_encoding("cl100k_base")
 
 
+def _current_count_for_llm():
+    """Resolve package-level tokenizer so legacy monkeypatch paths still work."""
+    from server.core import generation as generation_package
+
+    return getattr(generation_package, "count_for_llm", count_for_llm)
+
+
 def _legacy_count_tokens(text: str) -> int:
     return len(_enc.encode(text))
 
@@ -16,4 +23,4 @@ def _count_tokens(text: str, config: ServerConfig | None = None) -> tuple[int, b
     cfg = config or ServerConfig()
     if not cfg.use_unified_tokenizer:
         return _legacy_count_tokens(text), True
-    return count_for_llm(text, cfg.llm_model)
+    return _current_count_for_llm()(text, cfg.llm_model)

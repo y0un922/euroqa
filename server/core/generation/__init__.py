@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from openai import AsyncOpenAI
+from shared.tokenizers import count_for_llm
 
-from server.core.generation.citations import _extract_json_text, postprocess_citations
+from server.core.generation.citations import (
+    _CANONICAL_REF_RE,
+    _CITATION_VARIANTS_RE,
+    _extract_json_text,
+    postprocess_citations,
+)
 from server.core.generation.confidence import (
     _build_related_refs_from_chunks,
     _infer_answer_confidence,
@@ -37,38 +43,53 @@ from server.core.generation.sources import (
     _resolve_table_source_geometry,
 )
 from server.core.generation.tokens import _count_tokens, _legacy_count_tokens
-from server.core.generation._legacy import (
-    _SOURCE_TRANSLATION_SYSTEM_PROMPT,
+from server.core.generation.llm import (
+    _build_stream_completion_kwargs,
+    _current_async_openai_factory,
+    _is_qwen_provider,
+    _should_enable_reasoning,
+    generate_answer,
+    generate_answer_stream,
+)
+from server.core.generation.prompts import (
+    _CALCULATION_TEMPLATE,
+    _MECHANISM_TEMPLATE,
+    _OPEN_TEMPLATES,
+    _PARAMETER_TEMPLATE,
+    _RULE_TEMPLATE,
     _STREAM_BASE_RULES,
     _SYSTEM_PROMPT,
     _build_engineering_context_guidance,
     _build_evidence_organizer_system_prompt,
     _build_json_system_prompt,
     _build_question_type_guidance,
-    _build_source_translation_prompt,
-    _build_stream_completion_kwargs,
     _build_stream_mode_system_prompt,
-    _call_source_translation_llm,
-    _fill_missing_source_translations,
     _format_prompt_chunk_block,
     _format_prompt_metadata_line,
-    _is_qwen_provider,
     _normalize_engineering_context,
     _normalize_question_type,
-    _parse_source_translation_map,
-    _should_enable_reasoning,
-    _translate_source_batch,
     build_open_system_prompt,
     build_prompt,
     decide_generation_mode,
-    generate_answer,
-    generate_answer_stream,
+)
+from server.core.generation.translation import (
+    _SOURCE_TRANSLATION_SYSTEM_PROMPT,
+    _build_source_translation_prompt,
+    _call_source_translation_llm,
+    _fill_missing_source_translations,
+    _parse_source_translation_map,
+    _translate_source_batch,
 )
 
 __all__ = [
     "AsyncOpenAI",
     "_CANONICAL_REF_RE",
     "_CITATION_VARIANTS_RE",
+    "_CALCULATION_TEMPLATE",
+    "_MECHANISM_TEMPLATE",
+    "_OPEN_TEMPLATES",
+    "_PARAMETER_TEMPLATE",
+    "_RULE_TEMPLATE",
     "_SOURCE_TRANSLATION_SYSTEM_PROMPT",
     "_STREAM_BASE_RULES",
     "_SYSTEM_PROMPT",
@@ -90,6 +111,7 @@ __all__ = [
     "_call_source_translation_llm",
     "_collect_pending_source_indexes",
     "_count_tokens",
+    "_current_async_openai_factory",
     "_dedupe_chunks_and_scores",
     "_dedupe_chunks_by_id",
     "_extract_content_list_caption",
@@ -118,6 +140,7 @@ __all__ = [
     "_translate_source_batch",
     "build_open_system_prompt",
     "build_prompt",
+    "count_for_llm",
     "decide_generation_mode",
     "generate_answer",
     "generate_answer_stream",
