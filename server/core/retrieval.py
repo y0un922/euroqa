@@ -7,16 +7,25 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from elasticsearch import NotFoundError
 
 from shared.elasticsearch_client import build_async_elasticsearch
 from shared.milvus_schema import ensure_collection
 from shared.model_clients import build_embedding_client, build_rerank_client
-from shared.reference_graph import build_object_id, classify_reference_label, extract_reference_labels, normalize_reference_label
+from shared.reference_graph import (
+    build_object_id,
+    classify_reference_label,
+    extract_reference_labels,
+    normalize_reference_label,
+)
 from shared.spot_check import record_spot_check
 from shared.tokenizers import count_for_rerank
 from server.config import ServerConfig
-from server.core import retrieval_helpers
+from server.core import (
+    retrieval_fusion,
+    retrieval_helpers,
+    retrieval_rerank,
+    retrieval_search,
+)
 from server.core.retrieval_types import RetrievalResult, _result_entries
 from server.models.schemas import Chunk, ChunkMetadata, GuideHint, QuestionType
 
@@ -66,16 +75,6 @@ _GUIDE_SEARCH_FIELDS = [
     "source_title.text^3",
     "source^2",
 ]
-_DEFAULT_BM25_FIELDS = [
-    "content^2",
-    "embedding_text",
-    "source_title.text^3",
-    "section_path.text^2",
-    "clause_ids.text^4",
-    "object_aliases.text^5",
-]
-_RRF_K = 60
-
 # 交叉引用补充检索最多发起的精确查询数。提升到 10 是因为：
 # 一次 question 平均有 ~21 个 missing refs，其中大部分（Table/Figure/
 # Expression/Section）走 ES term keyword lookup，单次 ~1ms，提高上限带来
@@ -94,10 +93,6 @@ _CROSS_REF_PRIORITY = {
     "en_std": 5,
     None: 6,
 }
-
-
-
-
 
 
 class HybridRetriever:
@@ -208,37 +203,15 @@ class HybridRetriever:
     async def _vector_search(
         self, query: str, top_k: int, filters: dict
     ) -> list[dict]:
-        """使用 BGE-M3 编码查询，在 Milvus 中进行向量近似搜索。"""
-        embedding = (await self._embedding_client.embed_texts([query]))[0]
-        collection = self._get_collection()
-
-        # 构造 Milvus 布尔过滤表达式（不含 element_type，已改为 boost）
-        expr_parts: list[str] = []
-        if "source" in filters:
-            source_expr = self._build_milvus_source_expr(filters["source"])
-            if source_expr:
-                expr_parts.append(source_expr)
-        expr = " and ".join(expr_parts) if expr_parts else None
-
-        results = await asyncio.to_thread(
-            collection.search,
-            data=[embedding],
-            anns_field="embedding",
-            param={"metric_type": "COSINE", "params": {"ef": 128}},
-            limit=top_k,
-            expr=expr,
-            output_fields=["chunk_id", "source", "element_type"],
+        return await retrieval_search._vector_search(
+            self._get_collection(),
+            self._embedding_client,
+            self.config,
+            query,
+            top_k,
+            filters,
         )
 
-        results = [
-            {
-                "chunk_id": hit.entity.get("chunk_id"),
-                "source": hit.entity.get("source"),
-                "score": hit.score,
-            }
-            for hit in results[0]
-        ]
-        return self._filter_results_by_source(results, filters)
 
     async def _bm25_search(
         self,
@@ -248,141 +221,61 @@ class HybridRetriever:
         fields: list[str] | None = None,
         preferred_element_type: str | None = None,
     ) -> list[dict]:
-        """在 Elasticsearch 中使用 multi_match 进行 BM25 全文检索。"""
-        es = await self._get_es()
-        search_fields = fields or _DEFAULT_BM25_FIELDS
+        return await retrieval_search._bm25_search(
+            await self._get_es(),
+            self.config,
+            query,
+            top_k,
+            filters,
+            fields=fields,
+            preferred_element_type=preferred_element_type,
+        )
 
-        must_clauses = [
-            {
-                "multi_match": {
-                    "query": query,
-                    "fields": search_fields,
-                }
-            }
-        ]
-        filter_clauses = self._build_source_filter_clauses(filters)
-
-        # element_type 作为 should boost 而非 filter，
-        # 偏好匹配类型的 chunk 但不排除其他类型
-        should_clauses: list[dict] = []
-        if preferred_element_type:
-            should_clauses.append(
-                {"term": {"element_type": {"value": preferred_element_type, "boost": 2.0}}}
-            )
-
-        body = {
-            "query": {
-                "bool": {
-                    "must": must_clauses,
-                    "filter": filter_clauses,
-                    "should": should_clauses,
-                }
-            },
-            "size": top_k,
-        }
-        try:
-            resp = await es.search(index=self.config.es_index, body=body)
-        except NotFoundError:
-            logger.warning(
-                "bm25_search_index_missing",
-                index=self.config.es_index,
-                query=query[:80],
-            )
-            return []
-
-        return [
-            {
-                "chunk_id": hit["_id"],
-                "source": hit["_source"].get("source", ""),
-                "score": hit["_score"],
-            }
-            for hit in resp["hits"]["hits"]
-        ]
 
     # ------------------------------------------------------------------
     # 合并、聚合、重排序
     # ------------------------------------------------------------------
 
+    @staticmethod
     def _merge_results(
-        self,
         vec_results: list[dict],
         bm25_results: list[dict],
     ) -> list[dict]:
-        """合并向量检索和 BM25 结果并去重，使用 RRF 保留两路排序信号。"""
-        return self._rrf_fuse_results([vec_results, bm25_results])
+        return retrieval_fusion._merge_results(vec_results, bm25_results)
+
 
     @staticmethod
     def _rrf_fuse_results(
         result_groups: list[list[dict]],
         *,
-        rrf_k: int = _RRF_K,
+        rrf_k: int = retrieval_fusion._RRF_K,
     ) -> list[dict]:
-        """Fuse ranked retrieval groups with Reciprocal Rank Fusion."""
-        fused: dict[str, dict[str, Any]] = {}
-        first_order = 0
+        return retrieval_fusion._rrf_fuse_results(result_groups, rrf_k=rrf_k)
 
-        for group in result_groups:
-            for rank, result in enumerate(group, start=1):
-                chunk_id = result.get("chunk_id")
-                if not chunk_id:
-                    continue
-                if chunk_id not in fused:
-                    fused[chunk_id] = {
-                        **result,
-                        "score": 0.0,
-                        "_first_order": first_order,
-                    }
-                    first_order += 1
-                fused[chunk_id]["score"] += 1.0 / (rrf_k + rank)
 
-        ranked = sorted(
-            fused.values(),
-            key=lambda item: (item["score"], -item["_first_order"]),
-            reverse=True,
-        )
-        return [
-            {key: value for key, value in item.items() if not key.startswith("_")}
-            for item in ranked
-        ]
-
+    @staticmethod
     def _cross_doc_aggregate(
-        self,
         results: list[dict],
         max_per_source: int = 5,
         filters: dict | None = None,
     ) -> list[dict]:
-        """跨文档聚合：限制每个来源文档的最大 chunk 数量，确保结果多样性。"""
-        filters = filters or {}
-        unique_sources = {result.get("source", "") for result in results}
-        if "source" in filters or len(unique_sources) <= 1:
-            return results
+        return retrieval_fusion._cross_doc_aggregate(
+            results,
+            max_per_source=max_per_source,
+            filters=filters,
+        )
 
-        source_counts: dict[str, int] = {}
-        aggregated: list[dict] = []
-
-        for result in results:
-            src = result.get("source", "")
-            count = source_counts.get(src, 0)
-            if count < max_per_source:
-                aggregated.append(result)
-                source_counts[src] = count + 1
-
-        return aggregated
 
     @staticmethod
     def _append_unique_results(
         primary_results: list[dict],
         supplemental_results: list[dict],
     ) -> list[dict]:
-        """Append supplemental candidates without disturbing primary ordering."""
-        seen = {result["chunk_id"] for result in primary_results}
-        merged = list(primary_results)
-        for result in supplemental_results:
-            chunk_id = result["chunk_id"]
-            if chunk_id not in seen:
-                seen.add(chunk_id)
-                merged.append(result)
-        return merged
+        return retrieval_fusion._append_unique_results(
+            primary_results,
+            supplemental_results,
+        )
+
 
     @staticmethod
     def _normalize_target_hint(target_hint: Any) -> dict[str, str]:
@@ -938,82 +831,25 @@ class HybridRetriever:
 
     @staticmethod
     def _infer_groundedness_from_scores(scores: list[float]) -> str:
-        """Infer evidence groundedness from reranker scores."""
-        if not scores:
-            return "not_grounded"
-        top = scores[0]
-        if top >= 0.85:
-            return "grounded"
-        if top >= 0.5:
-            return "partial"
-        return "not_grounded"
+        return retrieval_fusion._infer_groundedness_from_scores(scores)
+
 
     @staticmethod
     def _rerank_text(chunk: Chunk) -> str:
-        """选择用于 reranker 的文本：table/formula 用 content 以保留完整数据。"""
-        if chunk.metadata.element_type in ("table", "formula"):
-            # 对于表格和公式，embedding_text 是压缩后的摘要，
-            # 用原始 content 做重排序能保留具体数值，提高匹配精度。
-            # 截断到 2000 字符避免超出 reranker 输入限制。
-            text = chunk.content or ""
-            if chunk.metadata.object_label:
-                text = f"{chunk.metadata.object_label}\n{text}"
-            return text[:2000]
-        return chunk.embedding_text or chunk.content
+        return retrieval_rerank._rerank_text(chunk)
+
 
     async def _rerank(
         self, query: str, chunks: list[Chunk], top_n: int
     ) -> list[tuple[Chunk, float]]:
-        """使用 FlagReranker 对候选 chunk 进行重排序，返回 top_n 结果。"""
-        if not chunks:
-            return []
-
-        documents = [self._rerank_text(c) for c in chunks]
-        token_records: list[dict[str, Any]] = []
-        truncation_records: list[dict[str, Any]] = []
-        rerank_max_length = max(int(self.config.rerank_max_length), 1)
-        for chunk, document in zip(chunks, documents, strict=False):
-            token_count, is_estimate = count_for_rerank(
-                document,
-                self.config.rerank_model,
-            )
-            truncated = token_count > rerank_max_length
-            element_type = getattr(
-                chunk.metadata.element_type,
-                "value",
-                chunk.metadata.element_type,
-            )
-            token_records.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "tokens": token_count,
-                    "is_estimate": is_estimate,
-                    "source": chunk.metadata.source,
-                    "element_type": element_type,
-                }
-            )
-            truncation_records.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "tokens": token_count,
-                    "max_tokens": rerank_max_length,
-                    "truncated": truncated,
-                    "truncation_ratio": (
-                        token_count / rerank_max_length if token_count else 0.0
-                    ),
-                    "source": chunk.metadata.source,
-                    "element_type": element_type,
-                }
-            )
-        record_spot_check("rerank_input_tokens", token_records)
-        record_spot_check("rerank_truncated", truncation_records)
-
-        ranked = await self._rerank_client.rerank(
-            query=query,
-            documents=documents,
-            top_n=top_n,
+        return await retrieval_rerank._rerank(
+            self._rerank_client,
+            self.config,
+            query,
+            chunks,
+            top_n,
         )
-        return [(chunks[index], score) for index, score in ranked]
+
 
     # ------------------------------------------------------------------
     # 交叉引用补充检索
