@@ -30,6 +30,74 @@ Questions to answer:
 
 ## Required Patterns
 
+### Scenario: Strangler Helper Extraction from Large Backend Modules
+
+#### 1. Scope / Trigger
+
+- Trigger: any refactor that moves logic out of a large backend module or class while existing callers/tests still import or monkeypatch the old location.
+- Reason: strangler-fig refactors must reduce file size without changing behavior, import contracts, or test seams. The old module should become a thin facade/wrapper before downstream callers are migrated.
+
+#### 2. Signatures
+
+- Legacy class/module API remains callable, for example: `HybridRetriever._vector_search(query: str, top_k: int, filters: dict) -> list[dict]`.
+- Extracted helper modules use explicit dependencies, for example: `_vector_search(collection, embedding_client, config, query, top_k, filters) -> list[dict]`.
+- Public imports remain compatible, for example: `from server.core.retrieval import HybridRetriever, RetrievalResult`.
+
+#### 3. Contracts
+
+- Preserve old method/function names as wrappers until all known callers and tests have been migrated.
+- Move pure logic into cohesive helper modules; wrappers should only pass explicit dependencies and return helper results.
+- Do not move unrelated responsibilities in the same PR. Keep guide retrieval, cross-reference lookup, fetch methods, and public orchestration methods in place unless the spec for that PR explicitly includes them.
+- Preserve legacy monkeypatch seams when tests or callers patch the old module path. A wrapper may pass the old imported dependency into the helper, or the helper may resolve the old module attribute deliberately.
+- Generated eval artifacts must be restored unless the task explicitly updates the baseline.
+
+#### 4. Validation & Error Matrix
+
+- Helper extraction changes import path only -> existing caller imports and method-level tests must still pass.
+- Helper extraction changes external behavior or output ordering -> reject the refactor or add an explicit behavior-change spec first.
+- A test monkeypatches `server.core.<legacy_module>.<dependency>` -> wrapper/helper must continue honoring that seam or the test must be intentionally migrated in the same PR.
+- Eval gate rewrites `tests/eval/eval_results.json` -> restore it before commit unless updating the baseline is in scope.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: `HybridRetriever._bm25_search(...)` stays as a wrapper around `retrieval_search._bm25_search(es, config, ...)`, and all retrieval tests pass unchanged.
+- Base: new helper modules are private to the package and downstream callers still import from the old facade.
+- Bad: deleting `_rerank_text` from the class while tests still call or monkeypatch the class method.
+- Bad: bundling guide/cross-ref/fetch method moves into a search/fusion extraction PR.
+
+#### 6. Tests Required
+
+- Run lint on the legacy facade and all extracted helper modules.
+- Run existing unit tests for the legacy class/module to prove wrapper compatibility.
+- Run characterization/eval gate tests when the module participates in retrieval or generation quality.
+- Add or keep tests that exercise old method names, not only the new helper functions.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+# Wrong: downstream callers/tests lose the old seam immediately.
+from server.core.retrieval_search import _vector_search
+
+# HybridRetriever._vector_search was deleted in the same PR.
+```
+
+##### Correct
+
+```python
+# Correct: old class API remains a thin compatibility wrapper.
+async def _vector_search(self, query: str, top_k: int, filters: dict) -> list[dict]:
+    return await retrieval_search._vector_search(
+        self._get_collection(),
+        self._embedding_client,
+        self.config,
+        query,
+        top_k,
+        filters,
+    )
+```
+
 ### Scenario: External Document Parse and Status Contracts
 
 #### 1. Scope / Trigger
