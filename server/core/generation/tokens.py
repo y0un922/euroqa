@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+import tiktoken
+
+from server.config import ServerConfig
+from shared.tokenizers import count_for_llm
+
+_enc = tiktoken.get_encoding("cl100k_base")
+
+
+def _legacy_count_tokens(text: str) -> int:
+    return len(_enc.encode(text))
+
+
+def _count_tokens(text: str, config: ServerConfig | None = None) -> tuple[int, bool]:
+    cfg = config or ServerConfig()
+    if not cfg.use_unified_tokenizer:
+        return _legacy_count_tokens(text), True
+    return count_for_llm(text, cfg.llm_model)
