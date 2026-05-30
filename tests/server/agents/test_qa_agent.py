@@ -8,7 +8,12 @@ from agents import RunContextWrapper
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
-from server.agents.qa_agent import AgentDecision, _QA_AGENT_INSTRUCTIONS, run_qa_agent
+from server.agents.qa_agent import (
+    AgentDecision,
+    _QA_AGENT_INSTRUCTIONS,
+    build_qa_agent,
+    run_qa_agent,
+)
 from server.agents.tools.retrieve import _retrieve_impl
 from server.config import ServerConfig
 from server.core.query_understanding import QueryAnalysis
@@ -85,6 +90,13 @@ async def test_chat_greeting():
 
 def test_qa_agent_instructions_mention_json():
     assert "json" in _QA_AGENT_INSTRUCTIONS.lower()
+
+
+def test_build_qa_agent_does_not_configure_trace_processors():
+    with patch("agents.set_trace_processors") as set_trace_processors:
+        build_qa_agent(ServerConfig())
+
+    set_trace_processors.assert_not_called()
 
 
 @pytest.mark.asyncio

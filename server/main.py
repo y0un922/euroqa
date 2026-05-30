@@ -1,12 +1,14 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 
+from agents import set_trace_processors
 import structlog
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from server.agents.tracing import StructlogTracingProcessor
 from server.api.debug_pipeline import router as debug_router
 from server.api.v1.auth import require_auth
 from server.api.v1.router import router as v1_router
@@ -25,6 +27,7 @@ async def lifespan(app: FastAPI):
 
     config: ServerConfig = get_config()
     configure_logging(json_mode=config.log_json)
+    set_trace_processors([StructlogTracingProcessor()])
 
     retriever = get_retriever()
     try:

@@ -17,6 +17,7 @@ from structlog.contextvars import get_contextvars
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.qa_agent import AgentDecision, build_qa_agent, run_qa_agent
+from server.circuit_breaker import AsyncCircuitBreaker, CircuitBreakerOpenError
 from server.config import ServerConfig
 from server.deps import (
     get_config,
@@ -49,6 +50,8 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 _qa_agents: dict[str, Agent[QADeps]] = {}
+_agent_semaphore: asyncio.Semaphore | None = None
+_agent_circuit_breaker: AsyncCircuitBreaker | None = None
 
 
 _QUESTION_TYPE_LABELS = {
@@ -110,6 +113,25 @@ def _get_or_build_agent(config: ServerConfig) -> Agent[QADeps]:
     if cache_key not in _qa_agents:
         _qa_agents[cache_key] = build_qa_agent(config)
     return _qa_agents[cache_key]
+
+
+def _get_agent_semaphore(config: ServerConfig) -> asyncio.Semaphore:
+    """Return the process-local agent LLM concurrency semaphore."""
+    global _agent_semaphore
+    if _agent_semaphore is None:
+        _agent_semaphore = asyncio.Semaphore(config.agent_max_concurrency)
+    return _agent_semaphore
+
+
+def _get_agent_circuit_breaker(config: ServerConfig) -> AsyncCircuitBreaker:
+    """Return the process-local agent LLM circuit breaker."""
+    global _agent_circuit_breaker
+    if _agent_circuit_breaker is None:
+        _agent_circuit_breaker = AsyncCircuitBreaker(
+            failure_threshold=config.agent_circuit_breaker_failure_threshold,
+            recovery_timeout_seconds=config.agent_circuit_breaker_recovery_seconds,
+        )
+    return _agent_circuit_breaker
 
 
 def _conversation_state_for_agent(
@@ -506,16 +528,54 @@ async def _run_agent_dispatch(
         req=req,
     )
     agent = _get_or_build_agent(runtime_config)
-    try:
-        async with asyncio.timeout(runtime_config.agent_timeout_seconds):
-            decision, bundle = await with_retry(
+    breaker = _get_agent_circuit_breaker(runtime_config)
+    started_at = time.perf_counter()
+
+    async def run_agent_with_limits() -> tuple[AgentDecision, EvidenceBundle]:
+        semaphore_wait_started_at = time.perf_counter()
+        async with _get_agent_semaphore(runtime_config):
+            logger.info(
+                "agent_semaphore_acquired",
+                wait_ms=int((time.perf_counter() - semaphore_wait_started_at) * 1000),
+                breaker_state=breaker.state,
+            )
+            return await with_retry(
                 lambda: run_qa_agent(agent, req.question, deps, max_turns=5),
                 max_attempts=2,
-                retryable=(APITimeoutError, APIConnectionError, InternalServerError),
+                retryable=(
+                    APITimeoutError,
+                    APIConnectionError,
+                    InternalServerError,
+                ),
             )
+
+    try:
+        async with asyncio.timeout(runtime_config.agent_timeout_seconds):
+            decision, bundle = await breaker.call(run_agent_with_limits)
+        logger.info(
+            "agent_dispatch_completed",
+            action=decision.action,
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+            breaker_state=breaker.state,
+        )
     except asyncio.TimeoutError:
+        await breaker.record_failure()
+        logger.warning(
+            "agent_dispatch_timeout",
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+            breaker_state=breaker.state,
+        )
         raise LLMUnavailableError("agent 决策超时")
+    except CircuitBreakerOpenError as exc:
+        logger.warning("agent_circuit_breaker_open", breaker_state=breaker.state)
+        raise LLMUnavailableError("agent LLM 熔断中，请稍后重试") from exc
     except (APITimeoutError, APIConnectionError, InternalServerError) as exc:
+        logger.warning(
+            "agent_dispatch_unavailable",
+            error_type=type(exc).__name__,
+            duration_ms=int((time.perf_counter() - started_at) * 1000),
+            breaker_state=breaker.state,
+        )
         raise LLMUnavailableError(f"agent LLM 不可用: {exc}") from exc
     return decision, bundle, conv, deps
 
