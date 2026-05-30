@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -13,15 +12,12 @@ from elasticsearch import NotFoundError
 from shared.elasticsearch_client import build_async_elasticsearch
 from shared.milvus_schema import ensure_collection
 from shared.model_clients import build_embedding_client, build_rerank_client
-from shared.reference_graph import (
-    build_object_id,
-    classify_reference_label,
-    extract_reference_labels,
-    normalize_reference_label,
-)
+from shared.reference_graph import build_object_id, classify_reference_label, extract_reference_labels, normalize_reference_label
 from shared.spot_check import record_spot_check
 from shared.tokenizers import count_for_rerank
 from server.config import ServerConfig
+from server.core import retrieval_helpers
+from server.core.retrieval_types import RetrievalResult, _result_entries
 from server.models.schemas import Chunk, ChunkMetadata, GuideHint, QuestionType
 
 if TYPE_CHECKING:
@@ -31,11 +27,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 # 匹配源文档代号（EN 1990, EN 1992-1-1 等）用于标识引用的标准来源
-_SOURCE_DOC_RE = re.compile(
-    r"(?<![A-Za-z0-9])en\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)"
-    r"(?:[\s:_-]*([0-9]{4}))?(?![A-Za-z0-9])",
-    re.IGNORECASE,
-)
 _GUIDE_EXAMPLE_MARKERS = (
     "worked example",
     "illustrative example",
@@ -105,33 +96,8 @@ _CROSS_REF_PRIORITY = {
 }
 
 
-@dataclass
-class RetrievalResult:
-    """检索结果，包含最终 chunk、父 chunk、交叉引用 chunk 和重排序分数。"""
-
-    chunks: list[Chunk]
-    parent_chunks: list[Chunk]
-    scores: list[float]
-    guide_chunks: list[Chunk] = field(default_factory=list)
-    guide_example_chunks: list[Chunk] = field(default_factory=list)
-    ref_chunks: list[Chunk] = field(default_factory=list)
-    groundedness: str = "not_grounded"
-    resolved_refs: list[str] = field(default_factory=list)
-    unresolved_refs: list[str] = field(default_factory=list)
 
 
-def _result_entries(results: list[dict]) -> list[dict[str, Any]]:
-    """Serialize retrieval result dictionaries for spot-check logs."""
-    entries: list[dict[str, Any]] = []
-    for result in results:
-        entries.append(
-            {
-                "chunk_id": result.get("chunk_id"),
-                "source": result.get("source"),
-                "score": result.get("score"),
-            }
-        )
-    return entries
 
 
 class HybridRetriever:
@@ -420,56 +386,23 @@ class HybridRetriever:
 
     @staticmethod
     def _normalize_target_hint(target_hint: Any) -> dict[str, str]:
-        """将 target_hint 归一化为纯字符串字典。"""
-        if target_hint is None:
-            return {}
-
-        if isinstance(target_hint, dict):
-            raw_items = target_hint.items()
-        else:
-            raw_items = (
-                (key, getattr(target_hint, key, None))
-                for key in ("document", "clause", "object")
-            )
-
-        normalized: dict[str, str] = {}
-        for key, value in raw_items:
-            if isinstance(value, str):
-                stripped = value.strip()
-                if stripped:
-                    normalized[key] = stripped
-        return normalized
+        return retrieval_helpers._normalize_target_hint(target_hint)
 
     @staticmethod
     def _object_reference_key(object_id: str) -> str:
-        return object_id.split("#", 1)[-1].strip().lower() if object_id else ""
+        return retrieval_helpers._object_reference_key(object_id)
 
     @staticmethod
     def _collect_object_ids(chunks: list[Chunk]) -> set[str]:
-        return {
-            chunk.metadata.object_id
-            for chunk in chunks
-            if chunk.metadata.object_id
-        }
+        return retrieval_helpers._collect_object_ids(chunks)
 
     @staticmethod
     def _collect_ref_object_ids(chunks: list[Chunk]) -> set[str]:
-        object_ids: set[str] = set()
-        for chunk in chunks:
-            object_ids.update(
-                object_id
-                for object_id in chunk.metadata.ref_object_ids
-                if object_id
-            )
-        return object_ids
+        return retrieval_helpers._collect_ref_object_ids(chunks)
 
     @classmethod
     def _collect_object_keys(cls, chunks: list[Chunk]) -> set[str]:
-        return {
-            cls._object_reference_key(chunk.metadata.object_id)
-            for chunk in chunks
-            if chunk.metadata.object_id
-        }
+        return retrieval_helpers._collect_object_keys(chunks)
 
     @staticmethod
     def _build_object_id_label_map(
@@ -477,35 +410,21 @@ class HybridRetriever:
         requested_objects: list[str],
         lookup_source: str,
     ) -> dict[str, str]:
-        labels_by_id: dict[str, str] = {}
-
-        for chunk in chunks:
-            if chunk.metadata.object_id and chunk.metadata.object_label:
-                labels_by_id.setdefault(chunk.metadata.object_id, chunk.metadata.object_label)
-
-        for chunk in chunks:
-            for label, object_id in zip(
-                chunk.metadata.ref_labels,
-                chunk.metadata.ref_object_ids,
-                strict=False,
-            ):
-                if object_id and label and object_id not in labels_by_id:
-                    labels_by_id[object_id] = label
-
-        for label in requested_objects:
-            ref_type = classify_reference_label(label)
-            if ref_type is None or not lookup_source:
-                continue
-            object_id = build_object_id(lookup_source, ref_type, label)
-            labels_by_id.setdefault(object_id, label)
-
-        return labels_by_id
+        return retrieval_helpers._build_object_id_label_map(
+            chunks,
+            requested_objects,
+            lookup_source,
+        )
 
     @staticmethod
-    def _should_require_reference_closure(object_key: str, requested_object_keys: set[str]) -> bool:
-        if object_key in requested_object_keys:
-            return True
-        return object_key.startswith(("table:", "expression:", "annex:"))
+    def _should_require_reference_closure(
+        object_key: str,
+        requested_object_keys: set[str],
+    ) -> bool:
+        return retrieval_helpers._should_require_reference_closure(
+            object_key,
+            requested_object_keys,
+        )
 
     @classmethod
     def _should_promote_exact_ref_chunk(
@@ -514,12 +433,11 @@ class HybridRetriever:
         required_object_keys: set[str],
         requested_object_keys: set[str],
     ) -> bool:
-        object_key = cls._object_reference_key(chunk.metadata.object_id)
-        if not object_key or object_key not in required_object_keys:
-            return False
-        if object_key in requested_object_keys:
-            return True
-        return (chunk.metadata.object_type or "").lower() in {"table", "expression", "annex"}
+        return retrieval_helpers._should_promote_exact_ref_chunk(
+            chunk,
+            required_object_keys,
+            requested_object_keys,
+        )
 
     @classmethod
     def _promote_exact_ref_chunks(
@@ -530,164 +448,41 @@ class HybridRetriever:
         required_object_keys: set[str],
         requested_object_keys: set[str],
     ) -> tuple[list[Chunk], list[float], list[Chunk]]:
-        if not chunks or not ref_chunks:
-            return chunks, scores, ref_chunks
-
-        seen_ids = {chunk.chunk_id for chunk in chunks}
-        promoted: list[Chunk] = []
-        remaining: list[Chunk] = []
-        for chunk in ref_chunks:
-            if chunk.chunk_id in seen_ids:
-                continue
-            if cls._should_promote_exact_ref_chunk(
-                chunk,
-                required_object_keys,
-                requested_object_keys,
-            ):
-                seen_ids.add(chunk.chunk_id)
-                promoted.append(chunk)
-            else:
-                remaining.append(chunk)
-
-        if not promoted:
-            return chunks, scores, ref_chunks
-
-        insert_at = 1 if (chunks[0].metadata.object_type or "").lower() == "clause" else 0
-        base_score = scores[0] if scores else 0.0
-        promoted_scores = [max(base_score - (index + 1) * 0.001, 0.0) for index, _ in enumerate(promoted)]
-        merged_chunks = chunks[:insert_at] + promoted + chunks[insert_at:]
-        merged_scores = scores[:insert_at] + promoted_scores + scores[insert_at:]
-        return merged_chunks, merged_scores, remaining
+        return retrieval_helpers._promote_exact_ref_chunks(
+            chunks,
+            scores,
+            ref_chunks,
+            required_object_keys,
+            requested_object_keys,
+        )
 
     @classmethod
     def _prune_shadowed_requested_object_ids(cls, object_ids: set[str]) -> set[str]:
-        explicit_object_keys = {
-            object_key.split(":", 1)[1]
-            for object_id in object_ids
-            if (object_key := cls._object_reference_key(object_id))
-            and not object_key.startswith("clause:")
-            and ":" in object_key
-        }
-        return {
-            object_id
-            for object_id in object_ids
-            if not (
-                (object_key := cls._object_reference_key(object_id)).startswith("clause:")
-                and object_key.split(":", 1)[1] in explicit_object_keys
-            )
-        }
+        return retrieval_helpers._prune_shadowed_requested_object_ids(object_ids)
 
     @staticmethod
     def _display_label_for_object_id(object_id: str) -> str:
-        suffix = object_id.split("#", 1)[-1]
-        if ":" not in suffix:
-            return object_id
-        object_type, key = suffix.split(":", 1)
-        if object_type == "table":
-            return f"Table {key}"
-        if object_type == "figure":
-            return f"Figure {key}"
-        if object_type == "expression":
-            return f"Expression ({key})"
-        if object_type == "annex":
-            return f"Annex {key.upper()}"
-        if object_type == "clause":
-            return key
-        return object_id
+        return retrieval_helpers._display_label_for_object_id(object_id)
 
     @staticmethod
     def _parse_source_reference(value: str) -> tuple[str, str]:
-        match = _SOURCE_DOC_RE.search(value or "")
-        if not match:
-            return "", ""
-        return match.group(1), match.group(2) or ""
+        return retrieval_helpers._parse_source_reference(value)
 
     @classmethod
     def _source_aliases(cls, value: str) -> list[str]:
-        candidate = (value or "").strip()
-        if not candidate:
-            return []
-
-        aliases: list[str] = [candidate]
-        code, year = cls._parse_source_reference(candidate)
-        if not code:
-            return aliases
-
-        base_forms = [f"EN {code}", f"EN{code}"]
-        if year:
-            for base in base_forms:
-                aliases.extend(
-                    [
-                        f"{base}:{year}",
-                        f"{base} {year}",
-                        f"{base}_{year}",
-                    ]
-                )
-        else:
-            aliases.extend(base_forms)
-
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for alias in aliases:
-            normalized = alias.strip()
-            if normalized and normalized not in seen:
-                seen.add(normalized)
-                deduped.append(normalized)
-        return deduped
+        return retrieval_helpers._source_aliases(value)
 
     @classmethod
     def _build_source_filter_clauses(cls, filters: dict | None) -> list[dict]:
-        filters = filters or {}
-        filter_clauses: list[dict] = []
-
-        if "source" in filters:
-            aliases = cls._source_aliases(filters["source"])
-            code, year = cls._parse_source_reference(filters["source"])
-            should_clauses = [{"term": {"source": alias}} for alias in aliases]
-            if code and not year:
-                should_clauses.append({"wildcard": {"source": f"*{code}*"}})
-            filter_clauses.append(
-                {
-                    "bool": {
-                        "should": should_clauses,
-                        "minimum_should_match": 1,
-                    }
-                }
-            )
-
-        if "sources" in filters:
-            filter_clauses.append({"terms": {"source": filters["sources"]}})
-
-        return filter_clauses
+        return retrieval_helpers._build_source_filter_clauses(filters)
 
     @classmethod
     def _build_milvus_source_expr(cls, source: str) -> str | None:
-        aliases = cls._source_aliases(source)
-        code, year = cls._parse_source_reference(source)
-        if not aliases:
-            return None
-        if not code:
-            return f'source == "{source}"'
-        if not year:
-            return None
-        if len(aliases) == 1:
-            return f'source == "{aliases[0]}"'
-        quoted = ", ".join(f'"{alias}"' for alias in aliases)
-        return f"source in [{quoted}]"
+        return retrieval_helpers._build_milvus_source_expr(source)
 
     @classmethod
     def _source_matches_filter(cls, source: str, expected: str) -> bool:
-        """Return whether an indexed source satisfies a user-facing source filter."""
-
-        normalized_source = source.strip()
-        aliases = cls._source_aliases(expected)
-        code, year = cls._parse_source_reference(expected)
-        if normalized_source in aliases:
-            return True
-        if code and not year:
-            source_code, _ = cls._parse_source_reference(normalized_source)
-            return source_code == code or source_code.startswith(f"{code}-")
-        return False
+        return retrieval_helpers._source_matches_filter(source, expected)
 
     @classmethod
     def _filter_results_by_source(
@@ -695,41 +490,11 @@ class HybridRetriever:
         results: list[dict],
         filters: dict | None,
     ) -> list[dict]:
-        """Apply source filters to result rows that were not filtered by backend expr."""
-
-        filters = filters or {}
-        if "source" in filters:
-            return [
-                result
-                for result in results
-                if cls._source_matches_filter(str(result.get("source") or ""), filters["source"])
-            ]
-        if "sources" in filters:
-            allowed = set(filters["sources"])
-            return [
-                result
-                for result in results
-                if result.get("source") in allowed
-            ]
-        return results
+        return retrieval_helpers._filter_results_by_source(results, filters)
 
     @classmethod
     def _lookup_aliases_for_object_id(cls, object_id: str) -> tuple[str, list[str]]:
-        suffix = object_id.split("#", 1)[-1]
-        if ":" not in suffix:
-            return "", []
-        object_type, key = suffix.split(":", 1)
-        if object_type == "table":
-            return object_type, [f"Table {key}"]
-        if object_type == "figure":
-            return object_type, [f"Figure {key}"]
-        if object_type == "expression":
-            return object_type, [f"Expression ({key})"]
-        if object_type == "annex":
-            return object_type, [f"Annex {key.upper()}"]
-        if object_type == "clause":
-            return object_type, [key, f"Clause {key}", f"Section {key}"]
-        return object_type, []
+        return retrieval_helpers._lookup_aliases_for_object_id(object_id)
 
     def _build_requested_object_ids(
         self,
