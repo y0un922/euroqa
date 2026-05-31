@@ -9,7 +9,6 @@ from agents import RunContextWrapper
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.qa_agent import (
-    AgentDecision,
     _QA_AGENT_INSTRUCTIONS,
     build_qa_agent,
     run_qa_agent,
@@ -62,20 +61,18 @@ def _make_chunk(chunk_id: str = "chunk-1") -> Chunk:
     )
 
 
-async def _fake_runner_result(decision: AgentDecision):
-    return SimpleNamespace(final_output=decision)
+async def _fake_runner_result(reply: str):
+    return SimpleNamespace(final_output=reply)
 
 
 @pytest.mark.asyncio
 async def test_chat_greeting():
     deps = _make_deps()
-    decision = AgentDecision(
-        action="chat", direct_reply="你好，有什么欧标问题可以帮你？"
-    )
+    reply = "你好，有什么欧标问题可以帮你？"
 
     with patch(
         "server.agents.qa_agent.Runner.run",
-        return_value=await _fake_runner_result(decision),
+        return_value=await _fake_runner_result(reply),
     ):
         result, bundle = await run_qa_agent(
             agent=object(),
@@ -83,13 +80,13 @@ async def test_chat_greeting():
             deps=deps,
         )
 
-    assert result.action == "chat"
-    assert result.direct_reply
+    assert result == reply
     assert bundle.is_empty
 
 
-def test_qa_agent_instructions_mention_json():
-    assert "json" in _QA_AGENT_INSTRUCTIONS.lower()
+def test_qa_agent_instructions_forbid_json_actions():
+    assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS
+    assert '{"action": "retrieve"}' in _QA_AGENT_INSTRUCTIONS
 
 
 def test_build_qa_agent_does_not_configure_trace_processors():
@@ -124,7 +121,7 @@ async def test_rag_eurocode_question():
             RunContextWrapper(context),
             "设计使用年限是什么？",
         )
-        return SimpleNamespace(final_output=AgentDecision(action="compose_rag"))
+        return SimpleNamespace(final_output="已检索到 EN 1990 的设计使用年限条文。")
 
     with (
         patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run),
@@ -136,8 +133,9 @@ async def test_rag_eurocode_question():
             deps=deps,
         )
 
-    assert result.action == "compose_rag"
+    assert "EN 1990" in result
     assert not bundle.is_empty
+    assert bundle.has_rag_evidence
     assert bundle.chunk_count == 1
     assert bundle.groundedness == "grounded"
     assert retriever.calls[0]["queries"] == ["design working life"]
@@ -147,11 +145,11 @@ async def test_rag_eurocode_question():
 @pytest.mark.asyncio
 async def test_clarify_vague_question():
     deps = _make_deps()
-    decision = AgentDecision(action="clarify", direct_reply="请补充规范号或构件类型。")
+    reply = "请补充规范号或构件类型。"
 
     with patch(
         "server.agents.qa_agent.Runner.run",
-        return_value=await _fake_runner_result(decision),
+        return_value=await _fake_runner_result(reply),
     ):
         result, bundle = await run_qa_agent(
             agent=object(),
@@ -159,9 +157,7 @@ async def test_clarify_vague_question():
             deps=deps,
         )
 
-    assert result.action == "clarify"
-    assert result.direct_reply
-    assert "补充" in result.direct_reply or "哪" in result.direct_reply
+    assert "补充" in result or "哪" in result
     assert bundle.is_empty
 
 
@@ -182,7 +178,7 @@ async def test_max_turns_with_evidence():
             max_turns=1,
         )
 
-    assert result.action == "compose_rag"
+    assert result == "已检索到相关规范证据，正在整理回答。"
     assert returned_bundle is bundle
 
 
@@ -202,28 +198,19 @@ async def test_max_turns_without_evidence():
             max_turns=1,
         )
 
-    assert result.action == "chat"
-    assert (
-        result.direct_reply
-        == "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
-    )
+    assert result == "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
     assert bundle.is_empty
 
 
 @pytest.mark.asyncio
-async def test_compose_rag_without_retrieve_exposes_empty_bundle():
-    """Regression: bug state — agent returns compose_rag without calling retrieve.
-
-    This test asserts the *current* run_qa_agent behavior in the buggy case
-    (no auto-recovery at agent layer). The fix lives in the dispatch layer
-    (server/api/v1/query.py — see test_query_stream_recovers_*).
-    """
+async def test_direct_reply_without_retrieve_exposes_empty_bundle():
+    """The agent can answer directly without creating RAG evidence."""
     deps = _make_deps()
-    decision = AgentDecision(action="compose_rag")
+    reply = "这个问题需要补充规范号或构件类型。"
 
     with patch(
         "server.agents.qa_agent.Runner.run",
-        return_value=await _fake_runner_result(decision),
+        return_value=await _fake_runner_result(reply),
     ):
         result, bundle = await run_qa_agent(
             agent=object(),
@@ -231,12 +218,12 @@ async def test_compose_rag_without_retrieve_exposes_empty_bundle():
             deps=deps,
         )
 
-    assert result.action == "compose_rag"
+    assert result == reply
     assert bundle.is_empty
     assert not any(entry.get("tool") == "retrieve" for entry in bundle.tool_trace)
 
 
-def test_qa_agent_instructions_require_retrieve_before_compose():
-    """Prompt-hardening guard: enforce the new mandatory-retrieve language."""
-    assert "必须先调用 retrieve" in _QA_AGENT_INSTRUCTIONS
-    assert "硬性" in _QA_AGENT_INSTRUCTIONS
+def test_qa_agent_instructions_require_retrieve_for_eurocode_questions():
+    """Prompt-hardening: Eurocode questions should use retrieve."""
+    assert "必须调用 retrieve" in _QA_AGENT_INSTRUCTIONS
+    assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from agents import Agent, ModelSettings, Runner
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
-from pydantic import BaseModel
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
@@ -15,41 +12,30 @@ from server.config import ServerConfig
 
 _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x 系列）的专家问答助手。
 
-## 硬性规则（违反将导致系统报错并被拦截）
-- 设置 action="compose_rag" 之前，本轮必须先调用 retrieve 工具至少一次，并确认 chunk_count > 0
-- 不允许以"历史对话已有同样回答"为理由跳过 retrieve；用户重复提问通常需要重新核实最新规范证据
-- retrieve 返回 0 条结果时，可换查询角度重试 1-2 次；仍为 0 则改用 action="chat"，在 direct_reply 中说明"暂未检索到相关条文，请补充规范号或构件信息"
-
 ## 工具
 - retrieve(query): 搜索规范知识库。传入检索查询，系统自动进行查询扩展和混合检索。返回匹配的规范片段摘要。
 - lookup_glossary(term): 查询术语表。传入术语，返回翻译和定义。
 
-## 决策规则
-
-### action = "chat"
-适用于闲聊、寒暄、与规范无关的问题、或上下文追问且历史中已有足够信息。
-不调用工具，在 direct_reply 中直接回复。
-
-### action = "clarify"
-适用于问题过于模糊（缺规范号、缺参数、缺构件类型）且无法通过 retrieve 弥补。
-不调用工具，在 direct_reply 中礼貌反问。
-
-### action = "compose_rag"
-适用于明确的规范相关问题。**必须先调用 retrieve 收集证据**，确认检索到至少 1 条相关 chunk 后才能设置此 action。
-direct_reply 留空（系统会用检索证据生成详细回答）。
-检索不理想可换角度重试（最多 2-3 次）。
+## 行为准则
+- 用户问 Eurocode、EN 199x、结构设计规范、承载力、荷载组合、材料分项系数、构造限值等规范相关问题时，必须调用 retrieve 搜索证据。
+- 用户寒暄、闲聊、或问与规范无关的问题时，直接自然语言回复，不调用工具。
+- 用户追问且当前对话历史已经足够回答时，可以直接回复。
+- 用户追问但需要新的规范证据、其他条文、表格、公式或参数时，再次调用 retrieve。
+- 问题过于模糊且无法形成有效检索查询时，直接礼貌反问，请用户补充规范号、构件类型、参数名称或设计场景。
+- retrieve 返回 0 条结果时，可以换查询角度重试 1-2 次；仍为 0 则直接告知暂未找到相关条文，并请用户补充信息。
 
 ## 重要原则
 - 不要编造规范内容
-- 检索不到就坦率告知（用 chat + 说明，而不是 compose_rag）
 - 优先检索，不确定时宁可多查一次
-- 最终决策必须只输出符合 AgentDecision 的 json，不要输出额外文本
+- 如果调用 retrieve 且找到了相关证据，简要说明找到了什么即可；系统会基于证据生成详细回答。
+- 如果没有调用 retrieve，你的回复就是最终回答，请直接、清晰地回复用户。
+- 不要输出 JSON、action 字段或路由指令；只用自然语言回复。
+
+## 常见错误（禁止）
+- ❌ 用户问"EN 1992-1-1 表 2.1N 的材料分项系数是什么？" → 不调用 retrieve 直接回答。
+- ❌ retrieve 返回 0 条 → 编造条文编号或参数值。
+- ❌ 输出 {"action": "retrieve"} 或 {"action": "compose_rag"}。
 """
-
-
-class AgentDecision(BaseModel):
-    action: Literal["compose_rag", "chat", "clarify"]
-    direct_reply: str | None = None
 
 
 def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
@@ -64,7 +50,6 @@ def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
     return Agent[QADeps](
         name="eurocode-qa",
         model=model,
-        output_type=AgentDecision,
         tools=[retrieve, lookup_glossary],
         model_settings=ModelSettings(temperature=0.1),
         instructions=_QA_AGENT_INSTRUCTIONS,
@@ -76,16 +61,13 @@ async def run_qa_agent(
     question: str,
     deps: QADeps,
     max_turns: int = 5,
-) -> tuple[AgentDecision, EvidenceBundle]:
+) -> tuple[str, EvidenceBundle]:
     input_items = _build_input_items(question, deps)
 
-    def on_max_turns(_handler_input: object) -> AgentDecision:
-        if not deps.bundle.is_empty:
-            return AgentDecision(action="compose_rag")
-        return AgentDecision(
-            action="chat",
-            direct_reply="抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。",
-        )
+    def on_max_turns(_handler_input: object) -> str:
+        if deps.bundle.has_rag_evidence:
+            return "已检索到相关规范证据，正在整理回答。"
+        return "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
 
     result = await Runner.run(
         agent,
@@ -94,7 +76,7 @@ async def run_qa_agent(
         max_turns=max_turns,
         error_handlers={"max_turns": on_max_turns},
     )
-    return result.final_output, deps.bundle
+    return str(result.final_output or ""), deps.bundle
 
 
 def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:

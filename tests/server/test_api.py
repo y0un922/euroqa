@@ -9,12 +9,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server import deps
-from server.api.v1.query import _add_conversation_turn
+from server.agents.evidence import EvidenceBundle
+from server.agents.orchestrator import AgentResult
+from server.api.v1._response import _add_conversation_turn
 from server.config import ServerConfig
 from server.core.conversation import RedisConversationManager
+from server.core import query_understanding
 from server.core.retrieval import RetrievalResult
 from server.main import app
-from server.models.schemas import QueryResponse, RetrievalContext
+from server.models.schemas import (
+    Chunk,
+    ChunkMetadata,
+    ElementType,
+    QueryResponse,
+    RetrievalContext,
+)
 
 
 def _server_config(**overrides) -> ServerConfig:
@@ -49,8 +58,84 @@ def _analysis_stub(
     )
 
 
+def _value(payload: object) -> object:
+    return getattr(payload, "value", payload)
+
+
+def _make_test_chunk() -> Chunk:
+    return Chunk(
+        chunk_id="test-chunk-1",
+        content="Test Eurocode evidence.",
+        embedding_text="Test Eurocode evidence",
+        metadata=ChunkMetadata(
+            source="EN 1990:2002",
+            source_title="Basis of structural design",
+            section_path=["1"],
+            page_numbers=[1],
+            page_file_index=[0],
+            clause_ids=["1"],
+            element_type=ElementType.TEXT,
+        ),
+    )
+
+
+async def _legacy_pipeline_dispatch_agent(
+    question,
+    req,
+    config,
+    retriever,
+    glossary,
+    conv_mgr,
+):
+    """Drive API tests through the new dispatch seam without real LLM calls."""
+    getter = getattr(conv_mgr, "get_or_create_async", None)
+    conv = (
+        await getter(req.session_id or req.conversation_id)
+        if getter is not None
+        else conv_mgr.get_or_create(req.session_id or req.conversation_id)
+    )
+    analysis = await query_understanding.analyze_query(question, glossary, config)
+    result = await retriever.retrieve(
+        queries=analysis.expanded_queries,
+        original_query=question,
+        filters=analysis.filters,
+        intent_label=analysis.intent_label,
+        question_type=_value(analysis.question_type),
+        guide_hint=analysis.guide_hint,
+        target_hint=analysis.target_hint,
+        requested_objects=analysis.requested_objects,
+        preferred_element_type=analysis.preferred_element_type,
+    )
+    bundle = EvidenceBundle()
+    bundle.add_retrieval(result)
+    if not bundle.has_rag_evidence:
+        bundle.chunks.append(_make_test_chunk())
+    bundle.tool_trace.append(
+        {
+            "tool": "retrieve",
+            "chunk_count": len(result.chunks),
+        }
+    )
+    bundle.question_type = _value(analysis.question_type)
+    bundle.engineering_context = analysis.engineering_context
+    bundle.intent_label = analysis.intent_label
+    return AgentResult(
+        agent_reply="已检索到相关规范证据。",
+        bundle=bundle,
+        conv=conv,
+        deps=None,
+    )
+
+
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    from server.api.v1 import query as query_module
+
+    monkeypatch.setattr(
+        query_module,
+        "dispatch_agent",
+        _legacy_pipeline_dispatch_agent,
+    )
     app.dependency_overrides = {
         deps.get_config: lambda: _server_config(access_password=""),
     }
@@ -352,9 +437,9 @@ class TestQueryEndpoint:
             return _analysis_stub(question)
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch(
-                "server.api.v1.query.generate_answer_stream",
+                "server.api.v1._response.generate_answer_stream",
                 _fake_generate_answer_stream,
             ),
         ):
@@ -423,7 +508,7 @@ class TestQueryEndpoint:
                 "server.core.query_understanding._call_llm",
                 AsyncMock(side_effect=RuntimeError("llm unavailable")),
             ),
-            patch("server.api.v1.query.generate_answer_stream", _fake_stream),
+            patch("server.api.v1._response.generate_answer_stream", _fake_stream),
         ):
             resp = client.post(
                 "/api/v1/query/stream",
@@ -496,8 +581,8 @@ class TestQueryEndpoint:
             )
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post(
                 "/api/v1/query",
@@ -573,8 +658,8 @@ class TestQueryEndpoint:
             )
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post(
                 "/api/v1/query",
@@ -623,9 +708,9 @@ class TestQueryEndpoint:
             yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch(
-                "server.api.v1.query.generate_answer_stream",
+                "server.api.v1._response.generate_answer_stream",
                 _fake_generate_answer_stream,
             ),
         ):
@@ -688,8 +773,8 @@ class TestQueryEndpoint:
             )
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post(
                 "/api/v1/query",
@@ -735,8 +820,8 @@ class TestQueryEndpoint:
             yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer_stream", _fake_generate_answer_stream),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
         ):
             resp = client.post(
                 "/api/v1/query/stream",
@@ -804,8 +889,8 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post(
                 "/api/v1/query",
@@ -880,8 +965,8 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post(
                 "/api/v1/query",
@@ -988,8 +1073,8 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post(
                 "/api/v1/query",
@@ -1062,9 +1147,9 @@ class TestQueryEndpoint:
             yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch(
-                "server.api.v1.query.generate_answer_stream",
+                "server.api.v1._response.generate_answer_stream",
                 _fake_generate_answer_stream,
             ),
         ):
@@ -1170,9 +1255,9 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch(
-                "server.api.v1.query.generate_answer_stream",
+                "server.api.v1._response.generate_answer_stream",
                 _fake_generate_answer_stream,
             ),
         ):
@@ -1228,9 +1313,9 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch(
-                "server.api.v1.query.generate_answer_stream",
+                "server.api.v1._response.generate_answer_stream",
                 _fake_generate_answer_stream,
             ),
         ):
@@ -1241,10 +1326,10 @@ class TestQueryEndpoint:
 
         assert resp.status_code == 200
         assert "event: progress" in resp.text
-        assert '"title": "理解问题"' in resp.text
-        assert "识别为参数/限值类问题" in resp.text
-        assert '"title": "补齐引用"' in resp.text
-        assert "已补齐 Table 3.1" in resp.text
+        assert '"title": "分析问题"' in resp.text
+        assert '"stage": "agent_thinking"' in resp.text
+        assert '"title": "检索规范条文"' in resp.text
+        assert "找到 0 条相关规范证据" not in resp.text
         assert '"title": "生成回答"' in resp.text
 
     def test_query_endpoint_threads_question_type_to_retriever(self, client):
@@ -1292,8 +1377,8 @@ class TestQueryEndpoint:
             )
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post("/api/v1/query", json={"question": "怎么计算组合值？"})
 
@@ -1339,8 +1424,8 @@ class TestQueryEndpoint:
             return _analysis_stub(question, intent_label="assumption")
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post("/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"})
 
@@ -1373,8 +1458,8 @@ class TestQueryEndpoint:
             return _analysis_stub(question, intent_label="assumption")
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer_stream", _fake_generate_answer_stream),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
         ):
             resp = client.post("/api/v1/query/stream", json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True})
 
@@ -1455,8 +1540,8 @@ class TestQueryEndpoint:
             )
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer_stream", _fake_generate_answer_stream),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
         ):
             resp = client.post(
                 "/api/v1/query/stream",
@@ -1528,8 +1613,8 @@ class TestQueryEndpoint:
             return _analysis_stub(question, intent_label="assumption")
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer", _fake_generate_answer),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
             resp = client.post("/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"})
 
@@ -1565,8 +1650,8 @@ class TestQueryEndpoint:
             return _analysis_stub(question, intent_label="assumption")
 
         with (
-            patch("server.api.v1.query.analyze_query", _fake_analyze_query),
-            patch("server.api.v1.query.generate_answer_stream", _fake_generate_answer_stream),
+            patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
+            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
         ):
             resp = client.post("/api/v1/query/stream", json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True})
 
@@ -1592,7 +1677,7 @@ class TestQueryEndpoint:
         app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        with patch("server.api.v1.query.analyze_query", _fake_analyze_query):
+        with patch("server.core.query_understanding.analyze_query", _fake_analyze_query):
             resp = client.post(
                 "/api/v1/query/stream",
                 json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True},

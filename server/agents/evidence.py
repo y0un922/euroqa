@@ -21,6 +21,9 @@ class EvidenceBundle:
     resolved_refs: list[str] = field(default_factory=list)
     unresolved_refs: list[str] = field(default_factory=list)
     tool_trace: list[dict] = field(default_factory=list)
+    question_type: str | None = None
+    engineering_context: object | None = None
+    intent_label: str | None = None
 
     def add_retrieval(self, result: RetrievalResult) -> None:
         """Merge one retrieval result into the bundle, deduplicating by chunk_id."""
@@ -52,6 +55,16 @@ class EvidenceBundle:
     @property
     def is_empty(self) -> bool:
         return not self.chunks
+
+    @property
+    def has_rag_evidence(self) -> bool:
+        """Return whether the bundle contains evidence for RAG generation."""
+        return bool(
+            self.chunks
+            or self.ref_chunks
+            or self.guide_chunks
+            or self.guide_example_chunks
+        )
 
     @property
     def chunk_count(self) -> int:

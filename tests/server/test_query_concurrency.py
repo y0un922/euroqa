@@ -10,8 +10,11 @@ import httpx
 import pytest
 
 from server import deps
+from server.agents.evidence import EvidenceBundle
+from server.agents.orchestrator import AgentResult
 from server.config import ServerConfig
 from server.core.retrieval import RetrievalResult
+from server.models.schemas import Chunk, ChunkMetadata, ElementType
 from server.main import app
 
 
@@ -23,12 +26,29 @@ def _server_config(**overrides) -> ServerConfig:
     return ServerConfig(**overrides)
 
 
+def _make_chunk() -> Chunk:
+    return Chunk(
+        chunk_id="chunk-1",
+        content="Eurocode evidence.",
+        embedding_text="Eurocode evidence",
+        metadata=ChunkMetadata(
+            source="EN 1990:2002",
+            source_title="Basis of structural design",
+            section_path=["1"],
+            page_numbers=[1],
+            page_file_index=[0],
+            clause_ids=["1"],
+            element_type=ElementType.TEXT,
+        ),
+    )
+
+
 class _FakeRetriever:
     async def prefetch_vectors(self, query, filters=None):
         return []
 
     async def retrieve(self, **kwargs):
-        return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
+        return RetrievalResult(chunks=[_make_chunk()], parent_chunks=[], scores=[0.9])
 
 
 class _FakeConversationManager:
@@ -81,8 +101,17 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
             },
         )
 
-    async def _fake_analyze_query(question, glossary, config):
-        return _analysis_stub(question)
+    async def _fake_dispatch_agent(question, req, config, retriever, glossary, conv_mgr):
+        conv = conv_mgr.get_or_create(req.session_id or req.conversation_id)
+        bundle = EvidenceBundle()
+        bundle.add_retrieval(await retriever.retrieve())
+        bundle.tool_trace.append({"tool": "retrieve", "chunk_count": 0})
+        return AgentResult(
+            agent_reply="已检索到相关规范证据。",
+            bundle=bundle,
+            conv=conv,
+            deps=None,
+        )
 
     app.dependency_overrides = {
         deps.get_config: lambda: _server_config(access_password=""),
@@ -91,17 +120,16 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
         deps.get_glossary: lambda: {},
     }
     monkeypatch.setattr(
-        "server.api.v1.query.generate_answer_stream",
+        "server.api.v1._response.generate_answer_stream",
         _fake_generate_answer_stream,
     )
     monkeypatch.setattr(
         "server.core.generation.generate_answer_stream",
         _fake_generate_answer_stream,
     )
-    monkeypatch.setattr("server.api.v1.query.analyze_query", _fake_analyze_query)
     monkeypatch.setattr(
-        "server.core.query_understanding.analyze_query",
-        _fake_analyze_query,
+        "server.api.v1.query.dispatch_agent",
+        _fake_dispatch_agent,
     )
 
     async def _post_stream(client: httpx.AsyncClient) -> httpx.Response:

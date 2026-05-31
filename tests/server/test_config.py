@@ -6,6 +6,7 @@ def test_agent_llm_config_falls_back_to_main_llm_config():
         llm_api_key="main-key",
         llm_base_url="https://main.example/v1",
         llm_model="main-model",
+        agent_llm_model="",
     )
 
     assert config.resolved_agent_llm_api_key == "main-key"
