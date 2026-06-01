@@ -13,6 +13,11 @@
   - 类型: 标准流程（全自动执行）
   - 文件: frontend/src/components/AgentChainTimeline.tsx; frontend/src/components/MainWorkspace.tsx; frontend/src/components/MainWorkspace.test.ts; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/lib/types.ts
 
+### 优化
+- **[server.agents.tools.retrieve / server.agents.qa_agent / tests]**: 实现 ReAct 检索优化，`retrieve` 在 evidence bundle 已 `grounded` 时直接跳过查询理解与检索流水线并记录 `skipped=true/reason=already_grounded`，grounded Observation 明确要求停止再次检索并附带 top hit 摘要；传给 agent 的历史回答移除 `[Ref-N]` 引用标记并截断到 200 字符，降低上下文噪声 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/agents/tools/retrieve.py; server/agents/qa_agent.py; tests/server/agents/test_qa_agent.py
+
 ## [0.1.29] - 2026-05-31
 
 ### 修复

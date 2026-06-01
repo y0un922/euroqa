@@ -27,6 +27,21 @@ async def _retrieve_impl(
     query: str,
     top_k: int = _DEFAULT_TOP_K,
 ) -> str:
+    if ctx.context.bundle.groundedness == "grounded":
+        ctx.context.bundle.tool_trace.append(
+            {
+                "tool": "retrieve",
+                "query": query,
+                "skipped": True,
+                "reason": "already_grounded",
+            }
+        )
+        return (
+            "跳过检索：当前证据已充足 "
+            f"(groundedness=grounded, {ctx.context.bundle.chunk_count} 个片段)。"
+            " 请直接基于已有证据回复。"
+        )
+
     effective_top_k = _clamp_top_k(top_k)
     progress = ToolProgressEmitter("retrieve", ctx.context.tool_progress)
     history = (
@@ -142,8 +157,10 @@ def _format_retrieval_summary(groundedness: str, chunks: list) -> str:
     lines = [
         f"检索到 {len(chunks)} 个片段，groundedness={groundedness}。",
     ]
+    if groundedness == "grounded":
+        lines.append("证据已充足，请直接基于以上证据回复，无需再次检索。")
     if not chunks:
-        return lines[0]
+        return "\n".join(lines)
 
     lines.append("Top hits:")
     for index, chunk in enumerate(chunks[:3], start=1):
@@ -152,7 +169,10 @@ def _format_retrieval_summary(groundedness: str, chunks: list) -> str:
             " > ".join(metadata.section_path) if metadata.section_path else "unknown"
         )
         source = metadata.source or metadata.source_title or "unknown"
+        content_preview = chunk.content[:80].replace("\n", " ").strip()
         lines.append(f"{index}. {source} | {section}")
+        if content_preview:
+            lines.append(f"   摘要: {content_preview}...")
     return "\n".join(lines)
 
 

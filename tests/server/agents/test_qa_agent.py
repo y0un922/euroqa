@@ -11,12 +11,19 @@ from server.agents.evidence import EvidenceBundle
 from server.agents.qa_agent import (
     AgentStreamEvent,
     _QA_AGENT_INSTRUCTIONS,
+    _build_input_items,
+    _compress_answer_for_agent,
     build_qa_agent,
     run_qa_agent,
     run_qa_agent_streamed,
 )
-from server.agents.tools.retrieve import _clamp_top_k, _retrieve_impl
+from server.agents.tools.retrieve import (
+    _clamp_top_k,
+    _format_retrieval_summary,
+    _retrieve_impl,
+)
 from server.config import ServerConfig
+from server.core.conversation import ConversationState
 from server.core.query_understanding import QueryAnalysis
 from server.core.retrieval import RetrievalResult
 from server.models.schemas import Chunk, ChunkMetadata, ElementType, QuestionType
@@ -194,6 +201,45 @@ async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
     assert "检索到 5 个片段" in summary
 
 
+@pytest.mark.asyncio
+async def test_retrieve_tool_skips_when_bundle_is_already_grounded():
+    bundle = EvidenceBundle(chunks=[_make_chunk()])
+    bundle.groundedness = "grounded"
+    retriever = FakeRetriever()
+    deps = _make_deps(retriever=retriever, bundle=bundle)
+
+    with patch("server.agents.tools.retrieve.analyze_query") as analyze_query:
+        summary = await _retrieve_impl(
+            RunContextWrapper(deps),
+            "EN 1990 设计使用年限是什么？",
+            top_k=99,
+        )
+
+    analyze_query.assert_not_called()
+    assert retriever.calls == []
+    assert "跳过检索" in summary
+    assert "groundedness=grounded" in summary
+    assert "1 个片段" in summary
+    assert "个片段)。 请直接" in summary
+    assert deps.bundle.tool_trace[-1] == {
+        "tool": "retrieve",
+        "query": "EN 1990 设计使用年限是什么？",
+        "skipped": True,
+        "reason": "already_grounded",
+    }
+
+
+def test_format_retrieval_summary_includes_stop_instruction_and_previews():
+    chunk = _make_chunk()
+    chunk.content = "First line\nSecond line explains the design working life requirement."
+
+    summary = _format_retrieval_summary("grounded", [chunk])
+
+    assert "证据已充足" in summary
+    assert "无需再次检索" in summary
+    assert "摘要: First line Second line explains" in summary
+
+
 @pytest.mark.parametrize(
     ("requested", "expected"),
     [
@@ -205,6 +251,36 @@ async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
 )
 def test_retrieve_tool_clamps_top_k(requested, expected):
     assert _clamp_top_k(requested) == expected
+
+
+def test_compress_answer_for_agent_strips_citations_and_truncates():
+    answer = "[Ref-1] " + "设计使用年限" * 30 + " [Ref-22]"
+
+    compressed = _compress_answer_for_agent(answer, limit=20)
+
+    assert "[Ref-" not in compressed
+    assert compressed == ("设计使用年限" * 3 + "设计") + "..."
+
+
+def test_build_input_items_compresses_previous_answers_only():
+    deps = _make_deps()
+    deps.conversation_state = ConversationState(
+        conversation_id="conv-1",
+        history=[
+            {
+                "question": "上一轮问题",
+                "answer": "[Ref-1] " + "A" * 250,
+            }
+        ]
+    )
+
+    input_items = _build_input_items("当前问题 [Ref-2]", deps)
+
+    assert input_items == [
+        {"role": "user", "content": "上一轮问题"},
+        {"role": "assistant", "content": "A" * 200 + "..."},
+        {"role": "user", "content": "当前问题 [Ref-2]"},
+    ]
 
 
 @pytest.mark.asyncio

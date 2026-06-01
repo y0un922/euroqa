@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -46,6 +47,8 @@ _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x �
 - ❌ retrieve 返回 0 条 → 编造条文编号或参数值。
 - ❌ 输出 {"action": "retrieve"} 或 {"action": "compose_rag"}。
 """
+
+_CITATION_RE = re.compile(r"\[Ref-\d+\]")
 
 
 @dataclass(frozen=True)
@@ -183,9 +186,18 @@ def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:
             if previous_question:
                 input_items.append({"role": "user", "content": previous_question})
             if previous_answer:
-                input_items.append({"role": "assistant", "content": previous_answer})
+                compressed = _compress_answer_for_agent(previous_answer)
+                input_items.append({"role": "assistant", "content": compressed})
     input_items.append({"role": "user", "content": question})
     return input_items
+
+
+def _compress_answer_for_agent(answer: str, limit: int = 200) -> str:
+    """Strip citation markers and truncate previous answers for agent context."""
+    cleaned = _CITATION_RE.sub("", answer).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip() + "..."
 
 
 def _fallback_agent_reply(deps: QADeps) -> str:
