@@ -9,6 +9,9 @@
 - **[server.api.v1.query / server.api.v1._progress / frontend.api / frontend.useEuroQaDemo / tests]**: 实现 Tool Phase 2 SSE 贯通，流式问答现在将 tool 子步骤通过 `tool_progress` SSE 实时输出，前端 `queryStream` 增加 `onToolProgress` 回调并把子步骤追加到当前 `ChatTurn.toolSubSteps`，不影响既有 progress/chunk/done/commentary 事件 — by Codex
   - 类型: 标准流程（全自动执行）
   - 文件: server/agents/orchestrator.py; server/api/v1/_progress.py; server/api/v1/query.py; frontend/src/lib/types.ts; frontend/src/lib/api.ts; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/lib/api.test.ts; tests/server/test_api.py
+- **[frontend.components.AgentChainTimeline / frontend.components.MainWorkspace / tests]**: 实现 Tool Phase 3 前端链路可视化，新增 `AgentChainTimeline` 基于真实 `ChatTurn.toolSubSteps` 渲染嵌套子步骤、状态图标、并行检索标识和可折叠 metadata，替换旧的 `progressEvents` 推断式 tool card — by Codex
+  - 类型: 标准流程（全自动执行）
+  - 文件: frontend/src/components/AgentChainTimeline.tsx; frontend/src/components/MainWorkspace.tsx; frontend/src/components/MainWorkspace.test.ts; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/lib/types.ts
 
 ## [0.1.29] - 2026-05-31
 

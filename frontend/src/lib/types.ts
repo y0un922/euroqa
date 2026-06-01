@@ -144,6 +144,7 @@ export type StreamCommentaryPayload = {
 };
 
 export type ToolSubStep = {
+  tool_name?: string;
   step_id: string;
   status: QueryProgressStatus;
   title: string;

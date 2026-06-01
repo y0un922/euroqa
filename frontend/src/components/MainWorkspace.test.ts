@@ -189,10 +189,10 @@ test("MainWorkspace does not fabricate tool calls from generic progress", () => 
   assert.doesNotMatch(html, /Agent 分析问题/);
 });
 
-test("MainWorkspace renders real tool payloads as collapsed tool calls", () => {
+test("MainWorkspace ignores legacy tool progress cards without sub-step events", () => {
   const messages: ChatTurn[] = [
     {
-      id: "turn-tool",
+      id: "turn-legacy-tool",
       question: "长细比是如何定义的？",
       answer: "",
       reasoning: "",
@@ -209,18 +209,8 @@ test("MainWorkspace renders real tool payloads as collapsed tool calls", () => {
           summary: "检索到 3 个片段。",
           facts: {
             tool_name: "retrieve",
-            tool_args: {
-              query: "slenderness ratio definition",
-              top_k: 6
-            },
-            tool_result: "检索到 3 个片段，groundedness=grounded。",
-            tool_trace: {
-              tool: "retrieve",
-              query: "slenderness ratio definition",
-              expanded_queries: ["slenderness ratio", "长细比"],
-              chunk_count: 3,
-              groundedness: "grounded"
-            }
+            tool_args: { query: "slenderness ratio definition", top_k: 6 },
+            tool_trace: { expanded_queries: ["slenderness ratio", "长细比"] }
           }
         }
       ]
@@ -246,11 +236,106 @@ test("MainWorkspace renders real tool payloads as collapsed tool calls", () => {
     })
   );
 
+  assert.doesNotMatch(html, /slenderness ratio definition/);
+  assert.doesNotMatch(html, /expanded_queries/);
+  assert.doesNotMatch(html, /检索规范知识库/);
+});
+
+test("MainWorkspace renders tool sub-steps as a nested agent chain timeline", () => {
+  const messages: ChatTurn[] = [
+    {
+      id: "turn-tool",
+      question: "长细比是如何定义的？",
+      answer: "",
+      reasoning: "",
+      status: "streaming",
+      confidence: "none",
+      sources: [],
+      relatedRefs: [],
+      degraded: false,
+      toolSubSteps: [
+        {
+          tool_name: "retrieve",
+          step_id: "query_understanding",
+          status: "completed",
+          title: "理解问题",
+          summary: "改写为：长细比定义；识别为 rule 问题。",
+          metadata: {
+            rewritten_question: "长细比定义",
+            expanded_queries: ["slenderness ratio", "长细比"]
+          },
+          elapsed_ms: 18,
+          parent_step_id: null
+        },
+        {
+          tool_name: "retrieve",
+          step_id: "hybrid_search",
+          status: "completed",
+          title: "混合检索",
+          summary: "找到 3 个候选片段。",
+          metadata: {
+            chunk_count: 3,
+            groundedness: "grounded"
+          },
+          elapsed_ms: 52,
+          parent_step_id: null
+        },
+        {
+          tool_name: "retrieve",
+          step_id: "vector_search",
+          status: "completed",
+          title: "向量检索",
+          summary: "得到 12 个候选",
+          metadata: {
+            candidate_count: 12
+          },
+          elapsed_ms: 30,
+          parent_step_id: "hybrid_search"
+        },
+        {
+          tool_name: "retrieve",
+          step_id: "bm25_search",
+          status: "completed",
+          title: "BM25 检索",
+          summary: "得到 8 个候选",
+          metadata: {
+            candidate_count: 8
+          },
+          elapsed_ms: 25,
+          parent_step_id: "hybrid_search"
+        }
+      ]
+    }
+  ];
+
+  const html = renderToStaticMarkup(
+    React.createElement(MainWorkspace, {
+      activeReferenceId: null,
+      apiState: "ready",
+      bootError: null,
+      documents: [],
+      draftQuestion: "",
+      hotQuestions: [],
+      isSubmitting: false,
+      messages,
+      onDraftQuestionChange: () => {},
+      onReferenceClick: () => {},
+      onSelectHotQuestion: () => {},
+      onSubmit: () => {},
+      onStop: () => {},
+      onRegenerateAnswer: () => {},
+    })
+  );
+
   assert.match(html, /retrieve/);
-  assert.match(html, /slenderness ratio definition/);
+  assert.match(html, /理解问题/);
+  assert.match(html, /混合检索/);
+  assert.match(html, /向量检索/);
+  assert.match(html, /BM25 检索/);
   assert.match(html, /expanded_queries/);
   assert.match(html, /长细比/);
-  assert.match(html, /检索到 3 个片段/);
+  assert.match(html, /找到 3 个候选片段/);
+  assert.match(html, /并行/);
   assert.doesNotMatch(html, /query_rewrite/);
 });
 
@@ -303,7 +388,7 @@ test("MainWorkspace falls back to plain text when markdown rendering fails", () 
   }
 });
 
-test("MainWorkspace uses details elements for default-collapsed real tool calls", () => {
+test("MainWorkspace uses details elements for default-collapsed agent chain timeline", () => {
   const messages: ChatTurn[] = [
     {
       id: "turn-details",
@@ -315,22 +400,16 @@ test("MainWorkspace uses details elements for default-collapsed real tool calls"
       sources: [],
       relatedRefs: [],
       degraded: false,
-      progressEvents: [
+      toolSubSteps: [
         {
-          stage: "understanding",
+          tool_name: "retrieve",
+          step_id: "query_understanding",
           status: "running",
           title: "理解问题",
-          summary: "识别检索意图。"
-        },
-        {
-          stage: "tool:retrieve",
-          status: "running",
-          title: "检索规范知识库",
-          summary: "正在搜索规范知识库...",
-          facts: {
-            tool_name: "retrieve",
-            tool_args: { query: "长细比", top_k: 4 }
-          }
+          summary: "识别检索意图。",
+          metadata: {},
+          elapsed_ms: 0,
+          parent_step_id: null
         }
       ]
     }

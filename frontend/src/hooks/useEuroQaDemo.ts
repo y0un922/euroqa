@@ -632,10 +632,10 @@ export function useEuroQaDemo() {
                 message.id === turnId
                   ? {
                       ...message,
-                      toolSubSteps: upsertToolSubStep(
-                        message.toolSubSteps,
-                        payload.step,
-                      ),
+                      toolSubSteps: upsertToolSubStep(message.toolSubSteps, {
+                        ...payload.step,
+                        tool_name: payload.tool_name,
+                      }),
                     }
                   : message,
               ),

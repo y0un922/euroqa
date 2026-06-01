@@ -1,6 +1,5 @@
 import {
   Check,
-  ChevronDown,
   Copy,
   CornerDownLeft,
   FileText,
@@ -15,6 +14,7 @@ import { Component, type ReactNode, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 
+import { AgentChainTimeline } from "./AgentChainTimeline";
 import { buildReferenceRecords, type DemoDocumentInfo } from "../lib/api";
 import {
   getUnmatchedCitationLabelFromHref,
@@ -35,7 +35,7 @@ import {
   copyMarkdownToClipboard,
   isChatTurnExportable
 } from "../lib/replyExport";
-import type { ChatTurn, QueryProgressEvent } from "../lib/types";
+import type { ChatTurn } from "../lib/types";
 
 type MainWorkspaceProps = {
   activeReferenceId: string | null;
@@ -147,217 +147,6 @@ const markdownClassName = [
   "[&_td]:border [&_td]:border-stone-200 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top",
   "[&_.katex-display]:my-4 [&_.katex-display]:overflow-x-auto [&_.katex]:text-[1.02em]",
 ].join(" ");
-
-type ToolCallStatus = "running" | "completed" | "skipped";
-
-type ToolCallCard = {
-  id: string;
-  tool: string;
-  title: string;
-  status: ToolCallStatus;
-  summary: string;
-  input: Record<string, unknown>;
-  result: Record<string, unknown> | string;
-};
-
-function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(record).filter(([, value]) => {
-      if (value === null || value === undefined || value === "") {
-        return false;
-      }
-      return !Array.isArray(value) || value.length > 0;
-    })
-  );
-}
-
-function renderJson(value: Record<string, unknown> | string): string {
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
-}
-
-function resolveProgressStatus(
-  event: QueryProgressEvent,
-  messageStatus: ChatTurn["status"]
-): ToolCallStatus {
-  if (
-    messageStatus === "done" &&
-    (event.stage === "generating" ||
-      event.stage === "composing" ||
-      event.stage === "chat")
-  ) {
-    return "completed";
-  }
-  return event.status;
-}
-
-function mergeToolStatus(
-  current: ToolCallStatus | undefined,
-  next: ToolCallStatus
-): ToolCallStatus {
-  if (current === "running" || next === "running") {
-    return "running";
-  }
-  if (current === "completed" || next === "completed") {
-    return "completed";
-  }
-  return "skipped";
-}
-
-function getToolDefinition(event: QueryProgressEvent) {
-  if (event.stage.startsWith("tool:")) {
-    const factsToolName =
-      typeof event.facts?.tool_name === "string" ? event.facts.tool_name : "";
-    const toolName = factsToolName || event.stage.slice("tool:".length);
-    return {
-      id: `tool:${toolName}`,
-      tool: toolName,
-      title: event.title || "调用外部工具"
-    };
-  }
-
-  return null;
-}
-
-function buildToolInput(
-  events: QueryProgressEvent[]
-): Record<string, unknown> {
-  const latestFacts = [...events].reverse().find((event) => event.facts?.tool_args)
-    ?.facts;
-  return compactRecord(latestFacts?.tool_args ?? {});
-}
-
-function buildToolResult(
-  events: QueryProgressEvent[]
-): Record<string, unknown> | string {
-  const facts = [...events].reverse().find(
-    (event) => event.facts?.tool_result || event.facts?.tool_trace
-  )?.facts;
-
-  if (!facts) {
-    return "工具尚未返回结果。";
-  }
-
-  return compactRecord({
-    output: facts.tool_result,
-    trace: facts.tool_trace
-  });
-}
-
-function buildToolCallCards(message: ChatTurn): ToolCallCard[] {
-  const grouped = new Map<
-    string,
-    {
-      tool: string;
-      title: string;
-      status?: ToolCallStatus;
-      events: QueryProgressEvent[];
-    }
-  >();
-
-  for (const event of message.progressEvents ?? []) {
-    const definition = getToolDefinition(event);
-    if (!definition) {
-      continue;
-    }
-    const current =
-      grouped.get(definition.id) ?? {
-        tool: definition.tool,
-        title: definition.title,
-        events: []
-      };
-    current.status = mergeToolStatus(
-      current.status,
-      resolveProgressStatus(event, message.status)
-    );
-    current.events.push(event);
-    grouped.set(definition.id, current);
-  }
-
-  const cards: ToolCallCard[] = Array.from(grouped.entries()).map(([id, item]) => ({
-    id,
-    tool: item.tool,
-    title: item.title,
-    status: item.status ?? "completed",
-    summary:
-      item.events.at(-1)?.summary ||
-      item.events.at(-1)?.title ||
-      "工具调用已记录。",
-    input: buildToolInput(item.events),
-    result: buildToolResult(item.events)
-  }));
-
-  return cards;
-}
-
-function ToolCallTimeline({ message }: { message: ChatTurn }) {
-  const cards = buildToolCallCards(message);
-  if (cards.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-3">
-      {cards.map((card) => (
-        <details
-          className="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm"
-          key={card.id}
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-stone-900 text-[12px] font-semibold text-white">
-                AI
-              </span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-stone-100 px-2 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-stone-500">
-                    TOOL
-                  </span>
-                  <span className="font-mono text-sm font-semibold text-stone-800">
-                    {card.tool}
-                  </span>
-                  {card.status === "running" ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-cyan-600" />
-                  ) : card.status === "completed" ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-600" />
-                  ) : (
-                    <span className="h-2 w-2 rounded-full bg-stone-300" />
-                  )}
-                </div>
-                <div className="mt-1 truncate text-sm text-stone-600">
-                  {card.title}
-                </div>
-              </div>
-            </div>
-            <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="border-t border-stone-100 bg-stone-50/70 px-4 py-4">
-            <div className="mb-4 text-sm font-medium text-stone-700">
-              {card.summary}
-            </div>
-            <div className="space-y-4">
-              <div>
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
-                  Input Parameters
-                </div>
-                <pre className="overflow-x-auto rounded-lg border border-stone-200 bg-white p-3 font-mono text-xs leading-5 text-stone-700 shadow-sm">
-                  {renderJson(card.input)}
-                </pre>
-              </div>
-              <div>
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
-                  Return Results
-                </div>
-                <pre className="overflow-x-auto rounded-lg border border-stone-200 bg-white p-3 font-mono text-xs leading-5 text-stone-700 shadow-sm">
-                  {renderJson(card.result)}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </details>
-      ))}
-    </div>
-  );
-}
 
 export default function MainWorkspace({
   activeReferenceId,
@@ -602,7 +391,7 @@ export default function MainWorkspace({
                   </div>
 
                   <div className="w-full max-w-[95%] space-y-6 text-[15px] leading-relaxed text-stone-800">
-                    <ToolCallTimeline message={message} />
+                    <AgentChainTimeline message={message} />
 
                     {displayAnswer ? (
                       <div className={markdownClassName}>
