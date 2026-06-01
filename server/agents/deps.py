@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from server.config import ServerConfig
 from server.core.conversation import ConversationState
+from server.agents.tool_progress import ToolProgressCallback
 
 if TYPE_CHECKING:
     from server.agents.evidence import EvidenceBundle
@@ -21,3 +22,4 @@ class QADeps:
     bundle: EvidenceBundle
     conversation_state: ConversationState | None = None
     domain_filter: str | None = None
+    tool_progress: ToolProgressCallback | None = None

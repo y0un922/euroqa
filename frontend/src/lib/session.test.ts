@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   clearPersistedDemoSession,
+  INTERRUPTED_STREAM_MESSAGE,
   loadPersistedDemoSession,
   savePersistedDemoSession
 } from "./session.ts";
@@ -46,10 +47,10 @@ test("loadPersistedDemoSession returns null for invalid JSON", () => {
   assert.equal(restored, null);
 });
 
-test("savePersistedDemoSession persists current session with history", () => {
+test("savePersistedDemoSession persists only lightweight session pointer", () => {
   const storage = createMemoryStorage();
 
-  savePersistedDemoSession(
+  const saved = savePersistedDemoSession(
     {
       currentSession: {
         id: "current",
@@ -88,16 +89,88 @@ test("savePersistedDemoSession persists current session with history", () => {
     storage
   );
 
+  assert.equal(saved, true);
+
   const restored = loadPersistedDemoSession(storage);
+  const raw = storage.getItem("euro_qa_demo_session");
+
+  assert.ok(raw);
+  const savedPayload = JSON.parse(raw);
 
   assert.ok(restored);
   assert.equal(restored.currentSession.id, "current");
-  assert.equal(restored.currentSession.messages[0]?.question, "当前问题");
-  assert.equal(restored.history.length, 2);
-  assert.equal(restored.history[0]?.messages[0]?.question, "历史问题 1");
-  assert.equal(restored.history[1]?.activeReferenceId, "ref-archived-2");
+  assert.equal(restored.currentSession.messages.length, 0);
+  assert.equal(restored.history.length, 0);
+  assert.equal(savedPayload.currentSession.messages, undefined);
+  assert.equal(savedPayload.history, undefined);
   assert.equal(restored.sourceTranslationEnabled, true);
   assert.equal(restored.llmSettings?.model, "qwen3.5-plus");
+});
+
+test("savePersistedDemoSession swallows storage write failures", () => {
+  const storage = {
+    getItem() {
+      return null;
+    },
+    setItem() {
+      throw new Error("QuotaExceededError");
+    },
+    removeItem() {}
+  };
+
+  const saved = savePersistedDemoSession(
+    {
+      currentSession: {
+        id: "current",
+        conversationId: null,
+        activeReferenceId: null,
+        draftQuestion: "",
+        messages: [],
+        updatedAt: "2026-04-19T12:20:00.000Z"
+      },
+      history: [],
+      sourceTranslationEnabled: false,
+      llmSettings: null
+    },
+    storage
+  );
+
+  assert.equal(saved, false);
+});
+
+test("loadPersistedDemoSession marks streaming turns as interrupted", () => {
+  const storage = createMemoryStorage();
+  storage.setItem(
+    "euro_qa_demo_session",
+    JSON.stringify({
+      currentSession: {
+        id: "current",
+        conversationId: "conv-current",
+        activeReferenceId: null,
+        draftQuestion: "",
+        messages: [
+          {
+            ...createTurn("turn-streaming", "流式问题"),
+            answer: "已生成一半",
+            status: "streaming"
+          }
+        ],
+        updatedAt: "2026-04-19T12:20:00.000Z"
+      },
+      history: [],
+      sourceTranslationEnabled: false,
+      llmSettings: null
+    })
+  );
+
+  const restored = loadPersistedDemoSession(storage);
+
+  assert.ok(restored);
+  assert.equal(restored.currentSession.messages[0]?.status, "error");
+  assert.equal(
+    restored.currentSession.messages[0]?.errorMessage,
+    INTERRUPTED_STREAM_MESSAGE
+  );
 });
 
 test("loadPersistedDemoSession tolerates legacy payload by restoring a current session", () => {

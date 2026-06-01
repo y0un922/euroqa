@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 import structlog
 from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
-from server.agents.orchestrator import dispatch_agent
+from server.agents.orchestrator import (
+    AgentProgress,
+    AgentResult,
+    dispatch_agent,
+    dispatch_agent_streamed,
+)
 from server.api.v1._progress import (
     _agent_stage_summary,
+    _commentary_sse_event,
     _error_sse_event,
     _progress_sse_event,
     _retrieval_summary,
+    _tool_progress_sse_event,
 )
 from server.api.v1._response import (
     _add_conversation_turn,
@@ -33,6 +41,7 @@ from server.config import ServerConfig
 from server.core.query_request import uses_external_session
 from server.errors import LLMUnavailableError, QAError, RetrievalUnavailableError
 from server.models.schemas import QueryRequest, QueryResponse
+from server.agents.tool_progress import ToolSubStep
 from shared.spot_check import (
     SpotCheckRecorder,
     flush_current_recorder,
@@ -43,6 +52,11 @@ from shared.spot_check import (
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
+
+_TOOL_TITLES = {
+    "retrieve": "检索规范知识库",
+    "lookup_glossary": "查询术语表",
+}
 
 
 def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerConfig:
@@ -112,6 +126,24 @@ async def query(
             )
 
         return response
+    except (LLMUnavailableError, RetrievalUnavailableError, QAError) as exc:
+        logger.error(
+            "query_qa_error",
+            error_type=type(exc).__name__,
+            detail=str(exc),
+        )
+        return QueryResponse(
+            answer=f"抱歉，{exc.message}",
+            sources=[],
+            related_refs=[],
+            confidence="low",
+            conversation_id=req.session_id or req.conversation_id or "",
+            degraded=True,
+            retrieval_context=None,
+            question_type=None,
+            engineering_context=None,
+            groundedness=None,
+        )
     finally:
         flush_current_recorder()
         reset_current_recorder(token)
@@ -151,14 +183,51 @@ async def query_stream(
                     started_at=started_at,
                 )
                 agent_t0 = time.perf_counter()
-                agent_result = await dispatch_agent(
-                    question=req.question,
-                    req=req,
-                    config=runtime_config,
-                    retriever=retriever,
-                    glossary=glossary,
-                    conv_mgr=conv_mgr,
-                )
+                agent_result: AgentResult | None = None
+                tool_step_queue: asyncio.Queue[ToolSubStep] = asyncio.Queue(maxsize=100)
+
+                class QueueToolProgress:
+                    async def on_tool_sub_step(self, step: ToolSubStep) -> None:
+                        try:
+                            tool_step_queue.put_nowait(step)
+                        except asyncio.QueueFull:
+                            try:
+                                tool_step_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                pass
+                            tool_step_queue.put_nowait(step)
+
+                async def agent_items():
+                    async for agent_item in dispatch_agent_streamed(
+                        question=req.question,
+                        req=req,
+                        config=runtime_config,
+                        retriever=retriever,
+                        glossary=glossary,
+                        conv_mgr=conv_mgr,
+                        tool_progress=QueueToolProgress(),
+                    ):
+                        yield agent_item
+
+                async for item in _merge_agent_and_tool_progress(
+                    agent_items(),
+                    tool_step_queue,
+                ):
+                    if isinstance(item, ToolSubStep):
+                        yield _tool_progress_sse_event(item, started_at)
+                        continue
+                    if isinstance(item, AgentProgress):
+                        for event in _agent_progress_sse_events(
+                            item,
+                            started_at=started_at,
+                        ):
+                            yield event
+                        continue
+                    agent_result = item
+
+                if agent_result is None:
+                    raise LLMUnavailableError("agent 未返回结果，请重试")
+
                 agent_reply = agent_result.agent_reply
                 bundle = agent_result.bundle
                 conv = agent_result.conv
@@ -267,3 +336,133 @@ async def query_stream(
             reset_current_recorder(token)
 
     return EventSourceResponse(event_generator())
+
+
+def _agent_progress_sse_events(
+    item: AgentProgress,
+    *,
+    started_at: float,
+) -> list[dict[str, str]]:
+    """Convert one agent progress item to SSE payloads."""
+    event = item.event
+    if event.kind == "thinking":
+        return [
+            _progress_sse_event(
+                stage="agent_thinking",
+                status="running",
+                title="分析问题",
+                summary=event.summary or "Agent 正在推理...",
+                started_at=started_at,
+            )
+        ]
+
+    if event.kind == "tool_calling":
+        stage = _tool_stage(event.tool_name)
+        summary = event.summary or "正在调用工具..."
+        return [
+            _progress_sse_event(
+                stage=stage,
+                status="running",
+                title=_tool_title(event.tool_name),
+                summary=summary,
+                started_at=started_at,
+                facts=_tool_progress_facts(event),
+            ),
+            _commentary_sse_event(summary, started_at),
+        ]
+
+    if event.kind == "tool_result":
+        return [
+            _progress_sse_event(
+                stage=_tool_stage(event.tool_name),
+                status="completed",
+                title=_tool_title(event.tool_name),
+                summary=event.summary or "工具执行完成。",
+                started_at=started_at,
+                facts=_tool_progress_facts(event),
+            )
+        ]
+
+    if event.kind == "commentary" and event.summary:
+        return [_commentary_sse_event(event.summary, started_at)]
+
+    return []
+
+
+async def _merge_agent_and_tool_progress(
+    agent_items,
+    tool_step_queue: asyncio.Queue[ToolSubStep],
+):
+    agent_done = False
+    pending_agent = asyncio.create_task(anext(agent_items, None))
+    pending_tool = asyncio.create_task(tool_step_queue.get())
+    try:
+        while True:
+            pending = [pending_tool]
+            if not agent_done:
+                pending.append(pending_agent)
+            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+            if pending_tool in done:
+                yield pending_tool.result()
+                pending_tool = asyncio.create_task(tool_step_queue.get())
+
+            if pending_agent in done:
+                item = pending_agent.result()
+                if item is None:
+                    agent_done = True
+                    while not tool_step_queue.empty():
+                        yield tool_step_queue.get_nowait()
+                    break
+                yield item
+                pending_agent = asyncio.create_task(anext(agent_items, None))
+    finally:
+        for task in (pending_agent, pending_tool):
+            if not task.done():
+                task.cancel()
+
+
+def _tool_stage(tool_name: str | None) -> str:
+    return f"tool:{tool_name}" if tool_name else "tool_call"
+
+
+def _tool_title(tool_name: str | None) -> str:
+    if tool_name:
+        return _TOOL_TITLES.get(tool_name, f"调用 {tool_name}")
+    return "调用工具"
+
+
+def _tool_progress_facts(event) -> dict[str, object]:
+    facts: dict[str, object] = {}
+    if event.tool_name:
+        facts["tool_name"] = event.tool_name
+
+    tool_args = event.tool_args or {}
+    raw_arguments = tool_args.get("arguments")
+    parsed_arguments = (
+        _parse_json_object(raw_arguments) if isinstance(raw_arguments, str) else None
+    )
+    if parsed_arguments:
+        facts["tool_args"] = parsed_arguments
+    elif tool_args:
+        facts["tool_args"] = tool_args
+
+    call_id = tool_args.get("call_id")
+    if call_id:
+        facts["tool_call_id"] = call_id
+
+    if event.tool_result:
+        facts["tool_result"] = event.tool_result
+    if event.tool_trace:
+        facts["tool_trace"] = event.tool_trace
+    return facts
+
+
+def _parse_json_object(value: object) -> dict[str, object] | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None

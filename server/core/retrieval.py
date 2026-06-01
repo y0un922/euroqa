@@ -1,4 +1,5 @@
 """混合检索层：向量检索 + BM25 + 重排序 + 父文档检索 + 交叉引用补充。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,6 +33,7 @@ from server.models.schemas import Chunk, ChunkMetadata, GuideHint, QuestionType
 if TYPE_CHECKING:
     from elasticsearch import AsyncElasticsearch
     from pymilvus import Collection
+    from server.agents.tool_progress import ToolProgressEmitter
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +95,27 @@ _CROSS_REF_PRIORITY = {
     "en_std": 5,
     None: 6,
 }
+
+
+def _warn_search_failed(
+    event: str,
+    *,
+    query: str,
+    exc: Exception,
+    top_k: int | None = None,
+    filters: dict | None = None,
+) -> None:
+    """Log retriever branch failures with enough detail for ops diagnosis."""
+    payload: dict[str, Any] = {
+        "query": query[:80],
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+    }
+    if top_k is not None:
+        payload["top_k"] = top_k
+    if filters:
+        payload["filters"] = filters
+    logger.warning(event, **payload)
 
 
 class HybridRetriever:
@@ -184,7 +207,9 @@ class HybridRetriever:
     # ------------------------------------------------------------------
 
     async def prefetch_vectors(
-        self, query: str, filters: dict | None = None,
+        self,
+        query: str,
+        filters: dict | None = None,
     ) -> list[dict]:
         """Run a vector search that can overlap with query expansion.
 
@@ -194,15 +219,15 @@ class HybridRetriever:
         filters = filters or {}
         try:
             return await self._vector_search(
-                query, self.config.vector_top_k, filters,
+                query,
+                self.config.vector_top_k,
+                filters,
             )
         except Exception:
             logger.warning("prefetch_vectors_failed", query=query[:80])
             return []
 
-    async def _vector_search(
-        self, query: str, top_k: int, filters: dict
-    ) -> list[dict]:
+    async def _vector_search(self, query: str, top_k: int, filters: dict) -> list[dict]:
         return await retrieval_search._vector_search(
             self._get_collection(),
             self._embedding_client,
@@ -211,7 +236,6 @@ class HybridRetriever:
             top_k,
             filters,
         )
-
 
     async def _bm25_search(
         self,
@@ -231,7 +255,6 @@ class HybridRetriever:
             preferred_element_type=preferred_element_type,
         )
 
-
     # ------------------------------------------------------------------
     # 合并、聚合、重排序
     # ------------------------------------------------------------------
@@ -243,7 +266,6 @@ class HybridRetriever:
     ) -> list[dict]:
         return retrieval_fusion._merge_results(vec_results, bm25_results)
 
-
     @staticmethod
     def _rrf_fuse_results(
         result_groups: list[list[dict]],
@@ -251,7 +273,6 @@ class HybridRetriever:
         rrf_k: int = retrieval_fusion._RRF_K,
     ) -> list[dict]:
         return retrieval_fusion._rrf_fuse_results(result_groups, rrf_k=rrf_k)
-
 
     @staticmethod
     def _cross_doc_aggregate(
@@ -265,7 +286,6 @@ class HybridRetriever:
             filters=filters,
         )
 
-
     @staticmethod
     def _append_unique_results(
         primary_results: list[dict],
@@ -275,7 +295,6 @@ class HybridRetriever:
             primary_results,
             supplemental_results,
         )
-
 
     @staticmethod
     def _normalize_target_hint(target_hint: Any) -> dict[str, str]:
@@ -409,7 +428,9 @@ class HybridRetriever:
         return self._prune_shadowed_requested_object_ids(object_ids), lookup_source
 
     @staticmethod
-    def _normalize_question_type(question_type: str | QuestionType | None) -> str | None:
+    def _normalize_question_type(
+        question_type: str | QuestionType | None,
+    ) -> str | None:
         if isinstance(question_type, QuestionType):
             return question_type.value
         if isinstance(question_type, str):
@@ -515,14 +536,28 @@ class HybridRetriever:
         all_haystacks = (*strong_haystacks, content_text)
         score = 0
 
-        if any(marker in hay for marker in _GUIDE_EXAMPLE_MARKERS for hay in strong_haystacks):
+        if any(
+            marker in hay
+            for marker in _GUIDE_EXAMPLE_MARKERS
+            for hay in strong_haystacks
+        ):
             score += 8
-        elif any(marker in hay for marker in _GUIDE_EXAMPLE_MARKERS for hay in all_haystacks):
+        elif any(
+            marker in hay for marker in _GUIDE_EXAMPLE_MARKERS for hay in all_haystacks
+        ):
             score += 5
 
-        if any(marker in hay for marker in _GUIDE_PROCEDURE_MARKERS for hay in strong_haystacks):
+        if any(
+            marker in hay
+            for marker in _GUIDE_PROCEDURE_MARKERS
+            for hay in strong_haystacks
+        ):
             score += 4
-        elif any(marker in hay for marker in _GUIDE_PROCEDURE_MARKERS for hay in all_haystacks):
+        elif any(
+            marker in hay
+            for marker in _GUIDE_PROCEDURE_MARKERS
+            for hay in all_haystacks
+        ):
             score += 2
 
         if guide_hint and guide_hint.example_kind:
@@ -566,8 +601,14 @@ class HybridRetriever:
                         self._guide_search_top_k(),
                         guide_filters,
                     )
-                except Exception:
-                    logger.warning("guide_vector_search_failed", query=query[:80])
+                except Exception as exc:
+                    _warn_search_failed(
+                        "guide_vector_search_failed",
+                        query=query,
+                        exc=exc,
+                        top_k=self._guide_search_top_k(),
+                        filters=guide_filters,
+                    )
                     return []
 
             async def _bm25() -> list[dict]:
@@ -578,8 +619,14 @@ class HybridRetriever:
                         guide_filters,
                         fields=_GUIDE_SEARCH_FIELDS,
                     )
-                except Exception:
-                    logger.warning("guide_bm25_search_failed", query=query[:80])
+                except Exception as exc:
+                    _warn_search_failed(
+                        "guide_bm25_search_failed",
+                        query=query,
+                        exc=exc,
+                        top_k=min(max(self.config.bm25_top_k * 3, 12), 30),
+                        filters=guide_filters,
+                    )
                     return []
 
             vec, bm25 = await asyncio.gather(_vector(), _bm25())
@@ -608,9 +655,13 @@ class HybridRetriever:
 
         # 重排序优先使用 expanded query 的英文版本，对英文 chunks 更准
         primary_query = queries[0].strip() if queries else ""
-        rerank_query = primary_query or (original_query or "").strip() or guide_queries[0]
+        rerank_query = (
+            primary_query or (original_query or "").strip() or guide_queries[0]
+        )
         try:
-            reranked = await self._rerank(rerank_query, guide_candidates, min(3, len(guide_candidates)))
+            reranked = await self._rerank(
+                rerank_query, guide_candidates, min(3, len(guide_candidates))
+            )
             return [chunk for chunk, _ in reranked]
         except Exception:
             logger.warning("guide_rerank_failed", exc_info=True)
@@ -631,7 +682,9 @@ class HybridRetriever:
         guide_queries = self._build_guide_queries(
             queries,
             original_query,
-            extra_queries=[normalized_hint.example_query] if normalized_hint.example_query else None,
+            extra_queries=[normalized_hint.example_query]
+            if normalized_hint.example_query
+            else None,
         )
         if not guide_queries:
             return []
@@ -646,8 +699,14 @@ class HybridRetriever:
                         self._guide_search_top_k(),
                         guide_filters,
                     )
-                except Exception:
-                    logger.warning("guide_example_vector_search_failed", query=query[:80])
+                except Exception as exc:
+                    _warn_search_failed(
+                        "guide_example_vector_search_failed",
+                        query=query,
+                        exc=exc,
+                        top_k=self._guide_search_top_k(),
+                        filters=guide_filters,
+                    )
                     return []
 
             async def _bm25() -> list[dict]:
@@ -658,8 +717,14 @@ class HybridRetriever:
                         guide_filters,
                         fields=_GUIDE_SEARCH_FIELDS,
                     )
-                except Exception:
-                    logger.warning("guide_example_bm25_search_failed", query=query[:80])
+                except Exception as exc:
+                    _warn_search_failed(
+                        "guide_example_bm25_search_failed",
+                        query=query,
+                        exc=exc,
+                        top_k=min(max(self.config.bm25_top_k * 3, 12), 30),
+                        filters=guide_filters,
+                    )
                     return []
 
             vec, bm25 = await asyncio.gather(_vector(), _bm25())
@@ -696,7 +761,9 @@ class HybridRetriever:
         )
         rerank_scores: dict[str, float] = {}
         try:
-            reranked = await self._rerank(rerank_query, guide_candidates, len(guide_candidates))
+            reranked = await self._rerank(
+                rerank_query, guide_candidates, len(guide_candidates)
+            )
             rerank_scores = {chunk.chunk_id: score for chunk, score in reranked}
         except Exception:
             logger.warning("guide_example_rerank_failed", exc_info=True)
@@ -763,7 +830,9 @@ class HybridRetriever:
                     await self._run_clause_metadata_probe(clause, filters),
                 )
             except Exception:
-                logger.warning("metadata_probe_clause_metadata_failed", clause=clause[:40])
+                logger.warning(
+                    "metadata_probe_clause_metadata_failed", clause=clause[:40]
+                )
 
         metadata_fields = [
             "source^6",
@@ -774,6 +843,7 @@ class HybridRetriever:
             "content^2",
             "embedding_text",
         ]
+
         async def _search_metadata_query(query: str) -> list[dict]:
             try:
                 return await self._bm25_search(
@@ -833,11 +903,9 @@ class HybridRetriever:
     def _infer_groundedness_from_scores(scores: list[float]) -> str:
         return retrieval_fusion._infer_groundedness_from_scores(scores)
 
-
     @staticmethod
     def _rerank_text(chunk: Chunk) -> str:
         return retrieval_rerank._rerank_text(chunk)
-
 
     async def _rerank(
         self, query: str, chunks: list[Chunk], top_n: int
@@ -849,7 +917,6 @@ class HybridRetriever:
             chunks,
             top_n,
         )
-
 
     # ------------------------------------------------------------------
     # 交叉引用补充检索
@@ -964,7 +1031,9 @@ class HybridRetriever:
         return sorted(
             refs,
             key=lambda r: (
-                _CROSS_REF_PRIORITY.get(cls._categorize_cross_ref(r), _CROSS_REF_PRIORITY[None]),
+                _CROSS_REF_PRIORITY.get(
+                    cls._categorize_cross_ref(r), _CROSS_REF_PRIORITY[None]
+                ),
                 r,
             ),
         )
@@ -1201,9 +1270,7 @@ class HybridRetriever:
         resp = await es.search(index=self.config.es_index, body=body)
 
         chunk_ids = [
-            hit["_id"]
-            for hit in resp["hits"]["hits"]
-            if hit["_id"] not in existing_ids
+            hit["_id"] for hit in resp["hits"]["hits"] if hit["_id"] not in existing_ids
         ]
         fetched_chunks = await self._fetch_chunks(chunk_ids)
 
@@ -1239,11 +1306,7 @@ class HybridRetriever:
             return {"source": filters["source"]}
 
         allowed_sources = sorted(
-            {
-                chunk.metadata.source
-                for chunk in final_chunks
-                if chunk.metadata.source
-            }
+            {chunk.metadata.source for chunk in final_chunks if chunk.metadata.source}
         )
         if not allowed_sources:
             return {}
@@ -1307,6 +1370,8 @@ class HybridRetriever:
         requested_objects: list[str] | None = None,
         preferred_element_type: str | None = None,
         prefetched_original_results: list[dict] | None = None,
+        top_k: int | None = None,
+        progress: ToolProgressEmitter | None = None,
     ) -> RetrievalResult:
         """执行多角度混合检索流程。
 
@@ -1318,13 +1383,16 @@ class HybridRetriever:
             original_query: 用户原始中文问题（用于补充检索和 rerank）
             filters: 过滤条件
         """
+        from server.agents.tool_progress import _NullEmitter
+
+        progress = progress or _NullEmitter()
         filters = filters or {}
         requested_objects = [
             normalize_reference_label(label)
             for label in (requested_objects or [])
             if normalize_reference_label(label)
         ]
-        cfg = self.config
+        cfg = self._config_for_top_k(top_k)
         result_groups: list[list[dict]] = []
         normalized_hint = self._normalize_target_hint(target_hint)
         has_metadata_probe_input = bool(
@@ -1337,6 +1405,11 @@ class HybridRetriever:
 
         if has_metadata_probe_input:
             try:
+                await progress.start(
+                    "metadata_probe",
+                    "元数据定向检索",
+                    parent_step_id="hybrid_search",
+                )
                 probe_results = await self._run_metadata_probe(
                     queries=queries,
                     original_query=original_query,
@@ -1346,18 +1419,35 @@ class HybridRetriever:
                 )
                 if probe_results:
                     result_groups.append(probe_results)
+                await progress.complete(
+                    "metadata_probe",
+                    "元数据定向检索",
+                    f"命中 {len(probe_results)} 个定向候选",
+                    metadata={"candidate_count": len(probe_results)},
+                    parent_step_id="hybrid_search",
+                )
             except Exception:
                 logger.warning("metadata_probe_failed", exc_info=True)
 
         # 多角度检索：每条查询并发跑向量 + BM25
+        vector_candidate_count = 0
+        bm25_candidate_count = 0
+
         async def _vec_and_bm25(q: str) -> list[list[dict]]:
+            nonlocal bm25_candidate_count, vector_candidate_count
             groups: list[list[dict]] = []
 
             async def _vector() -> list[dict]:
                 try:
                     return await self._vector_search(q, cfg.vector_top_k, filters)
-                except Exception:
-                    logger.warning("vector_search_failed", query=q[:80])
+                except Exception as exc:
+                    _warn_search_failed(
+                        "vector_search_failed",
+                        query=q,
+                        exc=exc,
+                        top_k=cfg.vector_top_k,
+                        filters=filters,
+                    )
                     return []
 
             async def _bm25() -> list[dict]:
@@ -1368,11 +1458,19 @@ class HybridRetriever:
                         filters,
                         preferred_element_type=preferred_element_type,
                     )
-                except Exception:
-                    logger.warning("bm25_search_failed", query=q[:80])
+                except Exception as exc:
+                    _warn_search_failed(
+                        "bm25_search_failed",
+                        query=q,
+                        exc=exc,
+                        top_k=cfg.bm25_top_k,
+                        filters=filters,
+                    )
                     return []
 
             vec, bm25 = await asyncio.gather(_vector(), _bm25())
+            vector_candidate_count += len(vec)
+            bm25_candidate_count += len(bm25)
             if vec:
                 groups.append(vec)
             if bm25:
@@ -1380,8 +1478,30 @@ class HybridRetriever:
 
             return groups
 
-        per_query_groups = await asyncio.gather(
-            *(_vec_and_bm25(q) for q in queries)
+        await progress.start(
+            "vector_search",
+            "向量检索",
+            parent_step_id="hybrid_search",
+        )
+        await progress.start(
+            "bm25_search",
+            "BM25 检索",
+            parent_step_id="hybrid_search",
+        )
+        per_query_groups = await asyncio.gather(*(_vec_and_bm25(q) for q in queries))
+        await progress.complete(
+            "vector_search",
+            "向量检索",
+            f"得到 {vector_candidate_count} 个候选",
+            metadata={"candidate_count": vector_candidate_count},
+            parent_step_id="hybrid_search",
+        )
+        await progress.complete(
+            "bm25_search",
+            "BM25 检索",
+            f"得到 {bm25_candidate_count} 个候选",
+            metadata={"candidate_count": bm25_candidate_count},
+            parent_step_id="hybrid_search",
         )
         for groups in per_query_groups:
             result_groups.extend(groups)
@@ -1396,13 +1516,26 @@ class HybridRetriever:
         elif normalized_original and normalized_original != primary_query.strip():
             try:
                 orig_vec = await self._vector_search(
-                    normalized_original, cfg.vector_top_k, filters,
+                    normalized_original,
+                    cfg.vector_top_k,
+                    filters,
                 )
                 if orig_vec:
                     result_groups.append(orig_vec)
-            except Exception:
-                logger.warning("original_query_vector_search_failed")
+            except Exception as exc:
+                _warn_search_failed(
+                    "original_query_vector_search_failed",
+                    query=normalized_original,
+                    exc=exc,
+                    top_k=cfg.vector_top_k,
+                    filters=filters,
+                )
 
+        await progress.start(
+            "fusion_rerank",
+            "融合重排",
+            parent_step_id="hybrid_search",
+        )
         all_results = self._rrf_fuse_results(result_groups)
         record_spot_check("rrf_top_10", _result_entries(all_results[:10]))
 
@@ -1434,22 +1567,44 @@ class HybridRetriever:
             )
             final_chunks = chunks[: cfg.rerank_top_n]
             scores = [0.0] * len(final_chunks)
+        await progress.complete(
+            "fusion_rerank",
+            "融合重排",
+            f"RRF 融合 {len(all_results)} → 重排序 Top {len(final_chunks)}",
+            metadata={
+                "fused_count": len(all_results),
+                "reranked_count": len(final_chunks),
+            },
+            parent_step_id="hybrid_search",
+        )
 
         guide_chunks_from_main = self._collect_guide_chunks(final_chunks)
         groundedness = self._infer_groundedness_from_scores(scores)
 
         # Start guide retrieval early — independent of parent/cross-ref.
         guide_task: asyncio.Task[list[Chunk]] | None = None
+        guide_progress_started = False
         if self._should_fetch_guide_chunks(question_type, guide_hint):
+            guide_progress_started = True
+            await progress.start("guide_retrieval", "设计指南检索")
             guide_task = asyncio.create_task(
                 self._retrieve_guide_chunks(queries, original_query)
             )
+        else:
+            await progress.skip("guide_retrieval", "设计指南检索", "无需检索设计指南")
         guide_example_task = asyncio.create_task(
             self._retrieve_guide_example_chunks(queries, original_query, guide_hint)
         )
 
         # 获取父 chunk
+        await progress.start("parent_retrieval", "上下文扩展")
         parent_chunks = await self._fetch_parent_chunks(final_chunks)
+        await progress.complete(
+            "parent_retrieval",
+            "上下文扩展",
+            f"{len(parent_chunks)} 个完整段落",
+            metadata={"parent_count": len(parent_chunks)},
+        )
         record_spot_check(
             "parent_chunks_injected",
             [
@@ -1499,7 +1654,10 @@ class HybridRetriever:
             if self._object_reference_key(object_id) not in resolved_object_keys
         }
         deterministic_ref_chunks: list[Chunk] = []
+        cross_ref_progress_started = False
         if missing_object_ids:
+            cross_ref_progress_started = True
+            await progress.start("cross_ref_closure", "交叉引用补齐")
             deterministic_ref_chunks = await self._fetch_object_chunks_by_object_ids(
                 missing_object_ids,
                 existing_ids,
@@ -1518,6 +1676,11 @@ class HybridRetriever:
         covered = self._refs_covered_by_chunks(all_refs, all_existing)
         missing_refs = all_refs - covered
         cross_ref_filters = self._build_cross_ref_filters(final_chunks, filters)
+        if missing_refs and not cross_ref_progress_started:
+            cross_ref_progress_started = True
+            await progress.start("cross_ref_closure", "交叉引用补齐")
+        elif not missing_refs and not cross_ref_progress_started:
+            await progress.skip("cross_ref_closure", "交叉引用补齐", "无需补齐")
         cross_ref_started = time.perf_counter()
         fallback_ref_chunks = await self._fetch_cross_ref_chunks(
             missing_refs,
@@ -1603,6 +1766,18 @@ class HybridRetriever:
         )
         if unresolved_required_keys and groundedness == "grounded":
             groundedness = "partial"
+        if cross_ref_progress_started:
+            await progress.complete(
+                "cross_ref_closure",
+                "交叉引用补齐",
+                f"补齐 {len(resolved_refs)} 个引用，未补齐 {len(unresolved_refs)} 个",
+                metadata={
+                    "missing_count": len(missing_refs),
+                    "resolved_refs": resolved_refs,
+                    "unresolved_refs": unresolved_refs,
+                    "ref_count": len(ref_chunks),
+                },
+            )
 
         guide_chunks: list[Chunk] = list(guide_chunks_from_main)
         if guide_task is not None:
@@ -1612,6 +1787,17 @@ class HybridRetriever:
                 retrieved_guide_chunks,
             )
         guide_example_chunks = await guide_example_task
+        if guide_progress_started:
+            guide_total = len(guide_chunks) + len(guide_example_chunks)
+            await progress.complete(
+                "guide_retrieval",
+                "设计指南检索",
+                f"找到 {guide_total} 条 Designers' Guide 参考",
+                metadata={
+                    "guide_count": len(guide_chunks),
+                    "example_count": len(guide_example_chunks),
+                },
+            )
 
         return RetrievalResult(
             chunks=final_chunks,
@@ -1623,6 +1809,20 @@ class HybridRetriever:
             groundedness=groundedness,
             resolved_refs=resolved_refs,
             unresolved_refs=unresolved_refs,
+        )
+
+    def _config_for_top_k(self, top_k: int | None) -> ServerConfig:
+        """Return per-call retrieval limits without mutating shared config."""
+        if top_k is None:
+            return self.config
+        effective_top_k = min(max(int(top_k), 1), 50)
+        candidate_top_k = max(effective_top_k * 3, effective_top_k)
+        return self.config.model_copy(
+            update={
+                "vector_top_k": min(self.config.vector_top_k, candidate_top_k),
+                "bm25_top_k": min(self.config.bm25_top_k, candidate_top_k),
+                "rerank_top_n": effective_top_k,
+            }
         )
 
     async def close(self) -> None:

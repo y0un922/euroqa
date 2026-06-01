@@ -104,6 +104,14 @@ export type QueryResponse = {
   engineering_context?: Record<string, unknown> | null;
 };
 
+export type ConversationSessionResponse = {
+  sessionId: string;
+  conversationId: string;
+  title?: string | null;
+  updatedAt?: string | null;
+  messages: ChatTurn[];
+};
+
 export type StreamDonePayload = {
   code?: number;
   sources: Source[];
@@ -129,6 +137,29 @@ export type StreamErrorPayload = {
   message?: string;
 };
 
+export type StreamCommentaryPayload = {
+  text?: string;
+  elapsed_ms?: number;
+  request_id?: string;
+};
+
+export type ToolSubStep = {
+  step_id: string;
+  status: QueryProgressStatus;
+  title: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+  elapsed_ms: number;
+  parent_step_id?: string | null;
+};
+
+export type ToolProgressEvent = {
+  tool_name: string;
+  step: ToolSubStep;
+  elapsed_ms: number;
+  request_id: string;
+};
+
 export type QueryProgressStage =
   | "understanding"
   | "retrieving"
@@ -140,6 +171,7 @@ export type QueryProgressStage =
   | "chat"
   | "clarify"
   | "glossary_lookup"
+  | `tool:${string}`
   | (string & {});
 
 export type QueryProgressStatus = "running" | "completed" | "skipped";
@@ -159,7 +191,12 @@ export type QueryProgressEvent = {
     unresolved_refs?: string[];
     guide_count?: number;
     example_count?: number;
-  };
+    tool_name?: string;
+    tool_args?: Record<string, unknown>;
+    tool_call_id?: string;
+    tool_result?: string;
+    tool_trace?: Record<string, unknown>;
+  } & Record<string, unknown>;
 };
 
 export type DocumentStatus =
@@ -247,4 +284,6 @@ export type ChatTurn = {
   questionType?: QuestionType | null;
   engineeringContext?: Record<string, unknown> | null;
   progressEvents?: QueryProgressEvent[];
+  commentaries?: string[];
+  toolSubSteps?: ToolSubStep[];
 };

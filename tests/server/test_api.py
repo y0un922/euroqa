@@ -1,4 +1,5 @@
 """API integration tests."""
+
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,12 +11,15 @@ from fastapi.testclient import TestClient
 
 from server import deps
 from server.agents.evidence import EvidenceBundle
-from server.agents.orchestrator import AgentResult
+from server.agents.orchestrator import AgentProgress, AgentResult
+from server.agents.qa_agent import AgentStreamEvent
+from server.agents.tool_progress import ToolSubStep
 from server.api.v1._response import _add_conversation_turn
 from server.config import ServerConfig
 from server.core.conversation import RedisConversationManager
 from server.core import query_understanding
 from server.core.retrieval import RetrievalResult
+from server.errors import LLMUnavailableError
 from server.main import app
 from server.models.schemas import (
     Chunk,
@@ -127,6 +131,11 @@ async def _legacy_pipeline_dispatch_agent(
     )
 
 
+async def _legacy_pipeline_dispatch_agent_streamed(*args, **kwargs):
+    kwargs.pop("tool_progress", None)
+    yield await _legacy_pipeline_dispatch_agent(*args, **kwargs)
+
+
 @pytest.fixture
 def client(monkeypatch):
     from server.api.v1 import query as query_module
@@ -135,6 +144,11 @@ def client(monkeypatch):
         query_module,
         "dispatch_agent",
         _legacy_pipeline_dispatch_agent,
+    )
+    monkeypatch.setattr(
+        query_module,
+        "dispatch_agent_streamed",
+        _legacy_pipeline_dispatch_agent_streamed,
     )
     app.dependency_overrides = {
         deps.get_config: lambda: _server_config(access_password=""),
@@ -152,7 +166,7 @@ class _FakeRedis:
 
     async def lrange(self, key, start, end):
         items = self.lists.get(key, [])
-        return items[start:] if end == -1 else items[start:end + 1]
+        return items[start:] if end == -1 else items[start : end + 1]
 
     async def rpush(self, key, *values):
         self.lists.setdefault(key, []).extend(values)
@@ -219,10 +233,7 @@ class TestRedisConversationManager:
             "第二轮回答",
         )
 
-        messages = [
-            json.loads(raw)
-            for raw in fake_redis.lists["context:1001_abc123"]
-        ]
+        messages = [json.loads(raw) for raw in fake_redis.lists["context:1001_abc123"]]
         assert [message["role"] for message in messages] == [
             "user",
             "assistant",
@@ -265,7 +276,9 @@ class TestRedisConversationManager:
                 }
             ],
             related_refs=["Table 2.1"],
-            retrieval_context={"chunks": [{"chunk_id": "c1", "source": "EN 1990:2002"}]},
+            retrieval_context={
+                "chunks": [{"chunk_id": "c1", "source": "EN 1990:2002"}]
+            },
             question_type="rule",
             engineering_context={"country": "EU"},
             answer_mode="standard",
@@ -290,10 +303,7 @@ class TestRedisConversationManager:
             },
         )
 
-        messages = [
-            json.loads(raw)
-            for raw in fake_redis.lists["context:1001_refs"]
-        ]
+        messages = [json.loads(raw) for raw in fake_redis.lists["context:1001_refs"]]
         assistant_message = messages[1]
         assert assistant_message["role"] == "assistant"
         assert assistant_message["sources"][0]["file"] == "EN 1990:2002"
@@ -302,7 +312,10 @@ class TestRedisConversationManager:
             "The design working life should be specified."
         )
         assert assistant_message["sources"][0]["elementType"] == "text"
-        assert assistant_message["retrievalContext"]["chunks"][0]["source"] == "EN 1990:2002"
+        assert (
+            assistant_message["retrievalContext"]["chunks"][0]["source"]
+            == "EN 1990:2002"
+        )
         assert assistant_message["relatedRefs"] == ["Table 2.1"]
         assert assistant_message["questionType"] == "rule"
         assert assistant_message["engineeringContext"] == {"country": "EU"}
@@ -310,16 +323,79 @@ class TestRedisConversationManager:
         assert assistant_message["groundedness"] == "grounded"
         assert assistant_message["thinking"] == "先检索 EN 1990，再组织回答。"
         assert assistant_message["response"]["code"] == 200
-        assert assistant_message["response"]["thinking"] == "先检索 EN 1990，再组织回答。"
-        assert assistant_message["response"]["sources"][0]["docId"] == "EN_1990_2002"
-        assert assistant_message["response"]["title"] == (
-            "设计使用年限是什么？"
+        assert (
+            assistant_message["response"]["thinking"] == "先检索 EN 1990，再组织回答。"
         )
+        assert assistant_message["response"]["sources"][0]["docId"] == "EN_1990_2002"
+        assert assistant_message["response"]["title"] == ("设计使用年限是什么？")
+
+    @pytest.mark.anyio
+    async def test_get_session_restores_frontend_turns_from_redis_messages(self):
+        manager = RedisConversationManager.__new__(RedisConversationManager)
+        fake_redis = _FakeRedis()
+        manager._redis = fake_redis
+        fake_redis.hashes["user:1001:sessions"] = {
+            "1001_restore": json.dumps(
+                {
+                    "title": "设计使用年限",
+                    "updatedAt": "2026-05-31T10:00:00Z",
+                },
+                ensure_ascii=False,
+            )
+        }
+        fake_redis.lists["context:1001_restore"] = [
+            json.dumps(
+                {
+                    "role": "user",
+                    "content": "设计使用年限是什么？",
+                    "timestamp": "2026-05-31T09:59:00Z",
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "应规定设计使用年限。[Ref-1]",
+                    "timestamp": "2026-05-31T10:00:00Z",
+                    "sources": [{"file": "EN 1990:2002", "docId": "EN_1990_2002"}],
+                    "relatedRefs": ["Table 2.1"],
+                    "retrievalContext": {"chunks": [{"chunk_id": "c1"}]},
+                    "thinking": "先检索。",
+                    "questionType": "rule",
+                    "engineeringContext": {"country": "EU"},
+                    "response": {
+                        "answer": "应规定设计使用年限。[Ref-1]",
+                        "normalized_answer": "应规定设计使用年限。[Ref-1]",
+                        "confidence": "high",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        ]
+
+        session = await manager.get_session_async("1001_restore")
+
+        assert session["session_id"] == "1001_restore"
+        assert session["title"] == "设计使用年限"
+        assert session["updated_at"] == "2026-05-31T10:00:00Z"
+        assert len(session["messages"]) == 1
+        turn = session["messages"][0]
+        assert turn["question"] == "设计使用年限是什么？"
+        assert turn["answer"] == "应规定设计使用年限。[Ref-1]"
+        assert turn["reasoning"] == "先检索。"
+        assert turn["confidence"] == "high"
+        assert turn["sources"][0]["docId"] == "EN_1990_2002"
+        assert turn["related_refs"] == ["Table 2.1"]
+        assert turn["retrieval_context"]["chunks"][0]["chunk_id"] == "c1"
+        assert turn["question_type"] == "rule"
+        assert turn["engineering_context"] == {"country": "EU"}
 
 
 class TestConversationTurnPersistence:
     @pytest.mark.anyio
-    async def test_add_conversation_turn_passes_reference_metadata_to_async_manager(self):
+    async def test_add_conversation_turn_passes_reference_metadata_to_async_manager(
+        self,
+    ):
         class _FakeConversationManager:
             def __init__(self):
                 self.kwargs = None
@@ -365,7 +441,9 @@ class TestConversationTurnPersistence:
         assert manager.kwargs["sources"][0]["source"] == "EN 1990:2002"
         assert manager.kwargs["sources"][0]["docId"] == "EN_1990_2002"
         assert manager.kwargs["related_refs"] == ["Table 2.1"]
-        assert manager.kwargs["retrieval_context"]["chunks"][0]["source"] == "EN 1990:2002"
+        assert (
+            manager.kwargs["retrieval_context"]["chunks"][0]["source"] == "EN 1990:2002"
+        )
         assert manager.kwargs["question_type"] == "rule"
         assert manager.kwargs["engineering_context"] == {"country": "EU"}
         assert manager.kwargs["answer_mode"] == "standard"
@@ -400,6 +478,48 @@ class TestConversationTurnPersistence:
 
 
 class TestQueryEndpoint:
+    def test_session_restore_endpoint_returns_frontend_contract(self, client):
+        class _FakeConversationManager:
+            def get_session(self, session_id):
+                return {
+                    "session_id": session_id,
+                    "conversation_id": session_id,
+                    "title": "恢复会话",
+                    "updated_at": "2026-05-31T10:00:00Z",
+                    "messages": [
+                        {
+                            "id": f"{session_id}-1",
+                            "question": "问题",
+                            "answer": "回答",
+                            "reasoning": "",
+                            "status": "done",
+                            "confidence": "high",
+                            "sources": [],
+                            "related_refs": [],
+                            "degraded": False,
+                            "conversation_id": session_id,
+                            "retrieval_context": None,
+                            "question_type": None,
+                            "engineering_context": None,
+                            "progress_events": [],
+                            "commentaries": [],
+                        }
+                    ],
+                }
+
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
+
+        resp = client.get("/api/v1/sessions/1001_restore")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["sessionId"] == "1001_restore"
+        assert payload["conversationId"] == "1001_restore"
+        assert payload["messages"][0]["relatedRefs"] == []
+        assert payload["messages"][0]["conversationId"] == "1001_restore"
+
     def test_public_query_stream_contract_bypasses_auth_when_password_enabled(
         self,
         client,
@@ -428,12 +548,12 @@ class TestQueryEndpoint:
             access_password="required"
         )
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question)
 
         with (
@@ -498,8 +618,8 @@ class TestQueryEndpoint:
             yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
@@ -537,8 +657,8 @@ class TestQueryEndpoint:
                 return None
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
@@ -550,7 +670,7 @@ class TestQueryEndpoint:
 
         seen_configs: list[tuple[str, str, str, bool]] = []
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             seen_configs.append(
                 (
                     config.llm_api_key,
@@ -613,7 +733,33 @@ class TestQueryEndpoint:
             ),
         ]
 
-    def test_query_endpoint_does_not_forward_or_store_conversation_history(self, client):
+    def test_query_endpoint_returns_degraded_response_for_agent_error(
+        self,
+        client,
+        monkeypatch,
+    ):
+        async def _fake_dispatch_agent(*_args, **_kwargs):
+            raise LLMUnavailableError("agent 决策超时")
+
+        from server.api.v1 import query as query_module
+
+        monkeypatch.setattr(query_module, "dispatch_agent", _fake_dispatch_agent)
+
+        resp = client.post(
+            "/api/v1/query",
+            json={"question": "钢筋的主要特性有哪些？", "sessionId": "session-1"},
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["degraded"] is True
+        assert payload["confidence"] == "low"
+        assert payload["conversation_id"] == "session-1"
+        assert "语言模型暂时不可用" in payload["answer"]
+
+    def test_query_endpoint_does_not_forward_or_store_conversation_history(
+        self, client
+    ):
         class _FakeRetriever:
             async def prefetch_vectors(self, query, filters=None):
                 return []
@@ -636,14 +782,14 @@ class TestQueryEndpoint:
 
         conversation_manager = _FakeConversationManager()
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: conversation_manager
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            conversation_manager
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         seen_histories: list[list[dict[str, str]]] = []
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question)
 
         async def _fake_generate_answer(**kwargs):
@@ -693,14 +839,14 @@ class TestQueryEndpoint:
 
         conversation_manager = _FakeConversationManager()
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: conversation_manager
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            conversation_manager
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         seen_histories: list[list[dict[str, str]]] = []
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question)
 
         async def _fake_generate_answer_stream(**kwargs):
@@ -753,12 +899,14 @@ class TestQueryEndpoint:
 
         conversation_manager = _FakeConversationManager()
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: conversation_manager
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            conversation_manager
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         seen_histories: list[list[dict[str, str]]] = []
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question)
 
         async def _fake_generate_answer(**kwargs):
@@ -808,10 +956,12 @@ class TestQueryEndpoint:
 
         conversation_manager = _FakeConversationManager()
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: conversation_manager
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            conversation_manager
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question, question_type=SimpleNamespace(value="rule"))
 
         async def _fake_generate_answer_stream(**kwargs):
@@ -821,16 +971,25 @@ class TestQueryEndpoint:
 
         with (
             patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
-            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
+            patch(
+                "server.api.v1._response.generate_answer_stream",
+                _fake_generate_answer_stream,
+            ),
         ):
             resp = client.post(
                 "/api/v1/query/stream",
-                json={"sessionId": "1001_abc123", "question": "本轮问题", "stream": True},
+                json={
+                    "sessionId": "1001_abc123",
+                    "question": "本轮问题",
+                    "stream": True,
+                },
             )
 
         assert resp.status_code == 200
         done_event = next(
-            segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
+            segment
+            for segment in resp.text.split("\r\n\r\n")
+            if "event: done" in segment
         )
         done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
         assert done_payload["title"] == "自动标题"
@@ -850,8 +1009,8 @@ class TestQueryEndpoint:
                 return None
 
         app.dependency_overrides[deps.get_glossary] = lambda: {}
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
 
         seen_retrieve_calls: list[dict[str, object]] = []
@@ -864,7 +1023,7 @@ class TestQueryEndpoint:
                 seen_retrieve_calls.append(kwargs)
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 intent_label="assumption",
@@ -928,8 +1087,8 @@ class TestQueryEndpoint:
                 return None
 
         app.dependency_overrides[deps.get_glossary] = lambda: {}
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
 
         seen_queries: list[list[str]] = []
@@ -942,7 +1101,7 @@ class TestQueryEndpoint:
                 seen_queries.append(kwargs["queries"])
                 return RetrievalResult(chunks=[], parent_chunks=[], scores=[])
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 expanded_queries=[
@@ -994,8 +1153,8 @@ class TestQueryEndpoint:
                 return None
 
         app.dependency_overrides[deps.get_glossary] = lambda: {}
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
 
         class _FakeRetriever:
@@ -1010,7 +1169,7 @@ class TestQueryEndpoint:
                     groundedness="grounded",
                 )
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 intent_label="assumption",
@@ -1088,7 +1247,10 @@ class TestQueryEndpoint:
             resp.json()["retrieval_context"]["guide_chunks"][0]["document_id"]
             == "Bridge_Designers_Guide2024"
         )
-        assert resp.json()["retrieval_context"]["guide_example_chunks"][0]["chunk_id"] == "guide-example-1"
+        assert (
+            resp.json()["retrieval_context"]["guide_example_chunks"][0]["chunk_id"]
+            == "guide-example-1"
+        )
         assert resp.json()["groundedness"] == "grounded"
 
     def test_query_stream_endpoint_ignores_blank_llm_override_values(self, client):
@@ -1110,8 +1272,8 @@ class TestQueryEndpoint:
                 return None
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
@@ -1123,7 +1285,7 @@ class TestQueryEndpoint:
 
         seen_configs: list[tuple[str, str, str, bool]] = []
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             seen_configs.append(
                 (
                     config.llm_api_key,
@@ -1179,7 +1341,9 @@ class TestQueryEndpoint:
                 return []
 
             async def retrieve(self, **kwargs):
-                return RetrievalResult(chunks=[], parent_chunks=[], scores=[0.91], groundedness="grounded")
+                return RetrievalResult(
+                    chunks=[], parent_chunks=[], scores=[0.91], groundedness="grounded"
+                )
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
@@ -1191,7 +1355,7 @@ class TestQueryEndpoint:
             def add_turn(self, conversation_id, question, answer):
                 return None
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 intent_label="assumption",
@@ -1249,8 +1413,8 @@ class TestQueryEndpoint:
             )
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
@@ -1292,24 +1456,30 @@ class TestQueryEndpoint:
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer):
                 return None
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 intent_label="limit",
                 question_type=SimpleNamespace(value="parameter"),
-                target_hint=SimpleNamespace(document="EN 1990", clause="2.3", object=None),
+                target_hint=SimpleNamespace(
+                    document="EN 1990", clause="2.3", object=None
+                ),
             )
 
         async def _fake_generate_answer_stream(**kwargs):
             yield ("done", {"sources": [], "related_refs": []})
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
         with (
@@ -1332,6 +1502,123 @@ class TestQueryEndpoint:
         assert "找到 0 条相关规范证据" not in resp.text
         assert '"title": "生成回答"' in resp.text
 
+    def test_query_stream_forwards_agent_tool_progress_and_commentary(
+        self,
+        client,
+        monkeypatch,
+    ):
+        class _FakeConversationManager:
+            def get_or_create(self, conversation_id):
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1",
+                    history=[],
+                )
+
+            def add_turn(self, conversation_id, question, answer):
+                return None
+
+        async def _fake_dispatch_agent_streamed(
+            question,
+            req,
+            config,
+            retriever,
+            glossary,
+            conv_mgr,
+            tool_progress=None,
+        ):
+            conv = conv_mgr.get_or_create(req.session_id or req.conversation_id)
+            bundle = EvidenceBundle()
+            bundle.chunks.append(_make_test_chunk())
+            bundle.tool_trace.append({"tool": "retrieve", "chunk_count": 1})
+            if tool_progress is not None:
+                await tool_progress.on_tool_sub_step(
+                    ToolSubStep(
+                        tool_name="retrieve",
+                        step_id="query_understanding",
+                        status="completed",
+                        title="理解问题",
+                        summary="识别为parameter问题，扩展 3 条查询",
+                        metadata={
+                            "was_rewritten": False,
+                            "expanded_queries": ["design working life"],
+                        },
+                        elapsed_ms=12,
+                    )
+                )
+            yield AgentProgress(
+                event=AgentStreamEvent(
+                    kind="tool_calling",
+                    tool_name="retrieve",
+                    tool_args={
+                        "call_id": "call-1",
+                        "arguments": '{"query": "design working life", "top_k": 6}',
+                    },
+                    summary="正在搜索规范知识库：「设计使用年限」...",
+                )
+            )
+            yield AgentProgress(
+                event=AgentStreamEvent(
+                    kind="tool_result",
+                    tool_name="retrieve",
+                    tool_args={
+                        "call_id": "call-1",
+                        "arguments": '{"query": "design working life", "top_k": 6}',
+                    },
+                    tool_result="检索到 1 个片段，groundedness=grounded。",
+                    tool_trace={
+                        "tool": "retrieve",
+                        "query": "design working life",
+                        "expanded_queries": ["design working life", "设计使用年限"],
+                        "chunk_count": 1,
+                        "groundedness": "grounded",
+                    },
+                    summary="检索到 1 个片段。",
+                )
+            )
+            yield AgentResult(
+                agent_reply="已检索到相关规范证据。",
+                bundle=bundle,
+                conv=conv,
+                deps=None,
+            )
+
+        async def _fake_generate_answer_stream(**kwargs):
+            yield ("done", {"sources": [], "related_refs": []})
+
+        from server.api.v1 import query as query_module
+
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
+        monkeypatch.setattr(
+            query_module,
+            "dispatch_agent_streamed",
+            _fake_dispatch_agent_streamed,
+        )
+
+        with patch(
+            "server.api.v1._response.generate_answer_stream",
+            _fake_generate_answer_stream,
+        ):
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"question": "设计使用年限怎么确定？", "stream": True},
+            )
+
+        assert resp.status_code == 200
+        assert '"stage": "tool:retrieve"' in resp.text
+        assert '"title": "检索规范知识库"' in resp.text
+        assert '"tool_args": {"query": "design working life", "top_k": 6}' in resp.text
+        assert '"tool_result": "检索到 1 个片段，groundedness=grounded。"' in resp.text
+        assert (
+            '"expanded_queries": ["design working life", "设计使用年限"]' in resp.text
+        )
+        assert "event: tool_progress" in resp.text
+        assert '"step_id": "query_understanding"' in resp.text
+        assert '"was_rewritten": false' in resp.text
+        assert "event: commentary" in resp.text
+        assert "正在搜索规范知识库" in resp.text
+
     def test_query_endpoint_threads_question_type_to_retriever(self, client):
         seen_retrieval_kwargs = {}
 
@@ -1345,7 +1632,9 @@ class TestQueryEndpoint:
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer):
                 return None
@@ -1361,10 +1650,12 @@ class TestQueryEndpoint:
             )
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 intent_label="calculation",
@@ -1401,7 +1692,9 @@ class TestQueryEndpoint:
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer):
                 return None
@@ -1417,17 +1710,21 @@ class TestQueryEndpoint:
             )
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
-            resp = client.post("/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"})
+            resp = client.post(
+                "/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"}
+            )
 
         assert resp.status_code == 200
         assert resp.json()["groundedness"] == "not_grounded"
@@ -1438,11 +1735,15 @@ class TestQueryEndpoint:
                 return []
 
             async def retrieve(self, **kwargs):
-                return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
+                return RetrievalResult(
+                    chunks=[], parent_chunks=[], scores=[], groundedness="grounded"
+                )
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer):
                 return None
@@ -1451,21 +1752,31 @@ class TestQueryEndpoint:
             yield ("done", {"sources": [], "related_refs": []})
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
-            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
+            patch(
+                "server.api.v1._response.generate_answer_stream",
+                _fake_generate_answer_stream,
+            ),
         ):
-            resp = client.post("/api/v1/query/stream", json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True})
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True},
+            )
 
         assert resp.status_code == 200
         done_event = next(
-            segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
+            segment
+            for segment in resp.text.split("\r\n\r\n")
+            if "event: done" in segment
         )
         done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
         assert done_payload["groundedness"] == "grounded"
@@ -1483,12 +1794,16 @@ class TestQueryEndpoint:
                 return []
 
             async def retrieve(self, **kwargs):
-                return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
+                return RetrievalResult(
+                    chunks=[], parent_chunks=[], scores=[], groundedness="grounded"
+                )
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
                 seen_conversation_ids.append(conversation_id)
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer, **kwargs):
                 persisted_turn.update(
@@ -1529,10 +1844,12 @@ class TestQueryEndpoint:
             )
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(
                 question,
                 intent_label="parameter",
@@ -1541,7 +1858,10 @@ class TestQueryEndpoint:
 
         with (
             patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
-            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
+            patch(
+                "server.api.v1._response.generate_answer_stream",
+                _fake_generate_answer_stream,
+            ),
         ):
             resp = client.post(
                 "/api/v1/query/stream",
@@ -1554,7 +1874,9 @@ class TestQueryEndpoint:
 
         assert resp.status_code == 200
         done_event = next(
-            segment for segment in resp.text.split("\r\n\r\n") if "event: done" in segment
+            segment
+            for segment in resp.text.split("\r\n\r\n")
+            if "event: done" in segment
         )
         done_payload = json.loads(done_event.split("data: ", 1)[1].strip())
         assert seen_conversation_ids == ["1001_abc123"]
@@ -1573,8 +1895,13 @@ class TestQueryEndpoint:
         assert done_payload["thinking"] == "先找 EN 1990。再整理引用。"
         assert persisted_turn["thinking"] == "先找 EN 1990。再整理引用。"
         assert persisted_turn["response_payload"]["code"] == 200
-        assert persisted_turn["response_payload"]["thinking"] == "先找 EN 1990。再整理引用。"
-        assert persisted_turn["response_payload"]["sources"][0]["docId"] == "EN_1990_2002"
+        assert (
+            persisted_turn["response_payload"]["thinking"]
+            == "先找 EN 1990。再整理引用。"
+        )
+        assert (
+            persisted_turn["response_payload"]["sources"][0]["docId"] == "EN_1990_2002"
+        )
         assert persisted_turn["response_payload"]["title"] is None
 
     def test_query_endpoint_threads_intent_label_to_generate_answer(self, client):
@@ -1583,11 +1910,15 @@ class TestQueryEndpoint:
                 return []
 
             async def retrieve(self, **kwargs):
-                return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
+                return RetrievalResult(
+                    chunks=[], parent_chunks=[], scores=[], groundedness="grounded"
+                )
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer):
                 return None
@@ -1606,17 +1937,21 @@ class TestQueryEndpoint:
             )
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
             patch("server.api.v1._response.generate_answer", _fake_generate_answer),
         ):
-            resp = client.post("/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"})
+            resp = client.post(
+                "/api/v1/query", json={"question": "欧标的截面计算的基本假设前提是什么"}
+            )
 
         assert resp.status_code == 200
         assert seen_kwargs["intent_label"] == "assumption"
@@ -1627,11 +1962,15 @@ class TestQueryEndpoint:
                 return []
 
             async def retrieve(self, **kwargs):
-                return RetrievalResult(chunks=[], parent_chunks=[], scores=[], groundedness="grounded")
+                return RetrievalResult(
+                    chunks=[], parent_chunks=[], scores=[], groundedness="grounded"
+                )
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
             def add_turn(self, conversation_id, question, answer):
                 return None
@@ -1643,17 +1982,25 @@ class TestQueryEndpoint:
             yield ("done", {"sources": [], "related_refs": [], "confidence": "low"})
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question, intent_label="assumption")
 
         with (
             patch("server.core.query_understanding.analyze_query", _fake_analyze_query),
-            patch("server.api.v1._response.generate_answer_stream", _fake_generate_answer_stream),
+            patch(
+                "server.api.v1._response.generate_answer_stream",
+                _fake_generate_answer_stream,
+            ),
         ):
-            resp = client.post("/api/v1/query/stream", json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True})
+            resp = client.post(
+                "/api/v1/query/stream",
+                json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True},
+            )
 
         assert resp.status_code == 200
         assert seen_kwargs["intent_label"] == "assumption"
@@ -1668,16 +2015,22 @@ class TestQueryEndpoint:
 
         class _FakeConversationManager:
             def get_or_create(self, conversation_id):
-                return SimpleNamespace(conversation_id=conversation_id or "conv-1", history=[])
+                return SimpleNamespace(
+                    conversation_id=conversation_id or "conv-1", history=[]
+                )
 
-        async def _fake_analyze_query(question, glossary, config):
+        async def _fake_analyze_query(question, glossary, config, history=None):
             return _analysis_stub(question, intent_label="assumption")
 
         app.dependency_overrides[deps.get_retriever] = lambda: _FakeRetriever()
-        app.dependency_overrides[deps.get_conversation_manager] = lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
 
-        with patch("server.core.query_understanding.analyze_query", _fake_analyze_query):
+        with patch(
+            "server.core.query_understanding.analyze_query", _fake_analyze_query
+        ):
             resp = client.post(
                 "/api/v1/query/stream",
                 json={"question": "欧标的截面计算的基本假设前提是什么", "stream": True},
@@ -1685,7 +2038,9 @@ class TestQueryEndpoint:
 
         assert resp.status_code == 200
         error_event = next(
-            segment for segment in resp.text.split("\r\n\r\n") if "event: error" in segment
+            segment
+            for segment in resp.text.split("\r\n\r\n")
+            if "event: error" in segment
         )
         error_payload = json.loads(error_event.split("data: ", 1)[1].strip())
         assert error_payload == {
@@ -1884,7 +2239,9 @@ class TestDocumentsEndpoint:
         doc.save(pdf_path)
         doc.close()
 
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path)
+        )
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
@@ -1901,7 +2258,9 @@ class TestDocumentsEndpoint:
         doc.save(pdf_path)
         doc.close()
 
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path)
+        )
 
         resp = client.get("/api/v1/documents/DG_EN1992-1-1__-1-2/file")
 
@@ -1909,8 +2268,30 @@ class TestDocumentsEndpoint:
         assert resp.headers["content-type"] == "application/pdf"
         assert resp.content.startswith(b"%PDF")
 
-    def test_get_document_file_returns_404_code_when_missing(self, client, tmp_path: Path):
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
+    def test_get_document_file_resolves_pdf_name_aliases(self, client, tmp_path: Path):
+        pdf_path = tmp_path / "EN1992-1-1_2004.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path)
+        )
+
+        for doc_id in ("EN1992-1-1_2004.pdf", "EN1992-1-1_2004_pdf"):
+            resp = client.get(f"/api/v1/documents/{doc_id}/file")
+
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/pdf"
+            assert resp.content.startswith(b"%PDF")
+
+    def test_get_document_file_returns_404_code_when_missing(
+        self, client, tmp_path: Path
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path)
+        )
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
@@ -1922,7 +2303,9 @@ class TestDocumentsEndpoint:
         self, client, tmp_path: Path
     ):
         (tmp_path / "EN1990_2002.pdf").mkdir()
-        app.dependency_overrides[deps.get_config] = lambda: _server_config(pdf_dir=str(tmp_path))
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path)
+        )
 
         resp = client.get("/api/v1/documents/EN1990_2002/file")
 
@@ -2016,6 +2399,7 @@ class TestDocumentsEndpoint:
             )
         )
         assert parse_options["context_summary_enabled"] is True
+        assert parse_options["minio_path"] == str(source_pdf)
 
     def test_parse_document_contract_downloads_from_minio_path(
         self, client, tmp_path: Path
@@ -2075,6 +2459,61 @@ class TestDocumentsEndpoint:
         )
         assert parse_options["context_summary_enabled"] is False
         assert parse_options["file_name"] == "EN 1992-1-1.pdf"
+        assert parse_options["minio_path"] == "eurocode/uploads/EN_1992_1_1.pdf"
+
+    def test_get_document_file_downloads_missing_pdf_from_minio(
+        self, client, tmp_path: Path
+    ):
+        pdf_dir = tmp_path / "pdfs"
+        parsed_doc = tmp_path / "parsed" / "EN_1992_1_1"
+        parsed_doc.mkdir(parents=True)
+        (parsed_doc / "parse_options.json").write_text(
+            json.dumps(
+                {
+                    "file_name": "EN 1992-1-1.pdf",
+                    "minio_path": "eurocode/uploads/EN_1992_1_1.pdf",
+                }
+            ),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(tmp_path / "parsed"),
+            minio_endpoint="127.0.0.1:9000",
+        )
+        downloaded: list[dict[str, object]] = []
+
+        def fake_download_pdf_from_minio(*, minio_path, destination, config):
+            downloaded.append(
+                {
+                    "minio_path": minio_path,
+                    "destination": destination,
+                    "endpoint": config.minio_endpoint,
+                }
+            )
+            doc = fitz.open()
+            doc.new_page()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            doc.save(destination)
+            doc.close()
+
+        with patch(
+            "server.api.v1.documents.download_pdf_from_minio",
+            fake_download_pdf_from_minio,
+        ):
+            resp = client.get("/api/v1/documents/EN_1992_1_1/file")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF")
+        assert downloaded == [
+            {
+                "minio_path": "eurocode/uploads/EN_1992_1_1.pdf",
+                "destination": pdf_dir / "EN_1992_1_1.pdf",
+                "endpoint": "127.0.0.1:9000",
+            }
+        ]
+        assert (pdf_dir / "EN_1992_1_1.pdf").is_file()
 
     def test_upload_to_minio_uploads_pdf_and_triggers_parse(
         self, client, tmp_path: Path
@@ -2487,7 +2926,9 @@ class TestDocumentsEndpoint:
 
 
 class TestSourcesEndpoint:
-    def test_public_translate_contract_bypasses_auth_when_password_enabled(self, client):
+    def test_public_translate_contract_bypasses_auth_when_password_enabled(
+        self, client
+    ):
         translated_source = SimpleNamespace(translation="应规定设计使用年限。")
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             access_password="required"
@@ -2608,9 +3049,7 @@ class TestSourcesEndpoint:
             "detail": None,
         }
 
-    def test_translate_source_returns_http_error_when_translation_empty(
-        self, client
-    ):
+    def test_translate_source_returns_http_error_when_translation_empty(self, client):
         payload = {
             "document_id": "EN1990_2002",
             "file": "EN 1990:2002",
@@ -2659,7 +3098,10 @@ class TestSourcesEndpoint:
         assert resp.json() == {"code": 200, "translation": "应规定设计使用年限。"}
         [sent_sources, _sent_config] = mock_translate.await_args.args
         assert sent_sources[0].document_id == "EN_1990_2002"
-        assert sent_sources[0].original_text == "The design working life should be specified."
+        assert (
+            sent_sources[0].original_text
+            == "The design working life should be specified."
+        )
 
 
 class TestGlossaryEndpoint:

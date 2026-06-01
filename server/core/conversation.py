@@ -1,4 +1,5 @@
 """Conversation state management."""
+
 from __future__ import annotations
 
 import json
@@ -33,6 +34,37 @@ class ConversationManager:
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
         state = self.get_or_create(conversation_id)
         state.history.append({"question": question, "answer": answer})
+
+    def get_session(self, conversation_id: str) -> dict[str, Any]:
+        """Return one frontend-facing session from the in-memory cache."""
+        state = self.get_or_create(conversation_id)
+        messages = [
+            {
+                "id": f"{conversation_id}-{index}",
+                "question": item.get("question", ""),
+                "answer": item.get("answer", ""),
+                "reasoning": "",
+                "status": "done",
+                "confidence": "none",
+                "sources": [],
+                "related_refs": [],
+                "degraded": False,
+                "conversation_id": conversation_id,
+                "retrieval_context": None,
+                "question_type": None,
+                "engineering_context": None,
+                "progress_events": [],
+                "commentaries": [],
+            }
+            for index, item in enumerate(state.history, start=1)
+        ]
+        return {
+            "session_id": conversation_id,
+            "conversation_id": conversation_id,
+            "title": None,
+            "updated_at": None,
+            "messages": messages,
+        }
 
 
 def _utc_iso() -> str:
@@ -94,6 +126,188 @@ def _messages_to_history(raw_items: list[str]) -> list[dict[str, str]]:
     return history
 
 
+def _message_content(payload: dict[str, Any]) -> str:
+    """Return a normalized message content string."""
+    return str(payload.get("content") or "").strip()
+
+
+def _assistant_response(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the stored assistant response snapshot when available."""
+    response = payload.get("response")
+    return response if isinstance(response, dict) else {}
+
+
+def _assistant_sources(payload: dict[str, Any], response: dict[str, Any]) -> list:
+    """Return persisted sources from response snapshot or assistant metadata."""
+    sources = response.get("sources", payload.get("sources", []))
+    return sources if isinstance(sources, list) else []
+
+
+def _assistant_related_refs(payload: dict[str, Any], response: dict[str, Any]) -> list:
+    """Return persisted related references from response snapshot or metadata."""
+    related_refs = response.get(
+        "relatedRefs",
+        response.get(
+            "related_refs", payload.get("relatedRefs", payload.get("related_refs", []))
+        ),
+    )
+    return related_refs if isinstance(related_refs, list) else []
+
+
+def _conversation_turns_from_messages(
+    conversation_id: str,
+    raw_items: list[str],
+) -> list[dict[str, Any]]:
+    """Convert Redis role messages into frontend chat turns."""
+    turns: list[dict[str, Any]] = []
+    pending_question: dict[str, Any] | None = None
+    turn_index = 0
+
+    for raw in raw_items:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        legacy_item = _message_to_history_item(payload)
+        if legacy_item:
+            turn_index += 1
+            turns.append(
+                {
+                    "id": f"{conversation_id}-{turn_index}",
+                    "question": legacy_item["question"],
+                    "answer": legacy_item["answer"],
+                    "reasoning": "",
+                    "status": "done",
+                    "confidence": "none",
+                    "sources": [],
+                    "related_refs": [],
+                    "degraded": False,
+                    "conversation_id": conversation_id,
+                    "retrieval_context": None,
+                    "question_type": None,
+                    "engineering_context": None,
+                    "progress_events": [],
+                    "commentaries": [],
+                }
+            )
+            pending_question = None
+            continue
+
+        role = payload.get("role")
+        if role == "user":
+            if pending_question is not None:
+                turn_index += 1
+                turns.append(
+                    {
+                        "id": f"{conversation_id}-{turn_index}",
+                        "question": _message_content(pending_question),
+                        "answer": "",
+                        "reasoning": "",
+                        "status": "error",
+                        "confidence": "none",
+                        "sources": [],
+                        "related_refs": [],
+                        "degraded": False,
+                        "conversation_id": conversation_id,
+                        "error_message": "上次回答在生成过程中中断，已保留问题。",
+                        "retrieval_context": None,
+                        "question_type": None,
+                        "engineering_context": None,
+                        "progress_events": [],
+                        "commentaries": [],
+                    }
+                )
+            pending_question = payload
+            continue
+
+        if role != "assistant":
+            continue
+
+        if pending_question is None:
+            continue
+
+        response = _assistant_response(payload)
+        answer = str(
+            response.get("normalized_answer")
+            or response.get("answer")
+            or payload.get("content")
+            or ""
+        )
+        confidence = str(
+            response.get("confidence") or payload.get("confidence") or "none"
+        )
+        retrieval_context = response.get(
+            "retrieval_context",
+            response.get("retrievalContext", payload.get("retrievalContext")),
+        )
+        question_type = response.get(
+            "question_type",
+            response.get("questionType", payload.get("questionType")),
+        )
+        engineering_context = response.get(
+            "engineering_context",
+            response.get("engineeringContext", payload.get("engineeringContext")),
+        )
+        thinking = str(response.get("thinking") or payload.get("thinking") or "")
+        turn_index += 1
+        turns.append(
+            {
+                "id": f"{conversation_id}-{turn_index}",
+                "question": _message_content(pending_question),
+                "answer": answer,
+                "reasoning": thinking,
+                "status": "done",
+                "confidence": confidence,
+                "sources": _assistant_sources(payload, response),
+                "related_refs": _assistant_related_refs(payload, response),
+                "degraded": bool(
+                    response.get("degraded", payload.get("degraded", False))
+                ),
+                "conversation_id": conversation_id,
+                "retrieval_context": retrieval_context
+                if isinstance(retrieval_context, dict)
+                else None,
+                "question_type": question_type
+                if isinstance(question_type, str)
+                else None,
+                "engineering_context": engineering_context
+                if isinstance(engineering_context, dict)
+                else None,
+                "progress_events": [],
+                "commentaries": [],
+            }
+        )
+        pending_question = None
+
+    if pending_question is not None:
+        turn_index += 1
+        turns.append(
+            {
+                "id": f"{conversation_id}-{turn_index}",
+                "question": _message_content(pending_question),
+                "answer": "",
+                "reasoning": "",
+                "status": "error",
+                "confidence": "none",
+                "sources": [],
+                "related_refs": [],
+                "degraded": False,
+                "conversation_id": conversation_id,
+                "error_message": "上次回答在生成过程中中断，已保留问题。",
+                "retrieval_context": None,
+                "question_type": None,
+                "engineering_context": None,
+                "progress_events": [],
+                "commentaries": [],
+            }
+        )
+
+    return turns
+
+
 def _has_existing_title(value: object) -> bool:
     """Return whether Redis metadata already has a meaningful session title."""
     if not isinstance(value, str):
@@ -147,6 +361,36 @@ class RedisConversationManager:
         raw_items = await self._redis.lrange(f"context:{cid}", 0, -1)
         history = _messages_to_history(raw_items)
         return ConversationState(conversation_id=cid, history=history)
+
+    async def get_session_async(self, conversation_id: str) -> dict[str, Any]:
+        """Return one frontend-facing session restored from Redis."""
+        raw_items = await self._redis.lrange(f"context:{conversation_id}", 0, -1)
+        user_id = _user_id_from_session_id(conversation_id)
+        metadata: dict[str, Any] = {}
+        if user_id:
+            raw_meta = await self._redis.hget(
+                f"user:{user_id}:sessions",
+                conversation_id,
+            )
+            if raw_meta:
+                try:
+                    loaded = json.loads(raw_meta)
+                    if isinstance(loaded, dict):
+                        metadata = loaded
+                except json.JSONDecodeError:
+                    metadata = {}
+
+        return {
+            "session_id": conversation_id,
+            "conversation_id": conversation_id,
+            "title": metadata.get("title")
+            if isinstance(metadata.get("title"), str)
+            else None,
+            "updated_at": metadata.get("updatedAt")
+            if isinstance(metadata.get("updatedAt"), str)
+            else None,
+            "messages": _conversation_turns_from_messages(conversation_id, raw_items),
+        }
 
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
         del conversation_id, question, answer

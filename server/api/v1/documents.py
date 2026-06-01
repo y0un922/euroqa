@@ -1,4 +1,5 @@
 """文档管理 API：列表、上传、处理、状态、删除、页面预览。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -57,6 +58,119 @@ def _get_pdf_path(doc_id: str, pdf_dir: str) -> Path:
     return Path(pdf_dir) / f"{doc_id}.pdf"
 
 
+def _normalize_pdf_lookup_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _resolve_pdf_path(doc_id: str, pdf_dir: str) -> Path | None:
+    """Resolve local PDF paths across current and legacy document id shapes."""
+    pdf_dir_path = Path(pdf_dir)
+    raw_doc_id = doc_id.strip()
+    candidates = [
+        raw_doc_id,
+        Path(raw_doc_id).stem if raw_doc_id.lower().endswith(".pdf") else raw_doc_id,
+        _sanitize_doc_id(raw_doc_id),
+    ]
+    if raw_doc_id.lower().endswith("_pdf"):
+        candidates.append(raw_doc_id[:-4])
+
+    for candidate in dict.fromkeys(filter(None, candidates)):
+        pdf_path = _get_pdf_path(candidate, pdf_dir)
+        if pdf_path.is_file():
+            return pdf_path
+
+    if not pdf_dir_path.is_dir():
+        return None
+
+    target_keys = {
+        _normalize_pdf_lookup_key(candidate) for candidate in candidates if candidate
+    }
+    for pdf_path in sorted(pdf_dir_path.glob("*.pdf")):
+        path_keys = {
+            _normalize_pdf_lookup_key(pdf_path.stem),
+            _normalize_pdf_lookup_key(pdf_path.name),
+        }
+        if target_keys & path_keys and pdf_path.is_file():
+            return pdf_path
+    return None
+
+
+def _pdf_lookup_candidates(doc_id: str) -> list[str]:
+    raw_doc_id = doc_id.strip()
+    candidates = [
+        raw_doc_id,
+        Path(raw_doc_id).stem if raw_doc_id.lower().endswith(".pdf") else raw_doc_id,
+        _sanitize_doc_id(raw_doc_id),
+    ]
+    if raw_doc_id.lower().endswith("_pdf"):
+        candidates.append(raw_doc_id[:-4])
+    return list(dict.fromkeys(filter(None, candidates)))
+
+
+def _load_parse_options(parsed_dir: str, doc_id: str) -> dict:
+    for candidate in _pdf_lookup_candidates(doc_id):
+        options_path = Path(parsed_dir) / candidate / "parse_options.json"
+        if not options_path.is_file():
+            continue
+        try:
+            payload = json.loads(options_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning("parse_options_load_failed", path=str(options_path))
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _minio_candidates_for_doc_id(doc_id: str, parsed_dir: str) -> list[str]:
+    options = _load_parse_options(parsed_dir, doc_id)
+    candidates: list[str] = []
+    minio_path = options.get("minio_path") or options.get("minioPath")
+    if isinstance(minio_path, str) and minio_path.strip():
+        candidates.append(minio_path.strip())
+
+    file_name = options.get("file_name") or options.get("fileName")
+    if isinstance(file_name, str) and file_name.strip():
+        sanitized_file_name = _sanitize_doc_id(file_name)
+        if sanitized_file_name:
+            candidates.append(f"eurocode/uploads/{sanitized_file_name}.pdf")
+
+    for candidate in _pdf_lookup_candidates(doc_id):
+        candidates.append(f"eurocode/uploads/{candidate}.pdf")
+    return list(dict.fromkeys(candidates))
+
+
+def _resolve_pdf_path_with_minio(doc_id: str, config) -> Path | None:
+    pdf_path = _resolve_pdf_path(doc_id, config.pdf_dir)
+    if pdf_path is not None:
+        return pdf_path
+
+    target_candidates = _pdf_lookup_candidates(doc_id)
+    target_name = target_candidates[0] if target_candidates else doc_id.strip()
+    if target_name.lower().endswith(".pdf"):
+        target_name = Path(target_name).stem
+    target_path = _get_pdf_path(target_name, config.pdf_dir)
+    for minio_path in _minio_candidates_for_doc_id(doc_id, config.parsed_dir):
+        try:
+            download_pdf_from_minio(
+                minio_path=minio_path,
+                destination=target_path,
+                config=config,
+            )
+        except ValueError:
+            continue
+        except Exception:
+            logger.warning(
+                "document_pdf_minio_download_failed",
+                doc_id=doc_id,
+                minio_path=minio_path,
+            )
+            continue
+        if target_path.is_file():
+            return target_path
+    return None
+
+
 def _sanitize_doc_id(filename: str) -> str:
     """将上传文件名转为安全的 doc_id。"""
     stem = Path(filename).stem
@@ -73,7 +187,10 @@ def _is_active_pipeline_state(state: object | None) -> bool:
     """Return whether a task-manager state is still processing."""
     if state is None:
         return False
-    return getattr(state, "stage", None) not in {PipelineStage.READY, PipelineStage.ERROR}
+    return getattr(state, "stage", None) not in {
+        PipelineStage.READY,
+        PipelineStage.ERROR,
+    }
 
 
 def _ensure_documents_deletable(doc_ids: list[str], config) -> None:
@@ -216,7 +333,8 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
             stage=status.value,
             message=state.error or state.message or _status_message(status),
             chunk_count=_read_indexed_chunk_count(doc_id, config.parsed_dir)
-            if status == DocumentStatus.READY else None,
+            if status == DocumentStatus.READY
+            else None,
             error=error,
         )
 
@@ -245,13 +363,16 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
         stage="ready" if status == DocumentStatus.READY else status.value,
         message=_status_message(status),
         chunk_count=_read_indexed_chunk_count(doc_id, config.parsed_dir)
-        if status == DocumentStatus.READY else None,
+        if status == DocumentStatus.READY
+        else None,
         error=DocumentStatusError(
             type="INTERNAL_ERROR",
             detail="文档解析失败",
             stage="error",
             timestamp=_utc_iso(),
-        ) if status == DocumentStatus.ERROR else None,
+        )
+        if status == DocumentStatus.ERROR
+        else None,
     )
 
 
@@ -288,6 +409,7 @@ def _persist_parse_options(request: DocumentParseRequest, config) -> None:
             {
                 "context_summary_enabled": request.context_summary_enabled,
                 "file_name": request.file_name,
+                "minio_path": request.minio_path,
             },
             ensure_ascii=False,
             indent=2,
@@ -410,6 +532,7 @@ async def _delete_one_document_index(doc_id: str, config) -> DocumentDeleteItem:
 
 # -- 文档列表 --
 
+
 @router.get("/documents", response_model=list[DocumentInfo])
 async def list_documents(config=Depends(get_config)) -> list[DocumentInfo]:
     pdf_dir = Path(config.pdf_dir)
@@ -418,14 +541,16 @@ async def list_documents(config=Depends(get_config)) -> list[DocumentInfo]:
         for pdf_path in sorted(pdf_dir.glob("*.pdf")):
             try:
                 doc = fitz.open(str(pdf_path))
-                docs.append(DocumentInfo(
-                    id=pdf_path.stem,
-                    name=pdf_path.stem.replace("_", " "),
-                    title=doc.metadata.get("title", pdf_path.stem),
-                    total_pages=len(doc),
-                    chunk_count=0,
-                    status=await _get_document_status(pdf_path.stem, config),
-                ))
+                docs.append(
+                    DocumentInfo(
+                        id=pdf_path.stem,
+                        name=pdf_path.stem.replace("_", " "),
+                        title=doc.metadata.get("title", pdf_path.stem),
+                        total_pages=len(doc),
+                        chunk_count=0,
+                        status=await _get_document_status(pdf_path.stem, config),
+                    )
+                )
                 doc.close()
             except Exception:
                 pass
@@ -433,6 +558,7 @@ async def list_documents(config=Depends(get_config)) -> list[DocumentInfo]:
 
 
 # -- 上传 --
+
 
 @router.post("/documents/upload", response_model=DocumentUploadResponse)
 async def upload_document(
@@ -532,6 +658,7 @@ async def upload_document_to_minio(
 
 # -- 触发处理 --
 
+
 @router.post("/documents/{doc_id}/process", response_model=DocumentProcessResponse)
 async def process_document(doc_id: str, config=Depends(get_config)):
     pdf_path = _get_pdf_path(doc_id, config.pdf_dir)
@@ -615,6 +742,7 @@ async def batch_delete_documents(
 
 # -- SSE 状态流 --
 
+
 @router.get("/documents/{doc_id}/status")
 async def document_status_stream(doc_id: str, config=Depends(get_config)):
     """SSE 端点：推送 pipeline 处理进度。"""
@@ -626,13 +754,16 @@ async def document_status_stream(doc_id: str, config=Depends(get_config)):
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    data = json.dumps({
-                        "doc_id": event.doc_id,
-                        "stage": event.stage.value,
-                        "progress": event.progress,
-                        "message": event.message,
-                        "error": event.error,
-                    }, ensure_ascii=False)
+                    data = json.dumps(
+                        {
+                            "doc_id": event.doc_id,
+                            "stage": event.stage.value,
+                            "progress": event.progress,
+                            "message": event.message,
+                            "error": event.error,
+                        },
+                        ensure_ascii=False,
+                    )
                     yield f"event: progress\ndata: {data}\n\n"
                     if event.terminal:
                         yield f"event: done\ndata: {data}\n\n"
@@ -651,12 +782,15 @@ async def document_status_stream(doc_id: str, config=Depends(get_config)):
 
 # -- 删除 --
 
+
 @router.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str, config=Depends(get_config)):
     result = await _delete_one_document(doc_id, config)
     if not result.deleted:
         status_code = 409 if result.error and result.error.code == "CONFLICT" else 404
-        raise HTTPException(status_code, result.error.message if result.error else "删除失败")
+        raise HTTPException(
+            status_code, result.error.message if result.error else "删除失败"
+        )
 
     deleted = result.deleted_chunks or DeletedChunks(milvus=0, elasticsearch=0)
 
@@ -669,10 +803,13 @@ async def delete_document(doc_id: str, config=Depends(get_config)):
 
 # -- 页面预览 --
 
+
 @router.get("/documents/{doc_id}/page/{page}")
-async def get_page_image(doc_id: str, page: int, config=Depends(get_config)) -> Response:
-    pdf_path = _get_pdf_path(doc_id, config.pdf_dir)
-    if not pdf_path.exists():
+async def get_page_image(
+    doc_id: str, page: int, config=Depends(get_config)
+) -> Response:
+    pdf_path = _resolve_pdf_path_with_minio(doc_id, config)
+    if pdf_path is None:
         raise HTTPException(404, f"Document {doc_id} not found")
 
     doc = fitz.open(str(pdf_path))
@@ -688,8 +825,8 @@ async def get_page_image(doc_id: str, page: int, config=Depends(get_config)) -> 
 
 @router.get("/documents/{doc_id}/file")
 async def get_document_file(doc_id: str, config=Depends(get_config)) -> Response:
-    pdf_path = _get_pdf_path(doc_id, config.pdf_dir)
-    if not pdf_path.is_file():
+    pdf_path = _resolve_pdf_path_with_minio(doc_id, config)
+    if pdf_path is None:
         raise HTTPException(404, f"Document {doc_id} not found")
 
     return Response(content=pdf_path.read_bytes(), media_type="application/pdf")

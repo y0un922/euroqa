@@ -1,8 +1,9 @@
 """v1 router aggregator."""
+
 from fastapi import APIRouter, Depends
 from fastapi.routing import APIRoute
 
-from server.api.v1 import auth, documents, glossary, query, settings, sources
+from server.api.v1 import auth, documents, glossary, query, sessions, settings, sources
 from server.api.v1.auth import require_auth
 
 router = APIRouter(prefix="/api/v1")
@@ -38,6 +39,11 @@ _include_public_contract_routes(
     query.router,
     public_routes={("POST", "/query/stream")},
     tags=["Query"],
+)
+_include_public_contract_routes(
+    sessions.router,
+    public_routes={("GET", "/sessions/{session_id}")},
+    tags=["Sessions"],
 )
 _include_public_contract_routes(
     documents.router,

@@ -5,6 +5,7 @@ This module provides the query analysis pipeline for the Eurocode QA system:
 2. expand_queries    - 借助 LLM 将中文问题扩展为三路英文检索查询（语义/概念/术语）
 3. analyze_query     - 组合以上两步，返回完整的 QueryAnalysis 结果
 """
+
 from __future__ import annotations
 
 import json
@@ -33,7 +34,10 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 _INJECTION_PATTERNS = [
     re.compile(r"忽略.{0,10}(之前|以上|前面).{0,10}(指令|规则|提示)", re.IGNORECASE),
-    re.compile(r"ignore.{0,20}(previous|above|prior).{0,20}(instructions?|rules?|prompts?)", re.IGNORECASE),
+    re.compile(
+        r"ignore.{0,20}(previous|above|prior).{0,20}(instructions?|rules?|prompts?)",
+        re.IGNORECASE,
+    ),
     re.compile(r"disregard.{0,20}(previous|above|prior)", re.IGNORECASE),
     re.compile(r"你(现在)?是.{0,10}(一个|一名)", re.IGNORECASE),
     re.compile(r"pretend.{0,10}(you are|to be)", re.IGNORECASE),
@@ -120,6 +124,7 @@ class ExpansionResult:
     engineering_context: EngineeringContext | None = None
     guide_hint: GuideHint | None = None
     routing: RoutingDecision | None = None
+    rewritten_question: str | None = None
 
 
 @dataclass
@@ -138,11 +143,16 @@ class QueryAnalysis:
     target_hint: RoutingTargetHint | None = None
     reason_short: str | None = None
     preferred_element_type: str | None = None
+    rewritten_question: str | None = None
 
     @property
     def rewritten_query(self) -> str:
         """向后兼容：返回第一条扩展查询（语义查询）。"""
-        return self.expanded_queries[0] if self.expanded_queries else self.original_question
+        return (
+            self.expanded_queries[0]
+            if self.expanded_queries
+            else self.original_question
+        )
 
 
 # ===== 公开 API =====
@@ -214,7 +224,9 @@ def extract_requested_objects(
     add_pattern(_REQUESTED_ANNEX_RE, lambda key: f"Annex {key}")
 
     def overlaps(span: tuple[int, int]) -> bool:
-        return any(not (span[1] <= left or span[0] >= right) for left, right in occupied_spans)
+        return any(
+            not (span[1] <= left or span[0] >= right) for left, right in occupied_spans
+        )
 
     for match in _REQUESTED_CLAUSE_RE.finditer(question):
         if overlaps(match.span()):
@@ -228,7 +240,8 @@ def extract_requested_objects(
     if isinstance(target_hint, dict):
         raw_target_items.extend(
             [
-                value for key, value in target_hint.items()
+                value
+                for key, value in target_hint.items()
                 if key in {"clause", "object"} and isinstance(value, str)
             ]
         )
@@ -265,7 +278,9 @@ def _is_concrete_action_material_partial_factor_query(question: str) -> bool:
         return False
 
     has_concrete_design_context = bool(_CONCRETE_DESIGN_CONTEXT_RE.search(question))
-    has_action_context = bool(_ACTION_PARTIAL_FACTOR_CONTEXT_RE.search(question)) or has_action_symbol
+    has_action_context = (
+        bool(_ACTION_PARTIAL_FACTOR_CONTEXT_RE.search(question)) or has_action_symbol
+    )
     has_material_context = (
         bool(_MATERIAL_PARTIAL_FACTOR_CONTEXT_RE.search(question))
         or has_material_symbol
@@ -305,13 +320,30 @@ def _stabilize_partial_factor_expansion(
             ),
             reason_short="asks for Eurocode partial factor values",
         ),
+        rewritten_question=expansion.rewritten_question,
     )
+
+
+def _format_history_for_expansion(history: list[dict[str, str]] | None) -> str:
+    if not history:
+        return ""
+
+    lines = ["对话历史（从旧到新）："]
+    for turn in history[-3:]:
+        question = (turn.get("question") or "").strip()
+        answer = (turn.get("answer") or "").strip()
+        if question:
+            lines.append(f"用户：{question[:200]}")
+        if answer:
+            lines.append(f"助手：{answer[:200]}")
+    return "\n".join(lines) + "\n" if len(lines) > 1 else ""
 
 
 async def expand_queries(
     question: str,
     glossary: dict[str, str],
     config: ServerConfig | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> ExpansionResult:
     """将中文问题扩展为三路英文检索查询，并提取问题类型与工程上下文。
 
@@ -335,9 +367,15 @@ async def expand_queries(
         pairs = ", ".join(f"{zh}={en}" for zh, en in matched_terms.items())
         term_hint = f"已知术语对照：{pairs}\n"
 
+    history_block = _format_history_for_expansion(history)
     prompt = (
         "你是 Eurocode 规范检索专家。将以下中文工程问题扩展为三条英文检索查询，"
         "同时判断问题类型、提取工程上下文，并判断是否需要去 Designers' Guide 中找算例。\n\n"
+        f"{history_block}\n"
+        "如果当前问题包含代词（它、这个、那个、该参数、上面的表格等）或省略了关键语境"
+        "（如文档号、条款号、构件类型），你必须先根据对话历史还原为完整的自包含问题，"
+        '然后再进行查询扩展。还原后的完整问题输出在 "rewritten_question" 字段中。'
+        '如果当前问题已经是完整的自包含问题，"rewritten_question" 填原问题即可。\n\n'
         "三条查询的视角：\n"
         "1. semantic: 一句自然语言英文短句，忠实表达问题核心含义\n"
         "2. concepts: 相关概念、同义词、上下位术语（空格分隔）\n"
@@ -349,7 +387,7 @@ async def expand_queries(
         '- "mechanism": 机理/影响因素类 — 问"哪些变量会改变结果"\n\n'
         "目标线索字段：\n"
         '- "intent_label": definition|assumption|applicability|formula|limit|clause_lookup|'
-        'explanation|mechanism|calculation\n'
+        "explanation|mechanism|calculation\n"
         '- "target_hint": {"document": str|null, "clause": str|null, "object": str|null}\n'
         '- "reason_short": 一句简短英文原因\n\n'
         "工程上下文（context），从问题中提取（缺失填 null）：\n"
@@ -369,7 +407,7 @@ async def expand_queries(
         "- context 中未明确出现的信息必须保留为 null，不要臆测\n"
         "- target_hint 只能填问题中明确出现或可由目标对象稳定推出的信息，不确定时填 null\n"
         "- 严格按 JSON 格式输出：\n"
-        '{"semantic":"...","concepts":"...","terms":"...",'
+        '{"rewritten_question":"...","semantic":"...","concepts":"...","terms":"...",'
         '"question_type":"rule|parameter|calculation|mechanism",'
         '"guide_hint":{"need_example":false,"example_query":null,"example_kind":null},'
         '"intent_label":"...",'
@@ -401,7 +439,9 @@ async def expand_queries(
             exc_info=True,
         )
 
-    return _stabilize_partial_factor_expansion(question, ExpansionResult(queries=[question]))
+    return _stabilize_partial_factor_expansion(
+        question, ExpansionResult(queries=[question])
+    )
 
 
 def _parse_expansion_result(raw: str) -> ExpansionResult | None:
@@ -429,6 +469,12 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
     if not queries:
         return None
 
+    rewritten_question = data.get("rewritten_question")
+    if isinstance(rewritten_question, str):
+        rewritten_question = rewritten_question.strip() or None
+    else:
+        rewritten_question = None
+
     # 解析问题类型
     parsed_type: QuestionType | None = None
     raw_type = data.get("question_type")
@@ -442,10 +488,7 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
     eng_context: EngineeringContext | None = None
     raw_context = data.get("context")
     if isinstance(raw_context, dict):
-        normalized = {
-            k: raw_context.get(k)
-            for k in EngineeringContext.model_fields
-        }
+        normalized = {k: raw_context.get(k) for k in EngineeringContext.model_fields}
         try:
             eng_context = EngineeringContext.model_validate(normalized)
         except Exception:
@@ -460,6 +503,7 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
         engineering_context=eng_context,
         guide_hint=guide_hint,
         routing=routing,
+        rewritten_question=rewritten_question,
     )
 
 
@@ -473,12 +517,16 @@ def _parse_guide_hint(payload: object) -> GuideHint | None:
         return None
 
     raw_example_query = payload.get("example_query")
-    example_query = raw_example_query.strip() if isinstance(raw_example_query, str) else None
+    example_query = (
+        raw_example_query.strip() if isinstance(raw_example_query, str) else None
+    )
     if example_query == "":
         example_query = None
 
     raw_example_kind = payload.get("example_kind")
-    example_kind = raw_example_kind.strip() if isinstance(raw_example_kind, str) else None
+    example_kind = (
+        raw_example_kind.strip() if isinstance(raw_example_kind, str) else None
+    )
     if example_kind == "":
         example_kind = None
 
@@ -537,12 +585,13 @@ async def analyze_query(
     question: str,
     glossary: dict[str, str],
     config: ServerConfig | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> QueryAnalysis:
     """组合过滤提取与多角度查询扩展，返回完整分析结果."""
     question = sanitize_input(question)
     filters = extract_filters(question)
     preferred_element_type = extract_preferred_element_type(question)
-    expansion = await expand_queries(question, glossary, config)
+    expansion = await expand_queries(question, glossary, config, history)
     matched_terms = {zh: en for zh, en in glossary.items() if zh in question}
     requested_objects = extract_requested_objects(
         question,
@@ -562,6 +611,7 @@ async def analyze_query(
         target_hint=expansion.routing.target_hint if expansion.routing else None,
         reason_short=expansion.routing.reason_short if expansion.routing else None,
         preferred_element_type=preferred_element_type,
+        rewritten_question=expansion.rewritten_question,
     )
 
 

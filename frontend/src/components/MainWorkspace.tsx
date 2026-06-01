@@ -1,5 +1,4 @@
 import {
-  BrainCircuit,
   Check,
   ChevronDown,
   Copy,
@@ -12,7 +11,7 @@ import {
   Square
 } from "lucide-react";
 import { motion } from "motion/react";
-import { type ReactNode, useMemo, useState } from "react";
+import { Component, type ReactNode, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 
@@ -36,7 +35,7 @@ import {
   copyMarkdownToClipboard,
   isChatTurnExportable
 } from "../lib/replyExport";
-import type { ChatTurn } from "../lib/types";
+import type { ChatTurn, QueryProgressEvent } from "../lib/types";
 
 type MainWorkspaceProps = {
   activeReferenceId: string | null;
@@ -54,6 +53,44 @@ type MainWorkspaceProps = {
   onStop?: () => void;
   onSubmit: () => void;
 };
+
+type MarkdownRenderBoundaryProps = {
+  children: ReactNode;
+  content: string;
+};
+
+type MarkdownRenderBoundaryState = {
+  hasError: boolean;
+};
+
+class MarkdownRenderBoundary extends Component<
+  MarkdownRenderBoundaryProps,
+  MarkdownRenderBoundaryState
+> {
+  state: MarkdownRenderBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): MarkdownRenderBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(prevProps: MarkdownRenderBoundaryProps) {
+    if (prevProps.content !== this.props.content && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <pre className="whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 font-sans text-[15px] leading-relaxed text-stone-800">
+          {this.props.content}
+        </pre>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 /**
  * 如果 answer 是 LLM 输出的 JSON（旧非流式路径 fallback），
@@ -91,16 +128,6 @@ function getCitationText(children: ReactNode): string {
   return String(children ?? "");
 }
 
-export function resolveThinkingPanelVisibility({
-  manualPreference,
-  shouldAutoExpand,
-}: {
-  manualPreference: boolean | undefined;
-  shouldAutoExpand: boolean;
-}): boolean {
-  return manualPreference ?? shouldAutoExpand;
-}
-
 /** Tailwind 内联样式——替代 @tailwindcss/typography 的 prose 类 */
 const markdownClassName = [
   "max-w-none text-[15px] leading-7 text-stone-800",
@@ -121,68 +148,213 @@ const markdownClassName = [
   "[&_.katex-display]:my-4 [&_.katex-display]:overflow-x-auto [&_.katex]:text-[1.02em]",
 ].join(" ");
 
-function RetrievalProgressPanel({ message }: { message: ChatTurn }) {
-  const events = message.progressEvents ?? [];
-  if (events.length === 0) {
+type ToolCallStatus = "running" | "completed" | "skipped";
+
+type ToolCallCard = {
+  id: string;
+  tool: string;
+  title: string;
+  status: ToolCallStatus;
+  summary: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown> | string;
+};
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => {
+      if (value === null || value === undefined || value === "") {
+        return false;
+      }
+      return !Array.isArray(value) || value.length > 0;
+    })
+  );
+}
+
+function renderJson(value: Record<string, unknown> | string): string {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function resolveProgressStatus(
+  event: QueryProgressEvent,
+  messageStatus: ChatTurn["status"]
+): ToolCallStatus {
+  if (
+    messageStatus === "done" &&
+    (event.stage === "generating" ||
+      event.stage === "composing" ||
+      event.stage === "chat")
+  ) {
+    return "completed";
+  }
+  return event.status;
+}
+
+function mergeToolStatus(
+  current: ToolCallStatus | undefined,
+  next: ToolCallStatus
+): ToolCallStatus {
+  if (current === "running" || next === "running") {
+    return "running";
+  }
+  if (current === "completed" || next === "completed") {
+    return "completed";
+  }
+  return "skipped";
+}
+
+function getToolDefinition(event: QueryProgressEvent) {
+  if (event.stage.startsWith("tool:")) {
+    const factsToolName =
+      typeof event.facts?.tool_name === "string" ? event.facts.tool_name : "";
+    const toolName = factsToolName || event.stage.slice("tool:".length);
+    return {
+      id: `tool:${toolName}`,
+      tool: toolName,
+      title: event.title || "调用外部工具"
+    };
+  }
+
+  return null;
+}
+
+function buildToolInput(
+  events: QueryProgressEvent[]
+): Record<string, unknown> {
+  const latestFacts = [...events].reverse().find((event) => event.facts?.tool_args)
+    ?.facts;
+  return compactRecord(latestFacts?.tool_args ?? {});
+}
+
+function buildToolResult(
+  events: QueryProgressEvent[]
+): Record<string, unknown> | string {
+  const facts = [...events].reverse().find(
+    (event) => event.facts?.tool_result || event.facts?.tool_trace
+  )?.facts;
+
+  if (!facts) {
+    return "工具尚未返回结果。";
+  }
+
+  return compactRecord({
+    output: facts.tool_result,
+    trace: facts.tool_trace
+  });
+}
+
+function buildToolCallCards(message: ChatTurn): ToolCallCard[] {
+  const grouped = new Map<
+    string,
+    {
+      tool: string;
+      title: string;
+      status?: ToolCallStatus;
+      events: QueryProgressEvent[];
+    }
+  >();
+
+  for (const event of message.progressEvents ?? []) {
+    const definition = getToolDefinition(event);
+    if (!definition) {
+      continue;
+    }
+    const current =
+      grouped.get(definition.id) ?? {
+        tool: definition.tool,
+        title: definition.title,
+        events: []
+      };
+    current.status = mergeToolStatus(
+      current.status,
+      resolveProgressStatus(event, message.status)
+    );
+    current.events.push(event);
+    grouped.set(definition.id, current);
+  }
+
+  const cards: ToolCallCard[] = Array.from(grouped.entries()).map(([id, item]) => ({
+    id,
+    tool: item.tool,
+    title: item.title,
+    status: item.status ?? "completed",
+    summary:
+      item.events.at(-1)?.summary ||
+      item.events.at(-1)?.title ||
+      "工具调用已记录。",
+    input: buildToolInput(item.events),
+    result: buildToolResult(item.events)
+  }));
+
+  return cards;
+}
+
+function ToolCallTimeline({ message }: { message: ChatTurn }) {
+  const cards = buildToolCallCards(message);
+  if (cards.length === 0) {
     return null;
   }
 
-  const resolveStatus = (event: { stage: string; status: string }) =>
-    (event.stage === "generating" || event.stage === "composing") &&
-    message.status === "done"
-      ? "completed"
-      : event.status;
-
-  const finalEvidenceCount =
-    message.sources.length ||
-    events
-      .map((event) => event.facts?.evidence_count ?? 0)
-      .reduce((max, value) => Math.max(max, value), 0);
-  const finalGuideCount = events
-    .map((event) => (event.facts?.guide_count ?? 0) + (event.facts?.example_count ?? 0))
-    .reduce((max, value) => Math.max(max, value), 0);
-
-  if (message.status === "done") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-stone-500">
-        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-        <span>
-          已基于 {finalEvidenceCount} 条规范证据
-          {finalGuideCount > 0 ? `、${finalGuideCount} 条指南参考` : ""}
-          生成回答
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
-      {events.map((event, i) => {
-        const status = resolveStatus(event);
-        return (
-          <span key={event.stage} className="inline-flex items-center">
-            {i > 0 ? <span className="mr-1.5 text-stone-300">›</span> : null}
-            <span
-              className={`inline-flex items-center gap-1 rounded-full py-0.5 ${
-                status === "running"
-                  ? "bg-cyan-50 px-2 font-medium text-cyan-800"
-                  : status === "completed"
-                    ? "text-stone-500"
-                    : "text-stone-400"
-              }`}
-            >
-              {status === "completed" ? (
-                <Check className="h-3 w-3 shrink-0 text-emerald-600" />
-              ) : status === "running" ? (
-                <LoaderCircle className="h-3 w-3 shrink-0 animate-spin" />
-              ) : (
-                <div className="h-2.5 w-2.5 shrink-0 rounded-full border border-stone-300" />
-              )}
-              {event.title}
-            </span>
-          </span>
-        );
-      })}
+    <div className="space-y-3">
+      {cards.map((card) => (
+        <details
+          className="group overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm"
+          key={card.id}
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-stone-900 text-[12px] font-semibold text-white">
+                AI
+              </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-stone-100 px-2 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                    TOOL
+                  </span>
+                  <span className="font-mono text-sm font-semibold text-stone-800">
+                    {card.tool}
+                  </span>
+                  {card.status === "running" ? (
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-cyan-600" />
+                  ) : card.status === "completed" ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <span className="h-2 w-2 rounded-full bg-stone-300" />
+                  )}
+                </div>
+                <div className="mt-1 truncate text-sm text-stone-600">
+                  {card.title}
+                </div>
+              </div>
+            </div>
+            <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-stone-100 bg-stone-50/70 px-4 py-4">
+            <div className="mb-4 text-sm font-medium text-stone-700">
+              {card.summary}
+            </div>
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+                  Input Parameters
+                </div>
+                <pre className="overflow-x-auto rounded-lg border border-stone-200 bg-white p-3 font-mono text-xs leading-5 text-stone-700 shadow-sm">
+                  {renderJson(card.input)}
+                </pre>
+              </div>
+              <div>
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-stone-400">
+                  Return Results
+                </div>
+                <pre className="overflow-x-auto rounded-lg border border-stone-200 bg-white p-3 font-mono text-xs leading-5 text-stone-700 shadow-sm">
+                  {renderJson(card.result)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </details>
+      ))}
     </div>
   );
 }
@@ -203,9 +375,6 @@ export default function MainWorkspace({
   onStop,
   onSubmit
 }: MainWorkspaceProps) {
-  const [expandedThinkingIds, setExpandedThinkingIds] = useState<
-    Record<string, boolean>
-  >({});
   const [copyFeedback, setCopyFeedback] = useState<{
     messageId: string | null;
     tone: "idle" | "success" | "error";
@@ -332,14 +501,6 @@ export default function MainWorkspace({
               rawAnswer,
               references
             );
-            const hasReasoning = message.reasoning.trim().length > 0;
-            const manualThinkingPreference = expandedThinkingIds[message.id];
-            const shouldAutoExpandThinking =
-              message.status === "streaming" && !displayAnswer && hasReasoning;
-            const showThinkingPanel = resolveThinkingPanelVisibility({
-              manualPreference: manualThinkingPreference,
-              shouldAutoExpand: shouldAutoExpandThinking,
-            });
             const isCopyable = isChatTurnExportable(message);
             const copyTone =
               copyFeedback.messageId === message.id ? copyFeedback.tone : "idle";
@@ -441,64 +602,22 @@ export default function MainWorkspace({
                   </div>
 
                   <div className="w-full max-w-[95%] space-y-6 text-[15px] leading-relaxed text-stone-800">
-                    <RetrievalProgressPanel message={message} />
-
-                    {hasReasoning ? (
-                      <section className="overflow-hidden rounded-2xl border border-amber-200/70 bg-amber-50/80 shadow-sm">
-                        <button
-                          aria-expanded={showThinkingPanel}
-                          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
-                          onClick={() =>
-                            setExpandedThinkingIds((current) => ({
-                              ...current,
-                              [message.id]: !showThinkingPanel
-                            }))
-                          }
-                          type="button"
-                        >
-                          <div className="flex items-center gap-2 text-sm font-medium text-amber-950">
-                            <BrainCircuit className="h-4 w-4 text-amber-700" />
-                            <span>深度思考</span>
-                            {message.status === "streaming" ? (
-                              <span className="text-xs font-normal text-amber-700/80">
-                                实时生成中…
-                              </span>
-                            ) : null}
-                          </div>
-                          <ChevronDown
-                            className={`h-4 w-4 text-amber-700 transition-transform ${
-                              showThinkingPanel ? "rotate-180" : ""
-                            }`}
-                          />
-                        </button>
-                        {showThinkingPanel ? (
-                          <div className="border-t border-amber-200/70 bg-white/60 px-4 py-4">
-                            <div className="whitespace-pre-wrap text-[13px] leading-6 text-stone-700">
-                              {message.reasoning}
-                            </div>
-                          </div>
-                        ) : null}
-                      </section>
-                    ) : null}
+                    <ToolCallTimeline message={message} />
 
                     {displayAnswer ? (
                       <div className={markdownClassName}>
-                        <ReactMarkdown
-                          components={markdownComponents}
-                          rehypePlugins={markdownRehypePlugins}
-                          remarkPlugins={markdownRemarkPlugins}
-                          urlTransform={markdownUrlTransform}
+                        <MarkdownRenderBoundary
+                          content={displayAnswer}
                         >
-                          {displayAnswer}
-                        </ReactMarkdown>
-                      </div>
-                    ) : hasReasoning ? (
-                      <div className="rounded-lg border border-cyan-100 bg-cyan-50/60 p-4 text-cyan-900">
-                        模型正在深度思考，已收到推理过程；正文会在生成后显示。
-                      </div>
-                    ) : (message.progressEvents?.length ?? 0) === 0 ? (
-                      <div className="rounded-lg border border-cyan-100 bg-cyan-50/60 p-4 text-cyan-900">
-                        正在等待后端返回首个文本块…
+                          <ReactMarkdown
+                            components={markdownComponents}
+                            rehypePlugins={markdownRehypePlugins}
+                            remarkPlugins={markdownRemarkPlugins}
+                            urlTransform={markdownUrlTransform}
+                          >
+                            {displayAnswer}
+                          </ReactMarkdown>
+                        </MarkdownRenderBoundary>
                       </div>
                     ) : null}
 

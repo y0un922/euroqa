@@ -20,6 +20,15 @@ export type PersistedDemoSession = {
   llmSettings: LlmSettings | null;
 };
 
+export type PersistedDemoSessionPointer = {
+  currentSession: Omit<PersistedSessionRecord, "messages">;
+  sourceTranslationEnabled: boolean;
+  llmSettings: LlmSettings | null;
+};
+
+export const INTERRUPTED_STREAM_MESSAGE =
+  "上次回答在生成过程中中断，已保留已收到的内容。";
+
 function getBrowserStorage(storage?: StorageLike): StorageLike | null {
   if (storage) {
     return storage;
@@ -44,8 +53,31 @@ function asNullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function normalizeMessage(value: unknown): ChatTurn | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const message = value as ChatTurn;
+  if (message.status !== "streaming") {
+    return message;
+  }
+
+  return {
+    ...message,
+    status: "error",
+    errorMessage: INTERRUPTED_STREAM_MESSAGE
+  };
+}
+
 function asMessages(value: unknown): ChatTurn[] {
-  return Array.isArray(value) ? (value as ChatTurn[]) : [];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeMessage)
+    .filter((message): message is ChatTurn => message !== null);
 }
 
 function normalizeSessionRecord(
@@ -123,13 +155,30 @@ export function loadPersistedDemoSession(
 export function savePersistedDemoSession(
   session: PersistedDemoSession,
   storage?: StorageLike
-): void {
+): boolean {
   const targetStorage = getBrowserStorage(storage);
   if (!targetStorage) {
-    return;
+    return false;
   }
 
-  targetStorage.setItem(DEMO_SESSION_STORAGE_KEY, JSON.stringify(session));
+  const payload: PersistedDemoSessionPointer = {
+    currentSession: {
+      id: session.currentSession.id,
+      conversationId: session.currentSession.conversationId,
+      activeReferenceId: session.currentSession.activeReferenceId,
+      draftQuestion: session.currentSession.draftQuestion,
+      updatedAt: session.currentSession.updatedAt
+    },
+    sourceTranslationEnabled: session.sourceTranslationEnabled,
+    llmSettings: session.llmSettings
+  };
+
+  try {
+    targetStorage.setItem(DEMO_SESSION_STORAGE_KEY, JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function clearPersistedDemoSession(storage?: StorageLike): void {

@@ -6,7 +6,11 @@ from elasticsearch import NotFoundError
 from server.config import ServerConfig
 from server.core.retrieval import HybridRetriever
 from server.models.schemas import Chunk, ChunkMetadata, ElementType, GuideHint
-from shared.spot_check import SpotCheckRecorder, reset_current_recorder, set_current_recorder
+from shared.spot_check import (
+    SpotCheckRecorder,
+    reset_current_recorder,
+    set_current_recorder,
+)
 
 
 @pytest.fixture
@@ -65,6 +69,22 @@ class TestMergeAndDedup:
         ids = [r["chunk_id"] for r in merged]
         assert len(ids) == len(set(ids))
         assert set(ids) == {"a", "b", "c"}
+
+    def test_config_for_top_k_uses_per_call_limits(self, retriever):
+        retriever.config = ServerConfig(
+            vector_top_k=30,
+            bm25_top_k=30,
+            rerank_top_n=10,
+        )
+
+        cfg = retriever._config_for_top_k(5)
+
+        assert cfg.vector_top_k == 15
+        assert cfg.bm25_top_k == 15
+        assert cfg.rerank_top_n == 5
+        assert retriever.config.vector_top_k == 30
+        assert retriever.config.bm25_top_k == 30
+        assert retriever.config.rerank_top_n == 10
 
     def test_rrf_promotes_results_seen_by_both_retrievers(self, retriever):
         vec_results = [
@@ -143,9 +163,7 @@ class TestCrossDocAggregation:
         results = [
             {"chunk_id": f"en1990_{i}", "source": "EN 1990", "score": 0.9 - i * 0.1}
             for i in range(5)
-        ] + [
-            {"chunk_id": "en1991_0", "source": "EN 1991", "score": 0.5}
-        ]
+        ] + [{"chunk_id": "en1991_0", "source": "EN 1991", "score": 0.5}]
         aggregated = retriever._cross_doc_aggregate(results, max_per_source=2)
         en1990_count = sum(1 for r in aggregated if r["source"] == "EN 1990")
         assert en1990_count <= 2
@@ -167,14 +185,23 @@ class TestCrossDocAggregation:
 
 
 class TestGuideRetrieval:
-    def test_should_fetch_guide_chunks_uses_question_type_or_guide_hint(self, retriever):
+    def test_should_fetch_guide_chunks_uses_question_type_or_guide_hint(
+        self, retriever
+    ):
         assert retriever._should_fetch_guide_chunks("calculation") is True
         assert retriever._should_fetch_guide_chunks("parameter") is True
         assert retriever._should_fetch_guide_chunks("rule") is False
-        assert retriever._should_fetch_guide_chunks(
-            "rule",
-            GuideHint(need_example=True, example_query="worked example", example_kind="worked_example"),
-        ) is True
+        assert (
+            retriever._should_fetch_guide_chunks(
+                "rule",
+                GuideHint(
+                    need_example=True,
+                    example_query="worked example",
+                    example_kind="worked_example",
+                ),
+            )
+            is True
+        )
 
     def test_identifies_guide_chunks_from_generic_metadata(self, retriever):
         guide_chunk = _make_chunk(
@@ -227,7 +254,9 @@ class TestGuideRetrieval:
             return [chunk_map[chunk_id] for chunk_id in chunk_ids]
 
         async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            return [(chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks[:top_n])]
+            return [
+                (chunk, 0.9 - index * 0.1) for index, chunk in enumerate(chunks[:top_n])
+            ]
 
         async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
             return []
@@ -244,7 +273,10 @@ class TestGuideRetrieval:
             question_type="calculation",
         )
 
-        assert [chunk.chunk_id for chunk in result.chunks] == ["guide-example", "spec-rule"]
+        assert [chunk.chunk_id for chunk in result.chunks] == [
+            "guide-example",
+            "spec-rule",
+        ]
         assert result.scores == [0.9, 0.8]
         assert [chunk.chunk_id for chunk in result.guide_chunks] == ["guide-example"]
 
@@ -288,7 +320,9 @@ class TestGuideRetrieval:
         assert [chunk.chunk_id for chunk in result.guide_chunks] == ["dg-rule"]
 
     @pytest.mark.asyncio
-    async def test_retrieve_guide_example_chunks_prioritizes_example_like_sections(self, retriever):
+    async def test_retrieve_guide_example_chunks_prioritizes_example_like_sections(
+        self, retriever
+    ):
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=3, bm25_top_k=3)
         intro_chunk = _make_chunk(
             "guide-intro",
@@ -327,8 +361,16 @@ class TestGuideRetrieval:
             assert filters == {}
             return [
                 {"chunk_id": "spec-rule", "source": "EN 1990 uploaded", "score": 0.95},
-                {"chunk_id": "guide-intro", "source": "Bridge Designers Guide 2024", "score": 0.92},
-                {"chunk_id": "guide-example", "source": "Bridge Designers Guide 2024", "score": 0.78},
+                {
+                    "chunk_id": "guide-intro",
+                    "source": "Bridge Designers Guide 2024",
+                    "score": 0.92,
+                },
+                {
+                    "chunk_id": "guide-example",
+                    "source": "Bridge Designers Guide 2024",
+                    "score": 0.78,
+                },
             ]
 
         async def _fake_bm25_search(
@@ -341,8 +383,16 @@ class TestGuideRetrieval:
             assert filters == {}
             assert fields and "source_title.text^3" in fields
             return [
-                {"chunk_id": "guide-procedure", "source": "Bridge Designers Guide 2024", "score": 8.0},
-                {"chunk_id": "guide-example", "source": "Bridge Designers Guide 2024", "score": 6.5},
+                {
+                    "chunk_id": "guide-procedure",
+                    "source": "Bridge Designers Guide 2024",
+                    "score": 8.0,
+                },
+                {
+                    "chunk_id": "guide-example",
+                    "source": "Bridge Designers Guide 2024",
+                    "score": 6.5,
+                },
             ]
 
         async def _fake_fetch_chunks(chunk_ids: list[str]):
@@ -427,9 +477,7 @@ class TestCrossRefConstraints:
         results = [
             {"chunk_id": f"en1990_{i}", "source": "EN 1990", "score": 0.9 - i * 0.1}
             for i in range(5)
-        ] + [
-            {"chunk_id": "en1991_0", "source": "EN 1991", "score": 0.5}
-        ]
+        ] + [{"chunk_id": "en1991_0", "source": "EN 1991", "score": 0.5}]
 
         aggregated = retriever._cross_doc_aggregate(
             results,
@@ -440,7 +488,9 @@ class TestCrossRefConstraints:
         assert aggregated == results
 
     @pytest.mark.asyncio
-    async def test_fetch_object_chunks_by_object_ids_uses_keyword_lookup(self, retriever):
+    async def test_fetch_object_chunks_by_object_ids_uses_keyword_lookup(
+        self, retriever
+    ):
         retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
         seen_bodies: list[dict] = []
 
@@ -507,7 +557,10 @@ class TestCrossRefConstraints:
                 return {
                     "hits": {
                         "hits": [
-                            {"_id": "table-3-1", "_source": {"source": "EN1992-1-1 2004"}}
+                            {
+                                "_id": "table-3-1",
+                                "_source": {"source": "EN1992-1-1 2004"},
+                            }
                         ]
                     }
                 }
@@ -546,7 +599,11 @@ class TestCrossRefConstraints:
         body = seen_bodies[0]
         assert body["query"]["bool"]["minimum_should_match"] == 1
         assert any(
-            clause.get("bool", {}).get("must", [{}])[0].get("term", {}).get("object_type") == "table"
+            clause.get("bool", {})
+            .get("must", [{}])[0]
+            .get("term", {})
+            .get("object_type")
+            == "table"
             for clause in body["query"]["bool"]["should"]
         )
 
@@ -558,7 +615,9 @@ class TestCrossRefExtractionAndResolution:
     for the bugs these tests pin down.
     """
 
-    def test_extract_internal_refs_rejects_lowercase_annex_false_positives(self, retriever):
+    def test_extract_internal_refs_rejects_lowercase_annex_false_positives(
+        self, retriever
+    ):
         """Annex suffix must be uppercase — "National Annex proposes …" etc.
         must NOT produce fake refs like `Annex p`/`Annex m`/`Annex i`/`Annex c`.
         """
@@ -588,9 +647,7 @@ class TestCrossRefExtractionAndResolution:
             assert bad not in refs
 
     def test_extract_internal_refs_keeps_uppercase_annex(self, retriever):
-        chunk = _make_chunk(
-            "ok", "Refer to Annex A and Annex C2 for additional rules."
-        )
+        chunk = _make_chunk("ok", "Refer to Annex A and Annex C2 for additional rules.")
         refs = retriever._extract_internal_refs([chunk])
         assert "Annex A" in refs
         assert "Annex C2" in refs
@@ -606,7 +663,9 @@ class TestCrossRefExtractionAndResolution:
         covered = retriever._refs_covered_by_chunks({"Table 4.7"}, [chunk])
         assert covered == {"Table 4.7"}
 
-    def test_refs_covered_by_chunks_does_not_falsely_cover_figure_via_clause_digit(self, retriever):
+    def test_refs_covered_by_chunks_does_not_falsely_cover_figure_via_clause_digit(
+        self, retriever
+    ):
         """A chunk with `clause_ids=["6.10"]` must NOT be treated as covering
         a reference to `Figure 6.10` (audit bug F5)."""
         text_chunk = _make_chunk(
@@ -630,7 +689,13 @@ class TestCrossRefExtractionAndResolution:
         assert "6.4.3" in covered
 
     def test_prioritize_cross_refs_orders_structured_refs_before_annex(self, retriever):
-        refs = {"Annex A", "Table 4.7", "Expression (6.10)", "Figure 3.8", "EN 1992-1-1"}
+        refs = {
+            "Annex A",
+            "Table 4.7",
+            "Expression (6.10)",
+            "Figure 3.8",
+            "EN 1992-1-1",
+        }
         ordered = retriever._prioritize_cross_refs(refs)
         # Expression must be first; Annex/EN-std must be last.
         assert ordered[0] == "Expression (6.10)"
@@ -644,7 +709,9 @@ class TestCrossRefExtractionAndResolution:
             assert ordered.index(structured) < annex_idx
 
     @pytest.mark.asyncio
-    async def test_fetch_cross_ref_chunks_uses_exact_object_label_for_expression(self, retriever):
+    async def test_fetch_cross_ref_chunks_uses_exact_object_label_for_expression(
+        self, retriever
+    ):
         retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
         retriever._en_sources_cache = {"1992-1-1"}
         seen_bodies: list[dict] = []
@@ -763,7 +830,9 @@ class TestCrossRefExtractionAndResolution:
         assert bm25_calls == []  # absent EN-std refs are skipped before lookup
 
     @pytest.mark.asyncio
-    async def test_fetch_cross_ref_chunks_priority_attempts_expression_before_annex(self, retriever):
+    async def test_fetch_cross_ref_chunks_priority_attempts_expression_before_annex(
+        self, retriever
+    ):
         retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
         retriever._en_sources_cache = {"1992-1-1"}
         attempted: list[str] = []
@@ -791,7 +860,11 @@ class TestCrossRefExtractionAndResolution:
         )
 
         # Expression must be attempted before Table; Table before Annex.
-        idx = {name: pos for pos, name in enumerate(attempted) if not name.startswith("bm25:")}
+        idx = {
+            name: pos
+            for pos, name in enumerate(attempted)
+            if not name.startswith("bm25:")
+        }
         assert idx["Expression (6.10)"] < idx["Table 4.7"]
         bm25_idx = next(
             pos for pos, name in enumerate(attempted) if name == "bm25:Annex A"
@@ -801,7 +874,9 @@ class TestCrossRefExtractionAndResolution:
 
 class TestReferenceClosure:
     @pytest.mark.asyncio
-    async def test_metadata_probe_retrieve_resolves_direct_referenced_table_and_keeps_grounded(self):
+    async def test_metadata_probe_retrieve_resolves_direct_referenced_table_and_keeps_grounded(
+        self,
+    ):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -870,7 +945,9 @@ class TestReferenceClosure:
         retriever._fetch_chunks = _fake_fetch_chunks
         retriever._rerank = _fake_rerank
         retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_object_chunks_by_object_ids = _fake_fetch_object_chunks_by_object_ids
+        retriever._fetch_object_chunks_by_object_ids = (
+            _fake_fetch_object_chunks_by_object_ids
+        )
         retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
         result = await retriever.retrieve(
@@ -959,7 +1036,9 @@ class TestReferenceClosure:
         retriever._fetch_chunks = _fake_fetch_chunks
         retriever._rerank = _fake_rerank
         retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_object_chunks_by_object_ids = _fake_fetch_object_chunks_by_object_ids
+        retriever._fetch_object_chunks_by_object_ids = (
+            _fake_fetch_object_chunks_by_object_ids
+        )
         retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
         result = await retriever.retrieve(
@@ -974,7 +1053,9 @@ class TestReferenceClosure:
         assert "3.1.7" not in result.unresolved_refs
 
     @pytest.mark.asyncio
-    async def test_metadata_probe_retrieve_does_not_require_unrequested_figures_for_reference_closure(self):
+    async def test_metadata_probe_retrieve_does_not_require_unrequested_figures_for_reference_closure(
+        self,
+    ):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -1050,7 +1131,9 @@ class TestReferenceClosure:
         retriever._fetch_chunks = _fake_fetch_chunks
         retriever._rerank = _fake_rerank
         retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_object_chunks_by_object_ids = _fake_fetch_object_chunks_by_object_ids
+        retriever._fetch_object_chunks_by_object_ids = (
+            _fake_fetch_object_chunks_by_object_ids
+        )
         retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
         result = await retriever.retrieve(
@@ -1065,7 +1148,9 @@ class TestReferenceClosure:
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_metadata_probe_retrieve_ignores_shadowed_clause_request_when_same_table_is_requested(self):
+    async def test_metadata_probe_retrieve_ignores_shadowed_clause_request_when_same_table_is_requested(
+        self,
+    ):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -1083,7 +1168,9 @@ class TestReferenceClosure:
         )
 
         async def _fake_metadata_probe(**kwargs):
-            return [{"chunk_id": "table-3-1", "source": "EN 1992-1-1 2004", "score": 0.98}]
+            return [
+                {"chunk_id": "table-3-1", "source": "EN 1992-1-1 2004", "score": 0.98}
+            ]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
             return []
@@ -1118,7 +1205,9 @@ class TestReferenceClosure:
         retriever._fetch_chunks = _fake_fetch_chunks
         retriever._rerank = _fake_rerank
         retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_object_chunks_by_object_ids = _fake_fetch_object_chunks_by_object_ids
+        retriever._fetch_object_chunks_by_object_ids = (
+            _fake_fetch_object_chunks_by_object_ids
+        )
         retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
         result = await retriever.retrieve(
@@ -1134,7 +1223,9 @@ class TestReferenceClosure:
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_metadata_probe_retrieve_uses_selected_chunk_refs_for_reference_closure(self):
+    async def test_metadata_probe_retrieve_uses_selected_chunk_refs_for_reference_closure(
+        self,
+    ):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=3, vector_top_k=1, bm25_top_k=1)
 
@@ -1163,7 +1254,11 @@ class TestReferenceClosure:
         async def _fake_metadata_probe(**kwargs):
             return [
                 {"chunk_id": "selected", "source": "EN 1992-1-1 2004", "score": 0.99},
-                {"chunk_id": "table-shadow", "source": "EN 1992-1-1 2004", "score": 0.98},
+                {
+                    "chunk_id": "table-shadow",
+                    "source": "EN 1992-1-1 2004",
+                    "score": 0.98,
+                },
             ]
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -1203,7 +1298,9 @@ class TestReferenceClosure:
         retriever._fetch_chunks = _fake_fetch_chunks
         retriever._rerank = _fake_rerank
         retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_object_chunks_by_object_ids = _fake_fetch_object_chunks_by_object_ids
+        retriever._fetch_object_chunks_by_object_ids = (
+            _fake_fetch_object_chunks_by_object_ids
+        )
         retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
         result = await retriever.retrieve(
@@ -1211,15 +1308,24 @@ class TestReferenceClosure:
             original_query="欧标的截面计算的基本假设前提是什么",
             filters={"source": "EN 1992-1-1"},
             intent_label="assumption",
-            target_hint={"document": "EN 1992-1-1", "clause": "6.1", "object": "basic assumptions"},
+            target_hint={
+                "document": "EN 1992-1-1",
+                "clause": "6.1",
+                "object": "basic assumptions",
+            },
         )
 
-        assert [chunk.chunk_id for chunk in result.chunks] == ["selected", "table-shadow"]
+        assert [chunk.chunk_id for chunk in result.chunks] == [
+            "selected",
+            "table-shadow",
+        ]
         assert result.groundedness == "grounded"
         assert result.unresolved_refs == []
 
     @pytest.mark.asyncio
-    async def test_metadata_probe_retrieve_degrades_when_direct_referenced_table_is_unresolved(self):
+    async def test_metadata_probe_retrieve_degrades_when_direct_referenced_table_is_unresolved(
+        self,
+    ):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(rerank_top_n=1, vector_top_k=1, bm25_top_k=1)
 
@@ -1272,7 +1378,9 @@ class TestReferenceClosure:
         retriever._fetch_chunks = _fake_fetch_chunks
         retriever._rerank = _fake_rerank
         retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
-        retriever._fetch_object_chunks_by_object_ids = _fake_fetch_object_chunks_by_object_ids
+        retriever._fetch_object_chunks_by_object_ids = (
+            _fake_fetch_object_chunks_by_object_ids
+        )
         retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
 
         result = await retriever.retrieve(
@@ -1613,8 +1721,10 @@ class TestMetadataProbeBm25Fields:
 
         assert any(
             "should" in body["query"]["bool"]
-            and any("term" in clause and clause["term"].get("clause_ids") == "4.2"
-                    for clause in body["query"]["bool"]["should"])
+            and any(
+                "term" in clause and clause["term"].get("clause_ids") == "4.2"
+                for clause in body["query"]["bool"]["should"]
+            )
             for body in seen_bodies
         )
 

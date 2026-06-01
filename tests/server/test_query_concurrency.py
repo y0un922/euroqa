@@ -1,4 +1,5 @@
 """Concurrency tests for POST /api/v1/query/stream."""
+
 from __future__ import annotations
 
 import asyncio
@@ -101,7 +102,15 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
             },
         )
 
-    async def _fake_dispatch_agent(question, req, config, retriever, glossary, conv_mgr):
+    async def _fake_dispatch_agent(
+        question,
+        req,
+        config,
+        retriever,
+        glossary,
+        conv_mgr,
+        tool_progress=None,
+    ):
         conv = conv_mgr.get_or_create(req.session_id or req.conversation_id)
         bundle = EvidenceBundle()
         bundle.add_retrieval(await retriever.retrieve())
@@ -112,6 +121,9 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
             conv=conv,
             deps=None,
         )
+
+    async def _fake_dispatch_agent_streamed(*args, **kwargs):
+        yield await _fake_dispatch_agent(*args, **kwargs)
 
     app.dependency_overrides = {
         deps.get_config: lambda: _server_config(access_password=""),
@@ -128,8 +140,8 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
         _fake_generate_answer_stream,
     )
     monkeypatch.setattr(
-        "server.api.v1.query.dispatch_agent",
-        _fake_dispatch_agent,
+        "server.api.v1.query.dispatch_agent_streamed",
+        _fake_dispatch_agent_streamed,
     )
 
     async def _post_stream(client: httpx.AsyncClient) -> httpx.Response:

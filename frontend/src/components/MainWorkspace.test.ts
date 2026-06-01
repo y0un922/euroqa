@@ -3,10 +3,9 @@ import test from "node:test";
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import ReactMarkdown from "react-markdown";
 
-import MainWorkspace, {
-  resolveThinkingPanelVisibility
-} from "./MainWorkspace.tsx";
+import MainWorkspace from "./MainWorkspace.tsx";
 import type { ChatTurn } from "../lib/types.ts";
 
 Object.assign(globalThis, { React });
@@ -88,7 +87,7 @@ test("MainWorkspace hides display-layer controls and question type badges", () =
   assert.doesNotMatch(html, />rule</);
 });
 
-test("MainWorkspace auto-expands reasoning while streaming before answer chunks arrive", () => {
+test("MainWorkspace does not fabricate tool calls from reasoning text", () => {
   const messages: ChatTurn[] = [
     {
       id: "turn-streaming",
@@ -122,12 +121,13 @@ test("MainWorkspace auto-expands reasoning while streaming before answer chunks 
     })
   );
 
-  assert.match(html, /深度思考/);
-  assert.match(html, /先定位条文，再核对表格。/);
-  assert.match(html, /模型正在深度思考，已收到推理过程；正文会在生成后显示。/);
+  assert.doesNotMatch(html, /reasoning_trace/);
+  assert.doesNotMatch(html, /先定位条文，再核对表格。/);
+  assert.doesNotMatch(html, /深度思考/);
+  assert.doesNotMatch(html, /模型正在深度思考/);
 });
 
-test("MainWorkspace renders user-friendly retrieval progress summaries", () => {
+test("MainWorkspace does not fabricate tool calls from generic progress", () => {
   const messages: ChatTurn[] = [
     {
       id: "turn-progress",
@@ -139,6 +139,7 @@ test("MainWorkspace renders user-friendly retrieval progress summaries", () => {
       sources: [],
       relatedRefs: [],
       degraded: false,
+      commentaries: ["正在搜索规范知识库：「设计使用年限」..."],
       progressEvents: [
         {
           stage: "agent_thinking",
@@ -181,24 +182,179 @@ test("MainWorkspace renders user-friendly retrieval progress summaries", () => {
     })
   );
 
-  assert.match(html, /Agent 分析问题/);
-  assert.match(html, /理解问题/);
-  assert.match(html, /检索规范条文/);
+  assert.doesNotMatch(html, /query_rewrite/);
+  assert.doesNotMatch(html, /tool_calling/);
+  assert.doesNotMatch(html, /改写查询并规划检索策略/);
+  assert.doesNotMatch(html, /调用欧标检索工具/);
+  assert.doesNotMatch(html, /Agent 分析问题/);
 });
 
-test("reasoning auto-expansion can be manually collapsed while streaming", () => {
-  assert.equal(
-    resolveThinkingPanelVisibility({
-      manualPreference: undefined,
-      shouldAutoExpand: true,
-    }),
-    true
+test("MainWorkspace renders real tool payloads as collapsed tool calls", () => {
+  const messages: ChatTurn[] = [
+    {
+      id: "turn-tool",
+      question: "长细比是如何定义的？",
+      answer: "",
+      reasoning: "",
+      status: "streaming",
+      confidence: "none",
+      sources: [],
+      relatedRefs: [],
+      degraded: false,
+      progressEvents: [
+        {
+          stage: "tool:retrieve",
+          status: "completed",
+          title: "检索规范知识库",
+          summary: "检索到 3 个片段。",
+          facts: {
+            tool_name: "retrieve",
+            tool_args: {
+              query: "slenderness ratio definition",
+              top_k: 6
+            },
+            tool_result: "检索到 3 个片段，groundedness=grounded。",
+            tool_trace: {
+              tool: "retrieve",
+              query: "slenderness ratio definition",
+              expanded_queries: ["slenderness ratio", "长细比"],
+              chunk_count: 3,
+              groundedness: "grounded"
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  const html = renderToStaticMarkup(
+    React.createElement(MainWorkspace, {
+      activeReferenceId: null,
+      apiState: "ready",
+      bootError: null,
+      documents: [],
+      draftQuestion: "",
+      hotQuestions: [],
+      isSubmitting: false,
+      messages,
+      onDraftQuestionChange: () => {},
+      onReferenceClick: () => {},
+      onSelectHotQuestion: () => {},
+      onSubmit: () => {},
+      onStop: () => {},
+      onRegenerateAnswer: () => {},
+    })
   );
-  assert.equal(
-    resolveThinkingPanelVisibility({
-      manualPreference: false,
-      shouldAutoExpand: true,
-    }),
-    false
+
+  assert.match(html, /retrieve/);
+  assert.match(html, /slenderness ratio definition/);
+  assert.match(html, /expanded_queries/);
+  assert.match(html, /长细比/);
+  assert.match(html, /检索到 3 个片段/);
+  assert.doesNotMatch(html, /query_rewrite/);
+});
+
+test("MainWorkspace falls back to plain text when markdown rendering fails", () => {
+  const originalCreateElement = React.createElement;
+  const messages: ChatTurn[] = [
+    {
+      id: "turn-markdown-error",
+      question: "公式生成中断怎么办？",
+      answer: "不完整公式 $\\frac{",
+      reasoning: "",
+      status: "streaming",
+      confidence: "none",
+      sources: [],
+      relatedRefs: [],
+      degraded: false
+    }
+  ];
+
+  React.createElement = ((type: unknown, ...args: unknown[]) => {
+    if (type === ReactMarkdown) {
+      throw new Error("markdown render failed");
+    }
+    return originalCreateElement(type as never, ...(args as never[]));
+  }) as typeof React.createElement;
+
+  try {
+    const html = renderToStaticMarkup(
+      React.createElement(MainWorkspace, {
+        activeReferenceId: null,
+        apiState: "ready",
+        bootError: null,
+        documents: [],
+        draftQuestion: "",
+        hotQuestions: [],
+        isSubmitting: true,
+        messages,
+        onDraftQuestionChange: () => {},
+        onReferenceClick: () => {},
+        onSelectHotQuestion: () => {},
+        onSubmit: () => {},
+        onStop: () => {},
+        onRegenerateAnswer: () => {},
+      })
+    );
+
+    assert.match(html, /不完整公式/);
+  } finally {
+    React.createElement = originalCreateElement;
+  }
+});
+
+test("MainWorkspace uses details elements for default-collapsed real tool calls", () => {
+  const messages: ChatTurn[] = [
+    {
+      id: "turn-details",
+      question: "长细比是如何定义的？",
+      answer: "",
+      reasoning: "",
+      status: "streaming",
+      confidence: "none",
+      sources: [],
+      relatedRefs: [],
+      degraded: false,
+      progressEvents: [
+        {
+          stage: "understanding",
+          status: "running",
+          title: "理解问题",
+          summary: "识别检索意图。"
+        },
+        {
+          stage: "tool:retrieve",
+          status: "running",
+          title: "检索规范知识库",
+          summary: "正在搜索规范知识库...",
+          facts: {
+            tool_name: "retrieve",
+            tool_args: { query: "长细比", top_k: 4 }
+          }
+        }
+      ]
+    }
+  ];
+
+  const html = renderToStaticMarkup(
+    React.createElement(MainWorkspace, {
+      activeReferenceId: null,
+      apiState: "ready",
+      bootError: null,
+      documents: [],
+      draftQuestion: "",
+      hotQuestions: [],
+      isSubmitting: true,
+      messages,
+      onDraftQuestionChange: () => {},
+      onReferenceClick: () => {},
+      onSelectHotQuestion: () => {},
+      onSubmit: () => {},
+      onStop: () => {},
+      onRegenerateAnswer: () => {},
+    })
   );
+
+  assert.match(html, /<details class="/);
+  assert.doesNotMatch(html, /<details open/);
 });

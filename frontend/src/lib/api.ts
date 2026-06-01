@@ -17,6 +17,7 @@ export type DemoDocumentInfo = {
 };
 
 import type {
+  ConversationSessionResponse,
   DocumentInfo,
   DocumentUploadResponse,
   DocumentUploadToMinioResponse,
@@ -30,9 +31,11 @@ import type {
   SourceTranslationRequest,
   SourceTranslationResponse,
   StreamDonePayload,
+  StreamCommentaryPayload,
   StreamErrorPayload,
   StreamReasoningPayload,
-  SuggestResponse
+  SuggestResponse,
+  ToolProgressEvent,
 } from "./types";
 
 import { clearToken, dispatchAuthExpired, getToken } from "./auth";
@@ -47,7 +50,7 @@ function isOpaqueDocumentId(value: string): boolean {
 
 function findDocumentById(
   documentId: string,
-  documents: DocumentInfo[]
+  documents: DocumentInfo[],
 ): DocumentInfo | null {
   if (!documentId) {
     return null;
@@ -58,7 +61,7 @@ function findDocumentById(
 
 function findDocumentForSource(
   source: Source,
-  documents: DocumentInfo[]
+  documents: DocumentInfo[],
 ): DocumentInfo | null {
   const sourceDocumentId = source.document_id || source.docId || "";
   const exactDocument = findDocumentById(sourceDocumentId, documents);
@@ -67,12 +70,14 @@ function findDocumentForSource(
   }
 
   const matchedDocumentId = matchSourceToDocumentId(source.file, documents);
-  return matchedDocumentId ? findDocumentById(matchedDocumentId, documents) : null;
+  return matchedDocumentId
+    ? findDocumentById(matchedDocumentId, documents)
+    : null;
 }
 
 function resolveSourceDisplayTitle(
   source: Source,
-  document: DocumentInfo | null
+  document: DocumentInfo | null,
 ): string {
   const sourceFile = source.file?.trim();
   const explicitDisplayTitle =
@@ -119,7 +124,7 @@ export function parseSseBuffer(buffer: string): SseParseResult {
 
     return {
       event: event ?? "message",
-      data
+      data,
     };
   });
 
@@ -129,7 +134,7 @@ export function parseSseBuffer(buffer: string): SseParseResult {
 export async function readSseStream(
   stream: ReadableStream<Uint8Array>,
   onMessage: (message: SseEventMessage) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<{ receivedDone: boolean }> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -192,9 +197,7 @@ export async function readSseStream(
     if (signal?.aborted) {
       return { receivedDone: false };
     }
-    throw new Error(
-      error instanceof Error ? error.message : "流式连接中断"
-    );
+    throw new Error(error instanceof Error ? error.message : "流式连接中断");
   } finally {
     signal?.removeEventListener("abort", cancelReader);
   }
@@ -230,7 +233,8 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const sentToken = getToken();
   const headers = withAuthHeaders(init?.headers);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
-  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (!headers.has("Content-Type"))
+    headers.set("Content-Type", "application/json");
 
   const response = await fetch(buildApiUrl(path), { ...init, headers });
 
@@ -267,20 +271,18 @@ function appendTokenParam(url: string): string {
 
 export function buildDocumentPreviewUrl(
   documentId: string,
-  page: number
+  page: number,
 ): string {
   return appendTokenParam(
     buildApiUrl(
-      `/api/v1/documents/${encodeURIComponent(documentId)}/page/${page}`
-    )
+      `/api/v1/documents/${encodeURIComponent(documentId)}/page/${page}`,
+    ),
   );
 }
 
 export function buildDocumentFileUrl(documentId: string): string {
   return appendTokenParam(
-    buildApiUrl(
-      `/api/v1/documents/${encodeURIComponent(documentId)}/file`
-    )
+    buildApiUrl(`/api/v1/documents/${encodeURIComponent(documentId)}/file`),
   );
 }
 
@@ -289,13 +291,15 @@ export function buildReferenceRecords(
   documents: DocumentInfo[],
   confidence: StreamDonePayload["confidence"],
   relatedRefs: string[],
-  messageId?: string
+  messageId?: string,
 ) {
   const prefix = messageId ? `${messageId}-ref` : "ref";
   return sources.map((source, index) => {
     const sourceDocumentId = source.document_id || source.docId || "";
     const matchedDocument = findDocumentForSource(source, documents);
-    const hasDocumentId = Boolean(findDocumentById(sourceDocumentId, documents));
+    const hasDocumentId = Boolean(
+      findDocumentById(sourceDocumentId, documents),
+    );
     const displayTitle = resolveSourceDisplayTitle(source, matchedDocument);
     return {
       id: `${prefix}-${index + 1}`,
@@ -305,13 +309,15 @@ export function buildReferenceRecords(
         : matchedDocument?.id || sourceDocumentId || null,
       displayTitle,
       confidence,
-      relatedRefs
+      relatedRefs,
     };
   });
 }
 
 export function getPreferredReferenceIndex(sources: Source[]): number {
-  const clauseIndex = sources.findIndex((source) => source.clause.trim().length > 0);
+  const clauseIndex = sources.findIndex(
+    (source) => source.clause.trim().length > 0,
+  );
   return clauseIndex >= 0 ? clauseIndex : 0;
 }
 
@@ -331,22 +337,24 @@ export async function getSuggestions(): Promise<SuggestResponse> {
 }
 
 export async function getLlmSettings(): Promise<LlmSettingsResponse> {
-  return fetchJson<LlmSettingsResponse>("/api/v1/settings/llm", { method: "GET" });
+  return fetchJson<LlmSettingsResponse>("/api/v1/settings/llm", {
+    method: "GET",
+  });
 }
 
 export async function translateSource(
-  payload: SourceTranslationRequest
+  payload: SourceTranslationRequest,
 ): Promise<SourceTranslationResponse> {
   return fetchJson<SourceTranslationResponse>("/api/v1/sources/translate", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 }
 
 export function buildChatQueryPayload({
   question,
   sessionId,
-  llm
+  llm,
 }: {
   question: string;
   sessionId: string;
@@ -355,15 +363,26 @@ export function buildChatQueryPayload({
   return {
     question,
     sessionId,
-    ...(llm ? { llm } : {})
+    ...(llm ? { llm } : {}),
   };
 }
 
-export async function query(payload: QueryRequestPayload): Promise<QueryResponse> {
+export async function query(
+  payload: QueryRequestPayload,
+): Promise<QueryResponse> {
   return fetchJson<QueryResponse>("/api/v1/query", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
+}
+
+export async function getConversationSession(
+  sessionId: string,
+): Promise<ConversationSessionResponse> {
+  return fetchJson<ConversationSessionResponse>(
+    `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
+    { method: "GET" },
+  );
 }
 
 export async function queryStream(
@@ -372,9 +391,11 @@ export async function queryStream(
     onReasoning: (text: string) => void;
     onChunk: (text: string) => void;
     onProgress?: (payload: QueryProgressEvent) => void;
+    onCommentary?: (text: string) => void;
+    onToolProgress?: (payload: ToolProgressEvent) => void;
     onDone: (payload: StreamDonePayload) => void;
   },
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): Promise<void> {
   const sentToken = getToken();
   const response = await fetch(buildApiUrl("/api/v1/query/stream"), {
@@ -384,7 +405,7 @@ export async function queryStream(
       "Content-Type": "application/json",
     }),
     body: JSON.stringify({ ...payload, stream: true }),
-    signal
+    signal,
   });
 
   if (!response.ok) {
@@ -398,34 +419,51 @@ export async function queryStream(
   }
 
   let streamError: Error | null = null;
-  const { receivedDone } = await readSseStream(response.body, (message) => {
-    if (message.event === "reasoning") {
-      const payload = JSON.parse(message.data) as StreamReasoningPayload;
-      handlers.onReasoning(payload.text ?? "");
-      return;
-    }
+  const { receivedDone } = await readSseStream(
+    response.body,
+    (message) => {
+      if (message.event === "reasoning") {
+        const payload = JSON.parse(message.data) as StreamReasoningPayload;
+        handlers.onReasoning(payload.text ?? "");
+        return;
+      }
 
-    if (message.event === "chunk") {
-      const payload = JSON.parse(message.data) as { text?: string };
-      handlers.onChunk(payload.text ?? "");
-      return;
-    }
+      if (message.event === "chunk") {
+        const payload = JSON.parse(message.data) as { text?: string };
+        handlers.onChunk(payload.text ?? "");
+        return;
+      }
 
-    if (message.event === "progress") {
-      handlers.onProgress?.(JSON.parse(message.data) as QueryProgressEvent);
-      return;
-    }
+      if (message.event === "progress") {
+        handlers.onProgress?.(JSON.parse(message.data) as QueryProgressEvent);
+        return;
+      }
 
-    if (message.event === "done") {
-      handlers.onDone(JSON.parse(message.data) as StreamDonePayload);
-      return;
-    }
+      if (message.event === "commentary") {
+        const payload = JSON.parse(message.data) as StreamCommentaryPayload;
+        handlers.onCommentary?.(payload.text ?? "");
+        return;
+      }
 
-    if (message.event === "error") {
-      const payload = JSON.parse(message.data) as StreamErrorPayload;
-      streamError = new Error(payload.message || "LLM 服务暂时不可用");
-    }
-  }, signal);
+      if (message.event === "tool_progress") {
+        handlers.onToolProgress?.(
+          JSON.parse(message.data) as ToolProgressEvent,
+        );
+        return;
+      }
+
+      if (message.event === "done") {
+        handlers.onDone(JSON.parse(message.data) as StreamDonePayload);
+        return;
+      }
+
+      if (message.event === "error") {
+        const payload = JSON.parse(message.data) as StreamErrorPayload;
+        streamError = new Error(payload.message || "LLM 服务暂时不可用");
+      }
+    },
+    signal,
+  );
 
   // 用户主动中断，静默返回
   if (signal?.aborted) {
@@ -443,13 +481,14 @@ export async function queryStream(
 
 export function matchSourceToDocumentId(
   sourceFile: string,
-  documents: DemoDocumentInfo[]
+  documents: DemoDocumentInfo[],
 ): string | null {
   const target = normalize(sourceFile);
   const matched = documents.find((document) =>
     [document.id, document.name, document.title].some(
-      (value) => normalize(value).includes(target) || target.includes(normalize(value))
-    )
+      (value) =>
+        normalize(value).includes(target) || target.includes(normalize(value)),
+    ),
   );
 
   return matched?.id ?? null;
@@ -457,7 +496,9 @@ export function matchSourceToDocumentId(
 
 // -- 文档导入 API --
 
-export async function uploadDocument(file: File): Promise<DocumentUploadResponse> {
+export async function uploadDocument(
+  file: File,
+): Promise<DocumentUploadResponse> {
   const sentToken = getToken();
   const formData = new FormData();
   formData.append("file", file);
@@ -479,18 +520,21 @@ export async function uploadDocument(file: File): Promise<DocumentUploadResponse
 
 export async function uploadDocumentToMinio(
   file: File,
-  contextSummaryEnabled: boolean = true
+  contextSummaryEnabled: boolean = true,
 ): Promise<DocumentUploadToMinioResponse> {
   const sentToken = getToken();
   const formData = new FormData();
   formData.append("file", file);
   formData.append("contextSummaryEnabled", String(contextSummaryEnabled));
 
-  const response = await fetch(buildApiUrl("/api/v1/documents/upload-to-minio"), {
-    method: "POST",
-    headers: withAuthHeaders(),
-    body: formData,
-  });
+  const response = await fetch(
+    buildApiUrl("/api/v1/documents/upload-to-minio"),
+    {
+      method: "POST",
+      headers: withAuthHeaders(),
+      body: formData,
+    },
+  );
 
   if (!response.ok) {
     handleAuthFailure(response, sentToken);
@@ -505,7 +549,10 @@ export async function processDocument(docId: string): Promise<void> {
   const sentToken = getToken();
   const response = await fetch(
     buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}/process`),
-    { method: "POST", headers: withAuthHeaders({ "Content-Type": "application/json" }) }
+    {
+      method: "POST",
+      headers: withAuthHeaders({ "Content-Type": "application/json" }),
+    },
   );
   if (!response.ok) {
     handleAuthFailure(response, sentToken);
@@ -518,7 +565,7 @@ export async function deleteDocument(docId: string): Promise<void> {
   const sentToken = getToken();
   const response = await fetch(
     buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}`),
-    { method: "DELETE", headers: withAuthHeaders() }
+    { method: "DELETE", headers: withAuthHeaders() },
   );
   if (!response.ok) {
     handleAuthFailure(response, sentToken);
@@ -534,13 +581,15 @@ export function subscribeToPipelineStatus(
   onError: (error: string) => void,
 ): () => void {
   const url = appendTokenParam(
-    buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}/status`)
+    buildApiUrl(`/api/v1/documents/${encodeURIComponent(docId)}/status`),
   );
   const source = new EventSource(url);
 
   source.addEventListener("progress", (e) => {
     try {
-      const data = JSON.parse((e as MessageEvent).data) as PipelineProgressEvent;
+      const data = JSON.parse(
+        (e as MessageEvent).data,
+      ) as PipelineProgressEvent;
       onProgress(data);
     } catch {
       // 忽略解析失败
@@ -549,7 +598,9 @@ export function subscribeToPipelineStatus(
 
   source.addEventListener("done", (e) => {
     try {
-      const data = JSON.parse((e as MessageEvent).data) as PipelineProgressEvent;
+      const data = JSON.parse(
+        (e as MessageEvent).data,
+      ) as PipelineProgressEvent;
       onDone(data);
     } catch {
       // 忽略解析失败

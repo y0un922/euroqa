@@ -1,5 +1,34 @@
 # CHANGELOG
 
+## [0.1.30] - 2026-06-01
+
+### 新增
+- **[server.agents.tool_progress / server.agents.tools.retrieve / server.core.query_understanding / server.core.retrieval / tests]**: 实现 Tool Phase 1 后端基础设施，新增可复用 tool 子步骤进度 emitter，`retrieve` 现在可上报 query understanding、hybrid search 及检索内部子步骤；query expansion 同次 LLM 调用接入最近 3 轮对话历史并输出 `rewritten_question`，用于多轮追问指代消解 — by Codex
+  - 类型: 标准流程（全自动执行）
+  - 文件: server/agents/tool_progress.py; server/agents/deps.py; server/agents/qa_agent.py; server/agents/tools/retrieve.py; server/core/query_understanding.py; server/core/retrieval.py; tests/server/agents/test_tool_progress.py; tests/server/agents/test_retrieve_sub_steps.py; tests/server/core/test_query_rewrite.py
+- **[server.api.v1.query / server.api.v1._progress / frontend.api / frontend.useEuroQaDemo / tests]**: 实现 Tool Phase 2 SSE 贯通，流式问答现在将 tool 子步骤通过 `tool_progress` SSE 实时输出，前端 `queryStream` 增加 `onToolProgress` 回调并把子步骤追加到当前 `ChatTurn.toolSubSteps`，不影响既有 progress/chunk/done/commentary 事件 — by Codex
+  - 类型: 标准流程（全自动执行）
+  - 文件: server/agents/orchestrator.py; server/api/v1/_progress.py; server/api/v1/query.py; frontend/src/lib/types.ts; frontend/src/lib/api.ts; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/lib/api.test.ts; tests/server/test_api.py
+
+## [0.1.29] - 2026-05-31
+
+### 修复
+- **[server.core.conversation / server.api.v1.sessions / frontend.session / tests]**: 会话恢复改为以 Redis 为准，新增 `GET /api/v1/sessions/{session_id}` 将 Redis `context:{sessionId}` role 消息还原为前端 `ChatTurn`；前端启动时用本地轻量 session 指针从后端恢复对话，`localStorage` 不再保存完整 `messages/history/retrievalContext`，避免回答完成后引用和证据上下文写爆浏览器配额导致白屏 — by Codex
+  - 类型: 标准流程（Trellis 创建失败后降级执行）
+  - 文件: server/core/conversation.py; server/api/v1/sessions.py; server/api/v1/router.py; server/models/schemas.py; frontend/src/lib/api.ts; frontend/src/lib/session.ts; frontend/src/lib/types.ts; frontend/src/hooks/useEuroQaDemo.ts; tests/server/test_api.py; frontend/src/lib/api.test.ts; frontend/src/lib/session.test.ts
+- **[frontend.lib.session / frontend.hooks.useEuroQaDemo / frontend.components.MainWorkspace / tests]**: 修复流式回答过程中前端可能白屏与刷新后回答状态不一致的问题；会话持久化写入失败现在被安全吞掉并返回 `false`，流式生成期间改为 1s 防抖写入 localStorage，刷新恢复未完成的 streaming turn 时标记为 `error` 并保留已生成正文与中断提示，避免被当作完整回答导出；回答 Markdown 渲染异常时降级为纯文本，避免单条流式内容拖垮整个工作台 — by Codex
+  - 类型: 简化流程（Trellis 创建失败后降级执行）
+  - 文件: frontend/src/lib/session.ts; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/components/MainWorkspace.tsx; frontend/src/lib/session.test.ts; frontend/src/components/MainWorkspace.test.ts
+- **[server.agents / server.api.v1.query / tests]**: 提升 agent 问答链路健壮性，默认 agent 超时从 30s 调整为 60s，单次 agent turn 上限降为 3；prompt 增加 grounded 后禁止重复 retrieve、单问题最多 retrieve 2 次的硬约束；agent 超时但已检索到证据时保留 evidence bundle 继续走 RAG 生成，非流式 `/query` 捕获 QA 域错误并返回 `degraded=true` 响应，避免穿透为 500 — by Codex
+  - 类型: 标准流程（Trellis 创建失败后降级执行）
+  - 文件: server/config.py; server/agents/qa_agent.py; server/agents/orchestrator.py; server/api/v1/query.py; tests/server/agents/test_qa_agent.py; tests/server/api/v1/test_query_agent_concurrency.py; tests/server/test_api.py
+- **[server.agents.tools.retrieve / server.core.retrieval / tests]**: 为 agent `retrieve` 工具新增 `top_k` 参数，由 LLM 按问题复杂度选择 3-12 条证据；工具端会 clamp 非法取值、裁剪主证据及补充证据，并把 `top_k/requested_top_k` 写入 tool trace，底层检索按单次调用派生候选与 rerank 限制，避免污染共享 retriever 配置 — by Codex
+  - 类型: 简化流程
+  - 文件: server/agents/tools/retrieve.py; server/agents/qa_agent.py; server/core/retrieval.py; tests/server/agents/test_qa_agent.py; tests/server/test_retrieval.py
+- **[server.core.retrieval]**: 增强向量/BM25/guide 检索分支失败日志，`vector_search_failed`、`original_query_vector_search_failed` 等 warning 现在包含 `error_type`、`error`、`top_k` 与 filters，便于定位 Milvus、embedding、schema 或网络问题 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/core/retrieval.py
+
 ## [0.1.28] - 2026-05-27
 
 ### 修复
@@ -277,3 +306,8 @@
 - **[data.glossary]**: 按 `术语库1.0-20260407.xlsx` 的 `Sheet1` 直接重建运行时术语表，生成 899 个唯一中文术语并移除旧 JSON 中未出现在 xlsx 的历史残留项 — by yangzhuo
   - 方案: [202604112032_glossary-json-from-xlsx](archive/2026-04/202604112032_glossary-json-from-xlsx/)
   - 决策: glossary-json-from-xlsx#D001(xlsx 重复中文按后出现记录覆盖前值)
+
+### 优化
+- **[server query stream / frontend MainWorkspace]**: 将旧式检索进度、Agent 活动外框和深度思考面板替换为默认折叠的真实 tool 调用卡片流；后端 SSE `tool:*` 事件补充真实 `tool_args`、`tool_result`、`tool_trace.expanded_queries`，前端不再从普通 progress 或 reasoning 推断 `query_rewrite`/tool result — by Codex
+  - 类型: 简化流程实现（Trellis 任务 06-01-tool）
+  - 文件: server/agents/qa_agent.py; server/api/v1/query.py; frontend/src/lib/types.ts; frontend/src/components/MainWorkspace.tsx; frontend/src/components/MainWorkspace.test.ts; tests/server/test_api.py; tests/server/agents/test_qa_agent.py

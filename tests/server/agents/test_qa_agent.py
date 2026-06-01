@@ -9,11 +9,13 @@ from agents import RunContextWrapper
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.qa_agent import (
+    AgentStreamEvent,
     _QA_AGENT_INSTRUCTIONS,
     build_qa_agent,
     run_qa_agent,
+    run_qa_agent_streamed,
 )
-from server.agents.tools.retrieve import _retrieve_impl
+from server.agents.tools.retrieve import _clamp_top_k, _retrieve_impl
 from server.config import ServerConfig
 from server.core.query_understanding import QueryAnalysis
 from server.core.retrieval import RetrievalResult
@@ -59,6 +61,10 @@ def _make_chunk(chunk_id: str = "chunk-1") -> Chunk:
             element_type=ElementType.TEXT,
         ),
     )
+
+
+def _make_chunks(count: int, prefix: str = "chunk") -> list[Chunk]:
+    return [_make_chunk(f"{prefix}-{index}") for index in range(count)]
 
 
 async def _fake_runner_result(reply: str):
@@ -140,6 +146,65 @@ async def test_rag_eurocode_question():
     assert bundle.groundedness == "grounded"
     assert retriever.calls[0]["queries"] == ["design working life"]
     assert retriever.calls[0]["filters"] == {"source": "EN 1990"}
+    assert retriever.calls[0]["top_k"] == 8
+
+
+@pytest.mark.asyncio
+async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
+    chunks = _make_chunks(12)
+    parent_chunks = _make_chunks(8, prefix="parent")
+    guide_chunks = _make_chunks(6, prefix="guide")
+    guide_example_chunks = _make_chunks(5, prefix="example")
+    ref_chunks = _make_chunks(7, prefix="ref")
+    retriever = FakeRetriever(
+        RetrievalResult(
+            chunks=chunks,
+            parent_chunks=parent_chunks,
+            scores=[0.9 - index * 0.01 for index in range(len(chunks))],
+            guide_chunks=guide_chunks,
+            guide_example_chunks=guide_example_chunks,
+            ref_chunks=ref_chunks,
+            groundedness="grounded",
+        )
+    )
+    deps = _make_deps(retriever=retriever)
+    analysis = QueryAnalysis(
+        original_question="钢筋的主要特性有哪些？",
+        expanded_queries=["reinforcing steel properties"],
+        filters={},
+        question_type=QuestionType.RULE,
+        intent_label="summary",
+    )
+
+    with patch("server.agents.tools.retrieve.analyze_query", return_value=analysis):
+        summary = await _retrieve_impl(
+            RunContextWrapper(deps),
+            "钢筋的主要特性有哪些？",
+            top_k=5,
+        )
+
+    assert retriever.calls[0]["top_k"] == 5
+    assert deps.bundle.chunks == chunks[:5]
+    assert deps.bundle.parent_chunks == parent_chunks[:5]
+    assert deps.bundle.scores == [0.9 - index * 0.01 for index in range(5)]
+    assert deps.bundle.guide_chunks == guide_chunks[:2]
+    assert deps.bundle.guide_example_chunks == guide_example_chunks[:1]
+    assert deps.bundle.ref_chunks == ref_chunks[:2]
+    assert deps.bundle.tool_trace[-1]["top_k"] == 5
+    assert "检索到 5 个片段" in summary
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    [
+        (1, 3),
+        (4, 4),
+        (99, 12),
+        ("bad", 8),
+    ],
+)
+def test_retrieve_tool_clamps_top_k(requested, expected):
+    assert _clamp_top_k(requested) == expected
 
 
 @pytest.mark.asyncio
@@ -223,7 +288,68 @@ async def test_direct_reply_without_retrieve_exposes_empty_bundle():
     assert not any(entry.get("tool") == "retrieve" for entry in bundle.tool_trace)
 
 
+@pytest.mark.asyncio
+async def test_run_qa_agent_streamed_yields_tool_progress():
+    deps = _make_deps()
+
+    class _FakeStreamedRun:
+        final_output = "已检索到相关规范证据。"
+
+        async def stream_events(self):
+            from agents.stream_events import RunItemStreamEvent
+
+            yield RunItemStreamEvent(
+                name="tool_called",
+                item=SimpleNamespace(
+                    type="tool_call_item",
+                    tool_name="retrieve",
+                    call_id="call-1",
+                    raw_item={"arguments": '{"query": "design working life"}'},
+                ),
+            )
+            yield RunItemStreamEvent(
+                name="tool_output",
+                item=SimpleNamespace(
+                    type="tool_call_output_item",
+                    call_id="call-1",
+                    output="检索到 1 个片段。",
+                ),
+            )
+
+    with patch(
+        "server.agents.qa_agent.Runner.run_streamed",
+        return_value=_FakeStreamedRun(),
+    ):
+        events = [
+            item
+            async for item in run_qa_agent_streamed(
+                agent=object(),
+                question="设计使用年限是什么？",
+                deps=deps,
+            )
+        ]
+
+    assert isinstance(events[0], AgentStreamEvent)
+    assert events[0].kind == "tool_calling"
+    assert events[0].tool_name == "retrieve"
+    assert events[0].tool_args == {
+        "call_id": "call-1",
+        "arguments": '{"query": "design working life"}',
+    }
+    assert "design working life" in events[0].summary
+    assert isinstance(events[1], AgentStreamEvent)
+    assert events[1].kind == "tool_result"
+    assert events[1].tool_result == "检索到 1 个片段。"
+    assert events[-1] == ("已检索到相关规范证据。", deps.bundle)
+
+
 def test_qa_agent_instructions_require_retrieve_for_eurocode_questions():
     """Prompt-hardening: Eurocode questions should use retrieve."""
     assert "必须调用 retrieve" in _QA_AGENT_INSTRUCTIONS
+    assert "retrieve 已返回 groundedness=grounded 的结果时，不要再次调用 retrieve" in (
+        _QA_AGENT_INSTRUCTIONS
+    )
+    assert "最多调用 retrieve 2 次" in _QA_AGENT_INSTRUCTIONS
+    assert "top_k 控制返回给回答生成的证据数量" in _QA_AGENT_INSTRUCTIONS
+    assert "简单定义或单个参数问题用 4-6" in _QA_AGENT_INSTRUCTIONS
     assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS

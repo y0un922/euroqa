@@ -5,13 +5,14 @@ import {
   useRef,
   useState,
   type Dispatch,
-  type SetStateAction
+  type SetStateAction,
 } from "react";
 
 import {
   buildChatQueryPayload,
   buildDocumentFileUrl,
   buildReferenceRecords,
+  getConversationSession,
   getPreferredReferenceIndex,
   getLlmSettings,
   getSuggestions,
@@ -20,12 +21,12 @@ import {
   query,
   queryStream,
   translateSource,
-  type DemoDocumentInfo
+  type DemoDocumentInfo,
 } from "../lib/api";
 import {
   loadPersistedDemoSession,
   savePersistedDemoSession,
-  type PersistedSessionRecord
+  type PersistedSessionRecord,
 } from "../lib/session";
 import type {
   ChatTurn,
@@ -35,7 +36,7 @@ import type {
   LlmSettings,
   LlmSettingsResponse,
   QueryProgressEvent,
-  ReferenceRecord
+  ReferenceRecord,
 } from "../lib/types";
 
 type ApiState = "loading" | "ready" | "degraded";
@@ -52,19 +53,20 @@ const FALLBACK_LLM_SETTINGS: LlmSettings = {
   apiKey: "",
   baseUrl: "https://api.deepseek.com/v1",
   model: "deepseek-chat",
-  enableThinking: true
+  enableThinking: true,
 };
 const EXTERNAL_SESSION_USER_ID = "1001";
 let fallbackIdCounter = 0;
 
 function toEditableLlmSettings(
-  defaults: LlmSettingsResponse | null
+  defaults: LlmSettingsResponse | null,
 ): LlmSettings {
   return {
     apiKey: "",
     baseUrl: defaults?.base_url?.trim() || FALLBACK_LLM_SETTINGS.baseUrl,
     model: defaults?.model?.trim() || FALLBACK_LLM_SETTINGS.model,
-    enableThinking: defaults?.enable_thinking ?? FALLBACK_LLM_SETTINGS.enableThinking
+    enableThinking:
+      defaults?.enable_thinking ?? FALLBACK_LLM_SETTINGS.enableThinking,
   };
 }
 
@@ -73,13 +75,13 @@ function normalizeLlmSettings(settings: LlmSettings): LlmSettings {
     apiKey: settings.apiKey.trim(),
     baseUrl: settings.baseUrl.trim(),
     model: settings.model.trim(),
-    enableThinking: settings.enableThinking
+    enableThinking: settings.enableThinking,
   };
 }
 
 function shouldClearLlmOverride(
   settings: LlmSettings,
-  defaults: LlmSettings
+  defaults: LlmSettings,
 ): boolean {
   return (
     settings.apiKey === "" &&
@@ -90,7 +92,7 @@ function shouldClearLlmOverride(
 }
 
 function toLlmRequestOverride(
-  settings: LlmSettings | null
+  settings: LlmSettings | null,
 ): LlmRequestOverride | undefined {
   if (!settings) {
     return undefined;
@@ -100,12 +102,15 @@ function toLlmRequestOverride(
     ...(settings.apiKey ? { api_key: settings.apiKey } : {}),
     ...(settings.baseUrl ? { base_url: settings.baseUrl } : {}),
     ...(settings.model ? { model: settings.model } : {}),
-    enable_thinking: settings.enableThinking
+    enable_thinking: settings.enableThinking,
   };
 }
 
 function createUuidToken(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID().replace(/-/g, "");
   }
 
@@ -130,7 +135,7 @@ function createEmptySessionRecord(): PersistedSessionRecord {
     activeReferenceId: null,
     draftQuestion: "",
     messages: [],
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -149,16 +154,16 @@ function formatUpdatedAt(value: string): string {
   return isSameDay
     ? timestamp.toLocaleTimeString("zh-CN", {
         hour: "2-digit",
-        minute: "2-digit"
+        minute: "2-digit",
       })
     : timestamp.toLocaleDateString("zh-CN", {
         month: "2-digit",
-        day: "2-digit"
+        day: "2-digit",
       });
 }
 
 function buildHistorySessionSummary(
-  session: PersistedSessionRecord
+  session: PersistedSessionRecord,
 ): HistorySessionSummary {
   const title =
     session.messages[0]?.question?.trim() ||
@@ -169,13 +174,13 @@ function buildHistorySessionSummary(
     id: session.id,
     title,
     messageCount: session.messages.length,
-    lastUpdatedLabel: formatUpdatedAt(session.updatedAt)
+    lastUpdatedLabel: formatUpdatedAt(session.updatedAt),
   };
 }
 
 function upsertProgressEvent(
   events: QueryProgressEvent[] | undefined,
-  nextEvent: QueryProgressEvent
+  nextEvent: QueryProgressEvent,
 ): QueryProgressEvent[] {
   const current = events ?? [];
   const index = current.findIndex((event) => event.stage === nextEvent.stage);
@@ -184,7 +189,22 @@ function upsertProgressEvent(
   }
 
   return current.map((event, eventIndex) =>
-    eventIndex === index ? nextEvent : event
+    eventIndex === index ? nextEvent : event,
+  );
+}
+
+function upsertToolSubStep(
+  steps: ChatTurn["toolSubSteps"] | undefined,
+  nextStep: NonNullable<ChatTurn["toolSubSteps"]>[number],
+): NonNullable<ChatTurn["toolSubSteps"]> {
+  const current = steps ?? [];
+  const index = current.findIndex((step) => step.step_id === nextStep.step_id);
+  if (index === -1) {
+    return [...current, nextStep];
+  }
+
+  return current.map((step, stepIndex) =>
+    stepIndex === index ? nextStep : step,
   );
 }
 
@@ -192,7 +212,7 @@ export function useEuroQaDemo() {
   const restoredSession = useMemo(() => loadPersistedDemoSession(), []);
   const initialSession = useMemo(
     () => restoredSession?.currentSession ?? createEmptySessionRecord(),
-    [restoredSession]
+    [restoredSession],
   );
   const [apiState, setApiState] = useState<ApiState>("loading");
   const [bootError, setBootError] = useState<string | null>(null);
@@ -200,34 +220,33 @@ export function useEuroQaDemo() {
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [hotQuestions, setHotQuestions] = useState<string[]>([]);
   const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
-  const [draftQuestion, setDraftQuestion] = useState(initialSession.draftQuestion);
-  const [messages, setMessages] = useState<ChatTurn[]>(initialSession.messages);
-  const [history, setHistory] = useState<PersistedSessionRecord[]>(
-    restoredSession?.history ?? []
+  const [draftQuestion, setDraftQuestion] = useState(
+    initialSession.draftQuestion,
   );
+  const [messages, setMessages] = useState<ChatTurn[]>([]);
+  const [history, setHistory] = useState<PersistedSessionRecord[]>([]);
   const [sourceTranslationEnabled, setSourceTranslationEnabled] = useState(
-    restoredSession?.sourceTranslationEnabled ?? false
+    restoredSession?.sourceTranslationEnabled ?? false,
   );
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(
-    restoredSession?.llmSettings ?? null
+    restoredSession?.llmSettings ?? null,
   );
   const [llmSettingsDefaults, setLlmSettingsDefaults] =
     useState<LlmSettingsResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(
-    initialSession.conversationId
+    initialSession.conversationId,
   );
   const [activeReferenceId, setActiveReferenceId] = useState<string | null>(
-    initialSession.activeReferenceId
+    initialSession.activeReferenceId,
   );
   const [pdfLocationStatus, setPdfLocationStatus] =
     useState<PdfLocationStatus>("idle");
   const [sourceTranslationCache, setSourceTranslationCache] = useState<
     Record<string, string>
   >({});
-  const [sourceTranslationLoadingKey, setSourceTranslationLoadingKey] = useState<
-    string | null
-  >(null);
+  const [sourceTranslationLoadingKey, setSourceTranslationLoadingKey] =
+    useState<string | null>(null);
   const [sourceTranslationErrors, setSourceTranslationErrors] = useState<
     Record<string, string | null>
   >({});
@@ -241,13 +260,17 @@ export function useEuroQaDemo() {
       setApiState("loading");
       setBootError(null);
 
-      const [documentsResult, glossaryResult, suggestResult, llmSettingsResult] =
-        await Promise.allSettled([
-          listDocuments(),
-          listGlossary(),
-          getSuggestions(),
-          getLlmSettings()
-        ]);
+      const [
+        documentsResult,
+        glossaryResult,
+        suggestResult,
+        llmSettingsResult,
+      ] = await Promise.allSettled([
+        listDocuments(),
+        listGlossary(),
+        getSuggestions(),
+        getLlmSettings(),
+      ]);
 
       if (cancelled) {
         return;
@@ -262,13 +285,28 @@ export function useEuroQaDemo() {
           ? suggestResult.value.hot_questions
           : [];
       const nextLlmSettingsDefaults =
-        llmSettingsResult.status === "fulfilled" ? llmSettingsResult.value : null;
+        llmSettingsResult.status === "fulfilled"
+          ? llmSettingsResult.value
+          : null;
+      const restoredConversationResult = await getConversationSession(
+        activeSessionId,
+      )
+        .then((session) => ({ status: "fulfilled" as const, value: session }))
+        .catch((reason) => ({ status: "rejected" as const, reason }));
+
+      if (cancelled) {
+        return;
+      }
 
       startTransition(() => {
         setDocuments(nextDocuments);
         setGlossary(nextGlossary);
         setHotQuestions(nextHotQuestions);
         setLlmSettingsDefaults(nextLlmSettingsDefaults);
+        if (restoredConversationResult.status === "fulfilled") {
+          setConversationId(restoredConversationResult.value.conversationId);
+          setMessages(restoredConversationResult.value.messages);
+        }
       });
 
       const failed =
@@ -283,7 +321,9 @@ export function useEuroQaDemo() {
           (glossaryResult.status === "rejected" && glossaryResult.reason) ||
           (suggestResult.status === "rejected" && suggestResult.reason);
         setBootError(
-          firstReason instanceof Error ? firstReason.message : DEFAULT_BOOT_ERROR
+          firstReason instanceof Error
+            ? firstReason.message
+            : DEFAULT_BOOT_ERROR,
         );
         return;
       }
@@ -304,7 +344,7 @@ export function useEuroQaDemo() {
       activeReferenceId,
       draftQuestion,
       messages,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -319,28 +359,26 @@ export function useEuroQaDemo() {
   useEffect(() => {
     savePersistedDemoSession({
       currentSession: buildCurrentSessionSnapshot(),
-      history,
+      history: [],
       sourceTranslationEnabled,
-      llmSettings
+      llmSettings,
     });
   }, [
     activeSessionId,
     activeReferenceId,
     conversationId,
     draftQuestion,
-    history,
     llmSettings,
-    messages,
-    sourceTranslationEnabled
+    sourceTranslationEnabled,
   ]);
 
   const llmDefaultSettings = useMemo(
     () => toEditableLlmSettings(llmSettingsDefaults),
-    [llmSettingsDefaults]
+    [llmSettingsDefaults],
   );
   const historySessions = useMemo(
     () => history.map((session) => buildHistorySessionSummary(session)),
-    [history]
+    [history],
   );
 
   const references = useMemo(() => {
@@ -350,8 +388,8 @@ export function useEuroQaDemo() {
         documents as DemoDocumentInfo[],
         message.confidence,
         message.relatedRefs,
-        message.id
-      )
+        message.id,
+      ),
     );
   }, [documents, messages]);
 
@@ -370,7 +408,7 @@ export function useEuroQaDemo() {
       ? [
           activeReference.documentId,
           String(activeReference.source.page),
-          activeReferenceLocatorText
+          activeReferenceLocatorText,
         ].join("|")
       : null;
 
@@ -379,7 +417,11 @@ export function useEuroQaDemo() {
   }, [activeReferenceId]);
 
   useEffect(() => {
-    if (!sourceTranslationEnabled || !activeReference || !activeSourceTranslationCacheKey) {
+    if (
+      !sourceTranslationEnabled ||
+      !activeReference ||
+      !activeSourceTranslationCacheKey
+    ) {
       setSourceTranslationLoadingKey(null);
       return;
     }
@@ -399,23 +441,24 @@ export function useEuroQaDemo() {
         return { ...current, [activeSourceTranslationCacheKey]: null };
       });
       setSourceTranslationLoadingKey((current) =>
-        current === activeSourceTranslationCacheKey ? null : current
+        current === activeSourceTranslationCacheKey ? null : current,
       );
       return;
     }
 
-    const existingTranslation = activeReference.source.translation?.trim() || "";
+    const existingTranslation =
+      activeReference.source.translation?.trim() || "";
     if (existingTranslation) {
       setSourceTranslationCache((current) => ({
         ...current,
-        [activeSourceTranslationCacheKey]: existingTranslation
+        [activeSourceTranslationCacheKey]: existingTranslation,
       }));
       setSourceTranslationErrors((current) => ({
         ...current,
-        [activeSourceTranslationCacheKey]: null
+        [activeSourceTranslationCacheKey]: null,
       }));
       setSourceTranslationLoadingKey((current) =>
-        current === activeSourceTranslationCacheKey ? null : current
+        current === activeSourceTranslationCacheKey ? null : current,
       );
       return;
     }
@@ -425,7 +468,7 @@ export function useEuroQaDemo() {
     setSourceTranslationLoadingKey(activeSourceTranslationCacheKey);
     setSourceTranslationErrors((current) => ({
       ...current,
-      [activeSourceTranslationCacheKey]: null
+      [activeSourceTranslationCacheKey]: null,
     }));
 
     let cancelled = false;
@@ -437,7 +480,7 @@ export function useEuroQaDemo() {
       page: activeReference.source.page,
       clause: activeReference.source.clause,
       original_text: activeReference.source.original_text,
-      locator_text: activeReferenceLocatorText
+      locator_text: activeReferenceLocatorText,
     })
       .then((response) => {
         if (cancelled || sourceTranslationRequestIdRef.current !== requestId) {
@@ -447,14 +490,14 @@ export function useEuroQaDemo() {
         const translated = response.translation?.trim() || "";
         setSourceTranslationCache((current) => ({
           ...current,
-          [activeSourceTranslationCacheKey]: translated
+          [activeSourceTranslationCacheKey]: translated,
         }));
         setSourceTranslationErrors((current) => ({
           ...current,
-          [activeSourceTranslationCacheKey]: null
+          [activeSourceTranslationCacheKey]: null,
         }));
         setSourceTranslationLoadingKey((current) =>
-          current === activeSourceTranslationCacheKey ? null : current
+          current === activeSourceTranslationCacheKey ? null : current,
         );
       })
       .catch((error) => {
@@ -465,10 +508,10 @@ export function useEuroQaDemo() {
           error instanceof Error ? error.message : "引用翻译请求失败";
         setSourceTranslationErrors((current) => ({
           ...current,
-          [activeSourceTranslationCacheKey]: reason
+          [activeSourceTranslationCacheKey]: reason,
         }));
         setSourceTranslationLoadingKey((current) =>
-          current === activeSourceTranslationCacheKey ? null : current
+          current === activeSourceTranslationCacheKey ? null : current,
         );
       });
 
@@ -480,14 +523,19 @@ export function useEuroQaDemo() {
     activeReferenceLocatorText,
     activeSourceTranslationCacheKey,
     sourceTranslationCache,
-    sourceTranslationEnabled
+    sourceTranslationEnabled,
   ]);
 
   const activeSourceTranslation = useMemo(() => {
-    if (!sourceTranslationEnabled || !activeReference || !activeSourceTranslationCacheKey) {
+    if (
+      !sourceTranslationEnabled ||
+      !activeReference ||
+      !activeSourceTranslationCacheKey
+    ) {
       return null;
     }
-    const cached = sourceTranslationCache[activeSourceTranslationCacheKey]?.trim();
+    const cached =
+      sourceTranslationCache[activeSourceTranslationCacheKey]?.trim();
     if (cached) {
       return cached;
     }
@@ -497,17 +545,17 @@ export function useEuroQaDemo() {
     activeReference,
     activeSourceTranslationCacheKey,
     sourceTranslationCache,
-    sourceTranslationEnabled
+    sourceTranslationEnabled,
   ]);
 
   const sourceTranslationLoading = Boolean(
     sourceTranslationEnabled &&
-      activeSourceTranslationCacheKey &&
-      sourceTranslationLoadingKey === activeSourceTranslationCacheKey
+    activeSourceTranslationCacheKey &&
+    sourceTranslationLoadingKey === activeSourceTranslationCacheKey,
   );
   const sourceTranslationError =
     sourceTranslationEnabled && activeSourceTranslationCacheKey
-      ? sourceTranslationErrors[activeSourceTranslationCacheKey] ?? null
+      ? (sourceTranslationErrors[activeSourceTranslationCacheKey] ?? null)
       : null;
 
   /**
@@ -518,12 +566,12 @@ export function useEuroQaDemo() {
     turnId: string,
     normalizedQuestion: string,
     sessionId: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ) {
     const requestPayload = buildChatQueryPayload({
       question: normalizedQuestion,
       sessionId,
-      llm: toLlmRequestOverride(llmSettings)
+      llm: toLlmRequestOverride(llmSettings),
     });
 
     try {
@@ -535,8 +583,8 @@ export function useEuroQaDemo() {
               current.map((message) =>
                 message.id === turnId
                   ? { ...message, reasoning: `${message.reasoning}${text}` }
-                  : message
-              )
+                  : message,
+              ),
             );
           },
           onChunk: (text) => {
@@ -544,8 +592,8 @@ export function useEuroQaDemo() {
               current.map((message) =>
                 message.id === turnId
                   ? { ...message, answer: `${message.answer}${text}` }
-                  : message
-              )
+                  : message,
+              ),
             );
           },
           onProgress: (payload) => {
@@ -556,11 +604,41 @@ export function useEuroQaDemo() {
                       ...message,
                       progressEvents: upsertProgressEvent(
                         message.progressEvents,
-                        payload
-                      )
+                        payload,
+                      ),
                     }
-                  : message
-              )
+                  : message,
+              ),
+            );
+          },
+          onCommentary: (text) => {
+            if (!text) {
+              return;
+            }
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === turnId
+                  ? {
+                      ...message,
+                      commentaries: [...(message.commentaries ?? []), text],
+                    }
+                  : message,
+              ),
+            );
+          },
+          onToolProgress: (payload) => {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === turnId
+                  ? {
+                      ...message,
+                      toolSubSteps: upsertToolSubStep(
+                        message.toolSubSteps,
+                        payload.step,
+                      ),
+                    }
+                  : message,
+              ),
             );
           },
           onDone: (payload) => {
@@ -569,7 +647,9 @@ export function useEuroQaDemo() {
                 message.id === turnId
                   ? {
                       ...message,
-                      ...(payload.normalized_answer ? { answer: payload.normalized_answer } : {}),
+                      ...(payload.normalized_answer
+                        ? { answer: payload.normalized_answer }
+                        : {}),
                       confidence: payload.confidence,
                       relatedRefs: payload.related_refs ?? [],
                       retrievalContext: payload.retrieval_context ?? null,
@@ -577,18 +657,20 @@ export function useEuroQaDemo() {
                       questionType: payload.question_type ?? null,
                       engineeringContext: payload.engineering_context ?? null,
                       status: "done",
-                      errorMessage: undefined
+                      errorMessage: undefined,
                     }
-                  : message
-              )
+                  : message,
+              ),
             );
             if ((payload.sources ?? []).length > 0) {
-              const preferredIndex = getPreferredReferenceIndex(payload.sources ?? []);
+              const preferredIndex = getPreferredReferenceIndex(
+                payload.sources ?? [],
+              );
               setActiveReferenceId(`${turnId}-ref-${preferredIndex + 1}`);
             }
-          }
+          },
         },
-        signal
+        signal,
       );
 
       // 用户主动中断：保留已生成内容，标记为 done
@@ -597,8 +679,8 @@ export function useEuroQaDemo() {
           current.map((message) =>
             message.id === turnId
               ? { ...message, status: "done", errorMessage: undefined }
-              : message
-          )
+              : message,
+          ),
         );
         return;
       }
@@ -609,8 +691,8 @@ export function useEuroQaDemo() {
           current.map((message) =>
             message.id === turnId
               ? { ...message, status: "done", errorMessage: undefined }
-              : message
-          )
+              : message,
+          ),
         );
         return;
       }
@@ -635,13 +717,15 @@ export function useEuroQaDemo() {
                   engineeringContext: response.engineering_context ?? null,
                   status: "done",
                   errorMessage: undefined,
-                  conversationId: response.conversation_id || sessionId
+                  conversationId: response.conversation_id || sessionId,
                 }
-              : message
-          )
+              : message,
+          ),
         );
         if ((response.sources ?? []).length > 0) {
-          const preferredIndex = getPreferredReferenceIndex(response.sources ?? []);
+          const preferredIndex = getPreferredReferenceIndex(
+            response.sources ?? [],
+          );
           setActiveReferenceId(`${turnId}-ref-${preferredIndex + 1}`);
         }
       } catch (fallbackError) {
@@ -660,10 +744,10 @@ export function useEuroQaDemo() {
                   confidence: message.answer ? message.confidence : "low",
                   status: message.answer ? "done" : "error",
                   retrievalContext: null,
-                  errorMessage: reason
+                  errorMessage: reason,
                 }
-              : message
-          )
+              : message,
+          ),
         );
       }
     }
@@ -699,8 +783,10 @@ export function useEuroQaDemo() {
         status: "streaming",
         conversationId: nextSessionId,
         retrievalContext: null,
-        progressEvents: []
-      }
+        progressEvents: [],
+        commentaries: [],
+        toolSubSteps: [],
+      },
     ]);
 
     const abortController = new AbortController();
@@ -711,7 +797,7 @@ export function useEuroQaDemo() {
         turnId,
         normalizedQuestion,
         nextSessionId,
-        abortController.signal
+        abortController.signal,
       );
     } finally {
       if (streamAbortControllerRef.current === abortController) {
@@ -758,10 +844,12 @@ export function useEuroQaDemo() {
               errorMessage: undefined,
               retrievalContext: null,
               conversationId: nextSessionId,
-              progressEvents: []
+              progressEvents: [],
+              commentaries: [],
+              toolSubSteps: [],
             }
-          : message
-      )
+          : message,
+      ),
     );
 
     const abortController = new AbortController();
@@ -772,7 +860,7 @@ export function useEuroQaDemo() {
         messageId,
         targetMessage.question,
         nextSessionId,
-        abortController.signal
+        abortController.signal,
       );
     } finally {
       if (streamAbortControllerRef.current === abortController) {
@@ -794,8 +882,11 @@ export function useEuroQaDemo() {
     const currentSession = buildCurrentSessionSnapshot();
     setHistory((current) =>
       isMeaningfulSession(currentSession)
-        ? [currentSession, ...current.filter((entry) => entry.id !== currentSession.id)]
-        : current
+        ? [
+            currentSession,
+            ...current.filter((entry) => entry.id !== currentSession.id),
+          ]
+        : current,
     );
     restoreSession(createEmptySessionRecord());
   }
@@ -823,7 +914,9 @@ export function useEuroQaDemo() {
   function saveLlmSettings(nextSettings: LlmSettings) {
     const normalized = normalizeLlmSettings(nextSettings);
     setLlmSettings(
-      shouldClearLlmOverride(normalized, llmDefaultSettings) ? null : normalized
+      shouldClearLlmOverride(normalized, llmDefaultSettings)
+        ? null
+        : normalized,
     );
   }
 
@@ -876,6 +969,6 @@ export function useEuroQaDemo() {
     setDraftQuestion: setDraftQuestion as Dispatch<SetStateAction<string>>,
     refreshDocuments,
     stopStreaming,
-    submitDraftQuestion
+    submitDraftQuestion,
   };
 }

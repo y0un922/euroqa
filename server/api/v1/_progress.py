@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 
 from structlog.contextvars import get_contextvars
 
 from server.agents.evidence import EvidenceBundle
+from server.agents.tool_progress import ToolSubStep
 
 _QUESTION_TYPE_LABELS = {
     "rule": "规则/假设类问题",
@@ -71,6 +73,7 @@ def _progress_event(
 ) -> dict:
     """Create one query progress SSE payload."""
     return {
+        "id": uuid.uuid4().hex,
         "stage": stage,
         "status": status,
         "title": title,
@@ -107,11 +110,53 @@ def _progress_sse_event(
     }
 
 
+def _commentary_sse_event(text: str, started_at: float) -> dict[str, str]:
+    """Create one commentary SSE event for agent progress narration."""
+    return {
+        "event": "commentary",
+        "data": json.dumps(
+            {
+                "text": text,
+                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                "request_id": get_contextvars().get("request_id", ""),
+            },
+            ensure_ascii=False,
+        ),
+    }
+
+
 def _error_sse_event(*, code: int, message: str) -> dict[str, str]:
     """Create one error SSE event."""
     return {
         "event": "error",
         "data": json.dumps({"code": code, "message": message}, ensure_ascii=False),
+    }
+
+
+def _tool_progress_sse_event(
+    step: ToolSubStep,
+    started_at: float,
+) -> dict[str, str]:
+    """Create one tool sub-step SSE event."""
+    return {
+        "event": "tool_progress",
+        "data": json.dumps(
+            {
+                "tool_name": step.tool_name,
+                "step": {
+                    "step_id": step.step_id,
+                    "status": step.status,
+                    "title": step.title,
+                    "summary": step.summary,
+                    "metadata": step.metadata,
+                    "elapsed_ms": step.elapsed_ms,
+                    "parent_step_id": step.parent_step_id,
+                },
+                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                "request_id": get_contextvars().get("request_id", ""),
+            },
+            ensure_ascii=False,
+        ),
     }
 
 

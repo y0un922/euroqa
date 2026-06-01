@@ -1,4 +1,5 @@
 """Pydantic data models for requests, responses, and internal data structures."""
+
 from __future__ import annotations
 
 import uuid
@@ -16,6 +17,7 @@ def to_camel(value: str) -> str:
 
 class CamelModel(BaseModel):
     """Base model for external API-document contracts."""
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
@@ -38,6 +40,7 @@ class Confidence(str, Enum):
 
 class QuestionType(str, Enum):
     """问题分型：四类工程问题。"""
+
     RULE = "rule"
     PARAMETER = "parameter"
     CALCULATION = "calculation"
@@ -46,6 +49,7 @@ class QuestionType(str, Enum):
 
 class EngineeringContext(BaseModel):
     """从用户问题中提取的工程上下文字段。"""
+
     country: Optional[str] = None
     structure_type: Optional[str] = None
     limit_state: Optional[str] = None
@@ -67,6 +71,7 @@ class EngineeringContext(BaseModel):
 
 class RoutingTargetHint(BaseModel):
     """LLM 输出的检索目标提示。"""
+
     document: Optional[str] = None
     clause: Optional[str] = None
     object: Optional[str] = None
@@ -74,6 +79,7 @@ class RoutingTargetHint(BaseModel):
 
 class RoutingDecision(BaseModel):
     """查询理解阶段的路由决策。"""
+
     intent_label: str
     target_hint: RoutingTargetHint
     reason_short: str
@@ -191,6 +197,33 @@ class QueryResponse(BaseModel):
     groundedness: Optional[str] = None
 
 
+class ConversationTurn(CamelModel):
+    id: str
+    question: str
+    answer: str = ""
+    reasoning: str = ""
+    status: str = "done"
+    confidence: str = Confidence.NONE.value
+    sources: list[dict[str, object]] = Field(default_factory=list)
+    related_refs: list[str] = Field(default_factory=list)
+    degraded: bool = False
+    conversation_id: str
+    error_message: Optional[str] = None
+    retrieval_context: Optional[dict[str, object]] = None
+    question_type: Optional[str] = None
+    engineering_context: Optional[dict[str, object]] = None
+    progress_events: list[dict[str, object]] = Field(default_factory=list)
+    commentaries: list[str] = Field(default_factory=list)
+
+
+class ConversationSessionResponse(CamelModel):
+    session_id: str
+    conversation_id: str
+    title: Optional[str] = None
+    updated_at: Optional[str] = None
+    messages: list[ConversationTurn] = Field(default_factory=list)
+
+
 class SourceTranslationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -210,6 +243,7 @@ class SourceTranslationResponse(BaseModel):
 
 class DocumentStatus(str, Enum):
     """文档生命周期状态。"""
+
     UPLOADED = "uploaded"
     PENDING = "pending"
     PARSING = "parsing"

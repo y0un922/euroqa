@@ -24,12 +24,32 @@ type PdfEvidenceViewerProps = {
   toolbarSlot?: ReactNode;
 };
 
+type PdfFileState =
+  | { status: "loading" }
+  | { status: "ready"; file: Blob }
+  | { status: "error"; message: string };
+
+async function loadPdfFile(fileUrl: string, signal: AbortSignal): Promise<Blob> {
+  const response = await fetch(fileUrl, {
+    headers: { Accept: "application/pdf" },
+    signal
+  });
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (!response.ok || !contentType.toLowerCase().includes("application/pdf")) {
+    throw new Error("原始 PDF 未在后端文件目录中");
+  }
+  return response.blob();
+}
+
 export function PdfEvidenceViewer({
   fileUrl,
   page,
   onLocationResolved,
   toolbarSlot = null
 }: PdfEvidenceViewerProps) {
+  const [pdfFileState, setPdfFileState] = useState<PdfFileState>({
+    status: "loading"
+  });
   const [totalPages, setTotalPages] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(() => clampPdfPage(page, null));
   const [pageInput, setPageInput] = useState(() =>
@@ -56,6 +76,30 @@ export function PdfEvidenceViewer({
 
   useEffect(() => {
     setTotalPages(null);
+  }, [fileUrl]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setPdfFileState({ status: "loading" });
+    void loadPdfFile(fileUrl, controller.signal)
+      .then((file) => {
+        setPdfFileState({ status: "ready", file });
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setPdfFileState({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "原始 PDF 暂时无法加载"
+        });
+        hasFatalErrorRef.current = true;
+        reportStatus("error");
+      });
+    return () => controller.abort();
   }, [fileUrl]);
 
   useEffect(() => {
@@ -142,10 +186,27 @@ export function PdfEvidenceViewer({
           {toolbarSlot}
         </div>
       </div>
-      <Document
-        key={fileUrl}
-        file={fileUrl}
-        loading={
+      {pdfFileState.status === "loading" ? (
+        <div className="flex flex-col items-center gap-3 p-6">
+          <p className="text-xs text-stone-400">正在加载文档…</p>
+          <div className="h-48 w-full animate-pulse rounded bg-stone-200/60" />
+          <div className="h-4 w-3/4 animate-pulse rounded bg-stone-200/60" />
+          <div className="h-4 w-1/2 animate-pulse rounded bg-stone-200/60" />
+        </div>
+      ) : null}
+      {pdfFileState.status === "error" ? (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+          <p className="text-sm font-medium text-stone-600">PDF 原文暂不可用</p>
+          <p className="max-w-sm text-xs leading-5 text-stone-400">
+            {pdfFileState.message}。下方引用抽屉仍可查看检索到的原文片段。
+          </p>
+        </div>
+      ) : null}
+      {pdfFileState.status === "ready" ? (
+        <Document
+          key={fileUrl}
+          file={pdfFileState.file}
+          loading={
           <div className="flex flex-col items-center gap-3 p-6">
             <p className="text-xs text-stone-400">正在加载文档…</p>
             <div className="h-48 w-full animate-pulse rounded bg-stone-200/60" />
@@ -183,10 +244,11 @@ export function PdfEvidenceViewer({
             onRenderError={() => {
               hasFatalErrorRef.current = true;
               reportStatus("error");
-            }}
-          />
-        </div>
-      </Document>
+          }}
+        />
+      </div>
+        </Document>
+      ) : null}
     </div>
   );
 }
