@@ -9,6 +9,7 @@
 - `server.api.v1.sessions`: 会话恢复与 Redis-backed 用户会话摘要列表
 - `server.api.v1.documents`: 文档解析、批量状态、批量删除与兼容处理端点
 - `server.api.v1.sources`: 来源翻译外部端点与兼容接口
+- `server.logging_config`: 后端 structlog 配置与 Asia/Shanghai 日志时间戳
 - `server.services.minio_storage`: MinIO 对象路径解析、PDF 上传与下载
 - `server.agents.qa_agent`: OpenAI Agents SDK 问答 agent、对话历史压缩与工具事件流
 - `server.agents.tools.retrieve`: agent `retrieve` 工具、grounded 拦截与检索 Observation 摘要

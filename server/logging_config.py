@@ -3,8 +3,22 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import structlog
+
+_LOG_TIMEZONE = ZoneInfo("Asia/Shanghai")
+
+
+def add_shanghai_timestamp(
+    _logger: object,
+    _method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    """Add an ISO timestamp in China Standard Time."""
+    event_dict["timestamp"] = datetime.now(_LOG_TIMEZONE).isoformat()
+    return event_dict
 
 
 def configure_logging(*, json_mode: bool = False) -> None:
@@ -18,7 +32,7 @@ def configure_logging(*, json_mode: bool = False) -> None:
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        add_shanghai_timestamp,
         structlog.processors.StackInfoRenderer(),
     ]
 
