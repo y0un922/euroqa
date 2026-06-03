@@ -2,12 +2,31 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
+from server.api.v1.auth import require_auth
 from server.deps import get_conversation_manager
-from server.models.schemas import ConversationSessionResponse
+from server.models.schemas import (
+    ConversationSessionListResponse,
+    ConversationSessionResponse,
+)
 
 router = APIRouter()
+
+
+@router.get("/sessions", response_model=ConversationSessionListResponse)
+async def list_sessions(
+    user_id: str = Query(alias="userId"),
+    _auth=Depends(require_auth),
+    conv_mgr=Depends(get_conversation_manager),
+) -> ConversationSessionListResponse:
+    """List chat session summaries from Redis or the in-memory fallback store."""
+    getter = getattr(conv_mgr, "get_sessions_async", None)
+    if getter is not None:
+        payload = await getter(user_id)
+    else:
+        payload = conv_mgr.get_sessions(user_id)
+    return ConversationSessionListResponse.model_validate(payload)
 
 
 @router.get("/sessions/{session_id}", response_model=ConversationSessionResponse)

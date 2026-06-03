@@ -17,6 +17,7 @@ export type DemoDocumentInfo = {
 };
 
 import type {
+  ConversationSessionListResponse,
   ConversationSessionResponse,
   DocumentInfo,
   DocumentUploadResponse,
@@ -381,6 +382,15 @@ export async function getConversationSession(
 ): Promise<ConversationSessionResponse> {
   return fetchJson<ConversationSessionResponse>(
     `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getConversationSessions(
+  userId: string,
+): Promise<ConversationSessionListResponse> {
+  return fetchJson<ConversationSessionListResponse>(
+    `/api/v1/sessions?userId=${encodeURIComponent(userId)}`,
     { method: "GET" },
   );
 }

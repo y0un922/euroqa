@@ -9,6 +9,8 @@
 
 - `buildChatQueryPayload()` 使用 `sessionId` 字段发送外部会话 ID，保持跨文档检索时不附带 `domain`
 - `queryStream()` 会在请求体中补充 `stream: true`，并把 `reasoning`、`chunk`、`progress`、`done` 事件分发给调用方
+- `getConversationSessions(userId)` 调用 `GET /api/v1/sessions?userId=...`，用于从后端 Redis 元数据恢复侧边栏历史会话摘要。
+- `getConversationSession(sessionId)` 调用 `GET /api/v1/sessions/{sessionId}`，用于点击历史会话后恢复完整消息。
 - `uploadDocumentToMinio()` 以 `multipart/form-data` 调用 `/api/v1/documents/upload-to-minio`，由后端代理写入 MinIO 并触发解析
 - 旧 `uploadDocument()` 与 `processDocument()` 保留为兼容接口，不作为华科方联调默认路径
 - 所有受保护请求通过 `withAuthHeaders()` 附带 bearer token；401 时清理 token 并派发认证过期事件

@@ -224,6 +224,18 @@ class ConversationSessionResponse(CamelModel):
     messages: list[ConversationTurn] = Field(default_factory=list)
 
 
+class ConversationSessionSummary(CamelModel):
+    session_id: str
+    conversation_id: str
+    title: Optional[str] = None
+    updated_at: Optional[str] = None
+    message_count: int = 0
+
+
+class ConversationSessionListResponse(CamelModel):
+    sessions: list[ConversationSessionSummary] = Field(default_factory=list)
+
+
 class SourceTranslationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

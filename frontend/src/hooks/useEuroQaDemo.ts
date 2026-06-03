@@ -13,6 +13,7 @@ import {
   buildDocumentFileUrl,
   buildReferenceRecords,
   getConversationSession,
+  getConversationSessions,
   getPreferredReferenceIndex,
   getLlmSettings,
   getSuggestions,
@@ -30,6 +31,8 @@ import {
 } from "../lib/session";
 import type {
   ChatTurn,
+  ConversationSessionResponse,
+  ConversationSessionSummaryResponse,
   DocumentInfo,
   GlossaryEntry,
   LlmRequestOverride,
@@ -45,6 +48,7 @@ type HistorySessionSummary = {
   id: string;
   title: string;
   messageCount: number;
+  updatedAt: string;
   lastUpdatedLabel: string;
 };
 
@@ -124,6 +128,11 @@ function createSessionId(): string {
   return `${EXTERNAL_SESSION_USER_ID}_${createUuidToken()}`;
 }
 
+function getSessionUserId(sessionId: string): string {
+  const [userId] = sessionId.split("_");
+  return userId || EXTERNAL_SESSION_USER_ID;
+}
+
 function createTurnId(): string {
   return `turn_${createUuidToken()}`;
 }
@@ -174,8 +183,53 @@ function buildHistorySessionSummary(
     id: session.id,
     title,
     messageCount: session.messages.length,
+    updatedAt: session.updatedAt,
     lastUpdatedLabel: formatUpdatedAt(session.updatedAt),
   };
+}
+
+function buildHistorySessionSummaryFromResponse(
+  session: ConversationSessionSummaryResponse,
+): HistorySessionSummary {
+  const updatedAt = session.updatedAt || new Date().toISOString();
+  return {
+    id: session.sessionId,
+    title: session.title?.trim() || "未命名会话",
+    messageCount: session.messageCount,
+    updatedAt,
+    lastUpdatedLabel: formatUpdatedAt(updatedAt),
+  };
+}
+
+function buildSessionRecordFromResponse(
+  session: ConversationSessionResponse,
+): PersistedSessionRecord {
+  return {
+    id: session.sessionId,
+    conversationId: session.conversationId,
+    activeReferenceId: null,
+    draftQuestion: "",
+    messages: session.messages,
+    updatedAt: session.updatedAt || new Date().toISOString(),
+  };
+}
+
+function sortHistorySummaries(
+  sessions: HistorySessionSummary[],
+): HistorySessionSummary[] {
+  return [...sessions].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
+function upsertHistorySummary(
+  sessions: HistorySessionSummary[],
+  nextSession: HistorySessionSummary,
+): HistorySessionSummary[] {
+  return sortHistorySummaries([
+    nextSession,
+    ...sessions.filter((session) => session.id !== nextSession.id),
+  ]);
 }
 
 function upsertProgressEvent(
@@ -224,7 +278,9 @@ export function useEuroQaDemo() {
     initialSession.draftQuestion,
   );
   const [messages, setMessages] = useState<ChatTurn[]>([]);
-  const [history, setHistory] = useState<PersistedSessionRecord[]>([]);
+  const [historySessions, setHistorySessions] = useState<
+    HistorySessionSummary[]
+  >([]);
   const [sourceTranslationEnabled, setSourceTranslationEnabled] = useState(
     restoredSession?.sourceTranslationEnabled ?? false,
   );
@@ -265,11 +321,13 @@ export function useEuroQaDemo() {
         glossaryResult,
         suggestResult,
         llmSettingsResult,
+        sessionsResult,
       ] = await Promise.allSettled([
         listDocuments(),
         listGlossary(),
         getSuggestions(),
         getLlmSettings(),
+        getConversationSessions(getSessionUserId(activeSessionId)),
       ]);
 
       if (cancelled) {
@@ -288,6 +346,10 @@ export function useEuroQaDemo() {
         llmSettingsResult.status === "fulfilled"
           ? llmSettingsResult.value
           : null;
+      const nextHistorySessions =
+        sessionsResult.status === "fulfilled"
+          ? sessionsResult.value.sessions.map(buildHistorySessionSummaryFromResponse)
+          : [];
       const restoredConversationResult = await getConversationSession(
         activeSessionId,
       )
@@ -303,6 +365,7 @@ export function useEuroQaDemo() {
         setGlossary(nextGlossary);
         setHotQuestions(nextHotQuestions);
         setLlmSettingsDefaults(nextLlmSettingsDefaults);
+        setHistorySessions(nextHistorySessions);
         if (restoredConversationResult.status === "fulfilled") {
           setConversationId(restoredConversationResult.value.conversationId);
           setMessages(restoredConversationResult.value.messages);
@@ -375,10 +438,6 @@ export function useEuroQaDemo() {
   const llmDefaultSettings = useMemo(
     () => toEditableLlmSettings(llmSettingsDefaults),
     [llmSettingsDefaults],
-  );
-  const historySessions = useMemo(
-    () => history.map((session) => buildHistorySessionSummary(session)),
-    [history],
   );
 
   const references = useMemo(() => {
@@ -880,35 +939,32 @@ export function useEuroQaDemo() {
     }
 
     const currentSession = buildCurrentSessionSnapshot();
-    setHistory((current) =>
+    setHistorySessions((current) =>
       isMeaningfulSession(currentSession)
-        ? [
-            currentSession,
-            ...current.filter((entry) => entry.id !== currentSession.id),
-          ]
+        ? upsertHistorySummary(current, buildHistorySessionSummary(currentSession))
         : current,
     );
     restoreSession(createEmptySessionRecord());
   }
 
-  function selectHistorySession(sessionId: string) {
-    if (isSubmitting) {
-      return;
-    }
-
-    const targetSession = history.find((session) => session.id === sessionId);
-    if (!targetSession) {
+  async function selectHistorySession(sessionId: string) {
+    if (isSubmitting || sessionId === activeSessionId) {
       return;
     }
 
     const currentSession = buildCurrentSessionSnapshot();
-    setHistory((current) => {
-      const remaining = current.filter((entry) => entry.id !== sessionId);
-      return isMeaningfulSession(currentSession)
-        ? [currentSession, ...remaining]
-        : remaining;
-    });
-    restoreSession(targetSession);
+    let targetSession: ConversationSessionResponse;
+    try {
+      targetSession = await getConversationSession(sessionId);
+    } catch {
+      return;
+    }
+    setHistorySessions((current) =>
+      isMeaningfulSession(currentSession)
+        ? upsertHistorySummary(current, buildHistorySessionSummary(currentSession))
+        : current,
+    );
+    restoreSession(buildSessionRecordFromResponse(targetSession));
   }
 
   function saveLlmSettings(nextSettings: LlmSettings) {

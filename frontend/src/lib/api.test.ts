@@ -6,6 +6,7 @@ import {
   buildDocumentFileUrl,
   buildReferenceRecords,
   getConversationSession,
+  getConversationSessions,
   getPreferredReferenceIndex,
   getLlmSettings,
   matchSourceToDocumentId,
@@ -770,6 +771,40 @@ test("getConversationSession fetches redis-backed session history", async () => 
   }
 
   assert.match(seenUrls[0] ?? "", /\/api\/v1\/sessions\/1001_abc123$/);
+});
+
+test("getConversationSessions fetches redis-backed session summaries", async () => {
+  const seenUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (input) => {
+      seenUrls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          sessions: [
+            {
+              sessionId: "1001_abc123",
+              conversationId: "1001_abc123",
+              title: "设计使用年限",
+              updatedAt: "2026-05-31T10:00:00Z",
+              messageCount: 2,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const response = await getConversationSessions("1001");
+
+    assert.equal(response.sessions[0]?.sessionId, "1001_abc123");
+    assert.equal(response.sessions[0]?.messageCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.match(seenUrls[0] ?? "", /\/api\/v1\/sessions\?userId=1001$/);
 });
 
 test("queryStream sends llm overrides in the stream request body", async () => {

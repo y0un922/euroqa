@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.32] - 2026-06-03
+
+### 修复
+- **[server.core.conversation / server.api.v1.sessions / frontend.lib.api / frontend.hooks.useEuroQaDemo / tests]**: 历史检索会话改为从 Redis 恢复，新增 `GET /api/v1/sessions?userId=...` 会话摘要列表接口并按 `updatedAt` 倒序返回 `messageCount`；前端启动时拉取后端历史摘要，点击历史项再用既有单会话接口恢复完整消息，避免新建会话后刷新页面丢失历史入口 — by Codex
+  - 类型: 标准流程（全自动执行）
+  - 文件: server/core/conversation.py; server/api/v1/sessions.py; server/api/v1/router.py; server/models/schemas.py; frontend/src/lib/api.ts; frontend/src/lib/types.ts; frontend/src/hooks/useEuroQaDemo.ts; tests/server/test_api.py; frontend/src/lib/api.test.ts
+
 ## [0.1.31] - 2026-06-03
 
 ### 优化

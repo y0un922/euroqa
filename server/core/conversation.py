@@ -66,6 +66,24 @@ class ConversationManager:
             "messages": messages,
         }
 
+    def get_sessions(self, user_id: str) -> dict[str, Any]:
+        """Return frontend-facing session summaries from the in-memory cache."""
+        prefix = f"{user_id}_"
+        sessions = []
+        for conversation_id, state in self._cache.items():
+            if not conversation_id.startswith(prefix):
+                continue
+            sessions.append(
+                {
+                    "session_id": conversation_id,
+                    "conversation_id": conversation_id,
+                    "title": None,
+                    "updated_at": None,
+                    "message_count": len(state.history),
+                }
+            )
+        return {"sessions": sessions}
+
 
 def _utc_iso() -> str:
     """Return an ISO 8601 UTC timestamp."""
@@ -316,6 +334,28 @@ def _has_existing_title(value: object) -> bool:
     return bool(stripped) and stripped.lower() != "null"
 
 
+def _metadata_string(metadata: dict[str, Any], key: str) -> str | None:
+    """Return a non-empty metadata string."""
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _session_summary_title(
+    conversation_id: str,
+    metadata: dict[str, Any],
+    turns: list[dict[str, Any]],
+) -> str:
+    """Return a display title for one session summary."""
+    return (
+        _metadata_string(metadata, "title")
+        or str(turns[0].get("question") or "").strip()
+        or conversation_id
+    )
+
+
 def _message_payload(
     role: str,
     content: str,
@@ -391,6 +431,38 @@ class RedisConversationManager:
             else None,
             "messages": _conversation_turns_from_messages(conversation_id, raw_items),
         }
+
+    async def get_sessions_async(self, user_id: str) -> dict[str, Any]:
+        """Return frontend-facing session summaries restored from Redis."""
+        raw_sessions = await self._redis.hgetall(f"user:{user_id}:sessions")
+        sessions = []
+        for conversation_id, raw_meta in raw_sessions.items():
+            metadata: dict[str, Any] = {}
+            try:
+                loaded = json.loads(raw_meta)
+                if isinstance(loaded, dict):
+                    metadata = loaded
+            except json.JSONDecodeError:
+                metadata = {}
+
+            raw_items = await self._redis.lrange(f"context:{conversation_id}", 0, -1)
+            turns = _conversation_turns_from_messages(conversation_id, raw_items)
+            sessions.append(
+                {
+                    "session_id": conversation_id,
+                    "conversation_id": conversation_id,
+                    "title": _session_summary_title(
+                        conversation_id,
+                        metadata,
+                        turns,
+                    ),
+                    "updated_at": _metadata_string(metadata, "updatedAt"),
+                    "message_count": len(turns),
+                }
+            )
+
+        sessions.sort(key=lambda item: item.get("updated_at") or "", reverse=True)
+        return {"sessions": sessions}
 
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
         del conversation_id, question, answer

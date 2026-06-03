@@ -112,6 +112,18 @@ export type ConversationSessionResponse = {
   messages: ChatTurn[];
 };
 
+export type ConversationSessionSummaryResponse = {
+  sessionId: string;
+  conversationId: string;
+  title?: string | null;
+  updatedAt?: string | null;
+  messageCount: number;
+};
+
+export type ConversationSessionListResponse = {
+  sessions: ConversationSessionSummaryResponse[];
+};
+
 export type StreamDonePayload = {
   code?: number;
   sources: Source[];

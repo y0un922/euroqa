@@ -177,6 +177,9 @@ class _FakeRedis:
     async def hget(self, key, field):
         return self.hashes.get(key, {}).get(field)
 
+    async def hgetall(self, key):
+        return self.hashes.get(key, {})
+
     async def hset(self, key, field, value):
         self.hashes.setdefault(key, {})[field] = value
 
@@ -390,6 +393,47 @@ class TestRedisConversationManager:
         assert turn["question_type"] == "rule"
         assert turn["engineering_context"] == {"country": "EU"}
 
+    @pytest.mark.anyio
+    async def test_get_sessions_returns_redis_metadata_summaries(self):
+        manager = RedisConversationManager.__new__(RedisConversationManager)
+        fake_redis = _FakeRedis()
+        manager._redis = fake_redis
+        fake_redis.hashes["user:1001:sessions"] = {
+            "1001_old": json.dumps(
+                {
+                    "title": "旧会话",
+                    "updatedAt": "2026-05-30T10:00:00Z",
+                },
+                ensure_ascii=False,
+            ),
+            "1001_new": json.dumps(
+                {
+                    "title": "新会话",
+                    "updatedAt": "2026-05-31T10:00:00Z",
+                },
+                ensure_ascii=False,
+            ),
+        }
+        fake_redis.lists["context:1001_new"] = [
+            json.dumps({"role": "user", "content": "新问题"}, ensure_ascii=False),
+            json.dumps({"role": "assistant", "content": "新回答"}, ensure_ascii=False),
+            json.dumps({"role": "user", "content": "第二问"}, ensure_ascii=False),
+            json.dumps({"role": "assistant", "content": "第二答"}, ensure_ascii=False),
+        ]
+        fake_redis.lists["context:1001_old"] = [
+            json.dumps({"role": "user", "content": "旧问题"}, ensure_ascii=False),
+            json.dumps({"role": "assistant", "content": "旧回答"}, ensure_ascii=False),
+        ]
+
+        payload = await manager.get_sessions_async("1001")
+
+        assert [session["session_id"] for session in payload["sessions"]] == [
+            "1001_new",
+            "1001_old",
+        ]
+        assert payload["sessions"][0]["title"] == "新会话"
+        assert payload["sessions"][0]["message_count"] == 2
+
 
 class TestConversationTurnPersistence:
     @pytest.mark.anyio
@@ -519,6 +563,44 @@ class TestQueryEndpoint:
         assert payload["conversationId"] == "1001_restore"
         assert payload["messages"][0]["relatedRefs"] == []
         assert payload["messages"][0]["conversationId"] == "1001_restore"
+
+    def test_session_list_endpoint_returns_frontend_contract(self, client):
+        class _FakeConversationManager:
+            def get_sessions(self, user_id):
+                assert user_id == "1001"
+                return {
+                    "sessions": [
+                        {
+                            "session_id": "1001_restore",
+                            "conversation_id": "1001_restore",
+                            "title": "恢复会话",
+                            "updated_at": "2026-05-31T10:00:00Z",
+                            "message_count": 2,
+                        }
+                    ]
+                }
+
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
+
+        resp = client.get("/api/v1/sessions?userId=1001")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["sessions"][0]["sessionId"] == "1001_restore"
+        assert payload["sessions"][0]["conversationId"] == "1001_restore"
+        assert payload["sessions"][0]["messageCount"] == 2
+
+    def test_session_list_requires_auth_when_password_enabled(self, client):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+
+        resp = client.get("/api/v1/sessions?userId=1001")
+
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 401
 
     def test_public_query_stream_contract_bypasses_auth_when_password_enabled(
         self,
