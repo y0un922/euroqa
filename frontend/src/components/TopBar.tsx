@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -32,7 +32,7 @@ type TopBarProps = {
   onSaveLlmSettings: (settings: LlmSettings) => void;
 };
 
-export default function TopBar({
+export default memo(function TopBar({
   apiState,
   conversationId,
   documentCount,
@@ -183,4 +183,4 @@ export default function TopBar({
       </div>
     </header>
   );
-}
+});

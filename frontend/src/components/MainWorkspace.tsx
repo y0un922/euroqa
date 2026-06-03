@@ -10,7 +10,14 @@ import {
   Square
 } from "lucide-react";
 import { motion } from "motion/react";
-import { Component, type ReactNode, useMemo, useState } from "react";
+import {
+  Component,
+  memo,
+  type ReactNode,
+  useCallback,
+  useRef,
+  useState
+} from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 
@@ -61,6 +68,11 @@ type MarkdownRenderBoundaryProps = {
 
 type MarkdownRenderBoundaryState = {
   hasError: boolean;
+};
+
+type CopyFeedbackState = {
+  messageId: string | null;
+  tone: "idle" | "success" | "error";
 };
 
 class MarkdownRenderBoundary extends Component<
@@ -128,6 +140,18 @@ function getCitationText(children: ReactNode): string {
   return String(children ?? "");
 }
 
+function useStableCallback<T extends (...args: any[]) => unknown>(
+  callback: T
+): T {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
+  return useCallback(
+    ((...args: Parameters<T>) => callbackRef.current(...args)) as T,
+    []
+  );
+}
+
 /** Tailwind 内联样式——替代 @tailwindcss/typography 的 prose 类 */
 const markdownClassName = [
   "max-w-none text-[15px] leading-7 text-stone-800",
@@ -164,27 +188,82 @@ export default function MainWorkspace({
   onStop,
   onSubmit
 }: MainWorkspaceProps) {
-  const [copyFeedback, setCopyFeedback] = useState<{
-    messageId: string | null;
-    tone: "idle" | "success" | "error";
-  }>({
+  const handleReferenceClick = useStableCallback(onReferenceClick);
+  const handleSelectHotQuestion = useStableCallback(onSelectHotQuestion);
+  const handleRegenerateAnswer = useStableCallback((messageId: string) => {
+    onRegenerateAnswer?.(messageId);
+  });
+  const handleDraftQuestionChange = useStableCallback(onDraftQuestionChange);
+  const handleStop = useStableCallback(() => {
+    onStop?.();
+  });
+  const handleSubmit = useStableCallback(onSubmit);
+
+  return (
+    <main className="relative flex h-full flex-1 flex-col overflow-hidden bg-white">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.02]"
+        style={{
+          backgroundImage:
+            "linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)",
+          backgroundSize: "20px 20px"
+        }}
+      />
+
+      <ChatTranscript
+        activeReferenceId={activeReferenceId}
+        apiState={apiState}
+        documents={documents}
+        hotQuestions={hotQuestions}
+        isSubmitting={isSubmitting}
+        canRegenerateAnswer={Boolean(onRegenerateAnswer)}
+        messages={messages}
+        onReferenceClick={handleReferenceClick}
+        onRegenerateAnswer={handleRegenerateAnswer}
+        onSelectHotQuestion={handleSelectHotQuestion}
+      />
+
+      <QuestionComposer
+        bootError={bootError}
+        draftQuestion={draftQuestion}
+        isSubmitting={isSubmitting}
+        onDraftQuestionChange={handleDraftQuestionChange}
+        onStop={handleStop}
+        onSubmit={handleSubmit}
+      />
+    </main>
+  );
+}
+
+const ChatTranscript = memo(function ChatTranscript({
+  activeReferenceId,
+  apiState,
+  documents,
+  hotQuestions,
+  isSubmitting,
+  canRegenerateAnswer,
+  messages,
+  onReferenceClick,
+  onRegenerateAnswer,
+  onSelectHotQuestion
+}: Pick<
+  MainWorkspaceProps,
+  | "activeReferenceId"
+  | "apiState"
+  | "documents"
+  | "hotQuestions"
+  | "isSubmitting"
+  | "messages"
+  | "onReferenceClick"
+  | "onSelectHotQuestion"
+> & {
+  canRegenerateAnswer: boolean;
+  onRegenerateAnswer: (messageId: string) => void;
+}) {
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedbackState>({
     messageId: null,
     tone: "idle"
   });
-  const latestMessage = messages.at(-1) ?? null;
-  const latestReferences = useMemo(() => {
-    if (!latestMessage) {
-      return [];
-    }
-
-    return buildReferenceRecords(
-      latestMessage.sources,
-      documents,
-      latestMessage.confidence,
-      latestMessage.relatedRefs,
-      latestMessage.id
-    );
-  }, [documents, latestMessage]);
 
   async function handleCopyMessage(message: ChatTurn) {
     if (!isChatTurnExportable(message)) {
@@ -208,76 +287,66 @@ export default function MainWorkspace({
   }
 
   return (
-    <main className="relative flex h-full flex-1 flex-col overflow-hidden bg-white">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.02]"
-        style={{
-          backgroundImage:
-            "linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)",
-          backgroundSize: "20px 20px"
-        }}
-      />
+    <div className="flex-1 overflow-y-auto px-6 py-8 lg:px-8 lg:py-10">
+      <div className="mx-auto max-w-4xl space-y-10">
+        {messages.length === 0 ? (
+          <section className="space-y-8">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-cyan-800">
+                <Sparkles className="h-4 w-4" />
+                <span>混凝土结构问答工作台</span>
+              </div>
+              <h1 className="max-w-2xl font-serif text-4xl leading-tight tracking-tight text-stone-900">
+                围绕已载入的 Eurocode 文档，直接提问结构分析、构件分类与构件设计概念。
+              </h1>
+              <p className="max-w-2xl text-sm leading-6 text-stone-500">
+                提问后会先对已载入文档执行混合检索，再同步展示来源、条款定位和文档页预览。
+              </p>
+            </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-8 lg:px-8 lg:py-10">
-        <div className="mx-auto max-w-4xl space-y-10">
-          {messages.length === 0 ? (
-            <section className="space-y-8">
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm font-medium text-cyan-800">
-                  <Sparkles className="h-4 w-4" />
-                  <span>混凝土结构问答工作台</span>
+            <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-5">
+                <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">
+                  已载入文档热门问题
                 </div>
-                <h1 className="max-w-2xl font-serif text-4xl leading-tight tracking-tight text-stone-900">
-                  围绕已载入的 Eurocode 文档，直接提问结构分析、构件分类与构件设计概念。
-                </h1>
-                <p className="max-w-2xl text-sm leading-6 text-stone-500">
-                  提问后会先对已载入文档执行混合检索，再同步展示来源、条款定位和文档页预览。
-                </p>
+                <div className="space-y-2">
+                  {hotQuestions.slice(0, 6).map((question) => (
+                    <button
+                      key={question}
+                      className="block w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-left text-sm text-stone-700 transition-colors hover:border-cyan-300 hover:text-stone-900"
+                      onClick={() => onSelectHotQuestion(question)}
+                      type="button"
+                    >
+                      {question}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
-                <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-5">
-                  <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">
-                    已载入文档热门问题
-                  </div>
-                  <div className="space-y-2">
-                    {hotQuestions.slice(0, 6).map((question) => (
-                      <button
-                        key={question}
-                        className="block w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-left text-sm text-stone-700 transition-colors hover:border-cyan-300 hover:text-stone-900"
-                        onClick={() => onSelectHotQuestion(question)}
-                        type="button"
-                      >
-                        {question}
-                      </button>
-                    ))}
-                  </div>
+              <div className="rounded-2xl border border-stone-200 bg-stone-900 p-5 text-stone-200">
+                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  当前连接
                 </div>
-
-                <div className="rounded-2xl border border-stone-200 bg-stone-900 p-5 text-stone-200">
-                  <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-stone-500">
-                    当前连接
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between border-b border-stone-800 pb-2">
+                    <span>API 状态</span>
+                    <span>{apiState === "ready" ? "在线" : "加载中"}</span>
                   </div>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between border-b border-stone-800 pb-2">
-                      <span>API 状态</span>
-                      <span>{apiState === "ready" ? "在线" : "加载中"}</span>
-                    </div>
-                    <div className="flex items-center justify-between border-b border-stone-800 pb-2">
-                      <span>检索范围</span>
-                      <span>{documents.length > 0 ? "全部已载入文档" : "等待文档载入"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>回答方式</span>
-                      <span>POST /query/stream</span>
-                    </div>
+                  <div className="flex items-center justify-between border-b border-stone-800 pb-2">
+                    <span>检索范围</span>
+                    <span>{documents.length > 0 ? "全部已载入文档" : "等待文档载入"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>回答方式</span>
+                    <span>POST /query/stream</span>
                   </div>
                 </div>
               </div>
-            </section>
-          ) : null}
+            </div>
+          </section>
+        ) : null}
 
-          {messages.map((message, index) => {
+        {messages.map((message, index) => {
             const references = buildReferenceRecords(
               message.sources,
               documents,
@@ -531,8 +600,8 @@ export default function MainWorkspace({
                         <button
                           aria-label="重新生成"
                           className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-300"
-                          disabled={isSubmitting || !onRegenerateAnswer}
-                          onClick={() => onRegenerateAnswer?.(message.id)}
+                          disabled={isSubmitting || !canRegenerateAnswer}
+                          onClick={() => onRegenerateAnswer(message.id)}
                           title="重新生成"
                           type="button"
                         >
@@ -544,75 +613,94 @@ export default function MainWorkspace({
                 </motion.div>
               </div>
             );
-          })}
+        })}
 
-          {/* 无来源提示已移至标题行动态显示 */}
-        </div>
+        {/* 无来源提示已移至标题行动态显示 */}
       </div>
+    </div>
+  );
+});
 
-      <div className="z-10 border-t border-stone-100 bg-white p-5 lg:p-6">
-        <div className="mx-auto max-w-4xl">
-          <div className="group relative">
-            <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 opacity-0 blur-md transition-opacity duration-500 group-focus-within:opacity-100" />
-            <div className="relative flex flex-col rounded-xl border border-stone-300 bg-white shadow-sm transition-all focus-within:border-cyan-500 focus-within:ring-1 focus-within:ring-cyan-500">
-              <textarea
-                className="min-h-[96px] w-full resize-none bg-transparent px-4 py-3 text-[15px] text-stone-800 placeholder:text-stone-400 focus:outline-none"
-                onChange={(event) => onDraftQuestionChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    if (isSubmitting) {
-                      onStop?.();
-                    } else {
-                      onSubmit();
-                    }
+function QuestionComposer({
+  bootError,
+  draftQuestion,
+  isSubmitting,
+  onDraftQuestionChange,
+  onStop,
+  onSubmit
+}: Pick<
+  MainWorkspaceProps,
+  | "bootError"
+  | "draftQuestion"
+  | "isSubmitting"
+  | "onDraftQuestionChange"
+  | "onSubmit"
+> & {
+  onStop: () => void;
+}) {
+  return (
+    <div className="z-10 border-t border-stone-100 bg-white p-5 lg:p-6">
+      <div className="mx-auto max-w-4xl">
+        <div className="group relative">
+          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-500/20 opacity-0 blur-md transition-opacity duration-500 group-focus-within:opacity-100" />
+          <div className="relative flex flex-col rounded-xl border border-stone-300 bg-white shadow-sm transition-all focus-within:border-cyan-500 focus-within:ring-1 focus-within:ring-cyan-500">
+            <textarea
+              className="min-h-[96px] w-full resize-none bg-transparent px-4 py-3 text-[15px] text-stone-800 placeholder:text-stone-400 focus:outline-none"
+              onChange={(event) => onDraftQuestionChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (isSubmitting) {
+                    onStop();
+                  } else {
+                    onSubmit();
                   }
-                }}
-                placeholder="输入规范相关问题，例如：长细比是如何定义的?"
-                value={draftQuestion}
-              />
-              <div className="flex items-center justify-between border-t border-stone-100 bg-stone-50/60 px-3 py-2">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center gap-1 text-xs text-stone-500">
-                    <Search className="h-3.5 w-3.5" />
-                    混合检索
-                  </span>
-                </div>
-                {isSubmitting ? (
-                  <button
-                    aria-label="停止生成"
-                    className="flex items-center justify-center rounded-lg bg-stone-900 p-1.5 text-white transition-colors hover:bg-stone-700"
-                    onClick={onStop}
-                    title="停止生成"
-                    type="button"
-                  >
-                    <Square className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <button
-                    aria-label="提交问题"
-                    className="flex items-center justify-center rounded-lg bg-stone-900 p-1.5 text-white transition-colors hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
-                    disabled={draftQuestion.trim().length === 0}
-                    onClick={onSubmit}
-                    type="button"
-                  >
-                    <CornerDownLeft className="h-4 w-4" />
-                  </button>
-                )}
+                }
+              }}
+              placeholder="输入规范相关问题，例如：长细比是如何定义的?"
+              value={draftQuestion}
+            />
+            <div className="flex items-center justify-between border-t border-stone-100 bg-stone-50/60 px-3 py-2">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1 text-xs text-stone-500">
+                  <Search className="h-3.5 w-3.5" />
+                  混合检索
+                </span>
               </div>
+              {isSubmitting ? (
+                <button
+                  aria-label="停止生成"
+                  className="flex items-center justify-center rounded-lg bg-stone-900 p-1.5 text-white transition-colors hover:bg-stone-700"
+                  onClick={onStop}
+                  title="停止生成"
+                  type="button"
+                >
+                  <Square className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  aria-label="提交问题"
+                  className="flex items-center justify-center rounded-lg bg-stone-900 p-1.5 text-white transition-colors hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                  disabled={draftQuestion.trim().length === 0}
+                  onClick={onSubmit}
+                  type="button"
+                >
+                  <CornerDownLeft className="h-4 w-4" />
+                </button>
+              )}
             </div>
           </div>
+        </div>
 
-          <div className="mt-3 text-center">
-            <span className="text-[10px] text-stone-400">
-              AI 生成内容可能存在误差，请结合原规范进行工程判断。
-            </span>
-            {bootError ? (
-              <span className="ml-2 text-[10px] text-amber-600">{bootError}</span>
-            ) : null}
-          </div>
+        <div className="mt-3 text-center">
+          <span className="text-[10px] text-stone-400">
+            AI 生成内容可能存在误差，请结合原规范进行工程判断。
+          </span>
+          {bootError ? (
+            <span className="ml-2 text-[10px] text-amber-600">{bootError}</span>
+          ) : null}
         </div>
       </div>
-    </main>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import EvidencePanel from "./components/EvidencePanel";
 import LoginPage from "./components/LoginPage";
@@ -9,6 +9,18 @@ import { useDocumentImport } from "./hooks/useDocumentImport";
 import { useEuroQaDemo } from "./hooks/useEuroQaDemo";
 import { checkAuthRequired } from "./lib/api";
 import { isAuthenticated, onAuthExpired } from "./lib/auth";
+
+function useStableCallback<T extends (...args: any[]) => unknown>(
+  callback: T
+): T {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
+  return useCallback(
+    ((...args: Parameters<T>) => callbackRef.current(...args)) as T,
+    []
+  );
+}
 
 export default function App() {
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
@@ -52,9 +64,26 @@ export default function App() {
 
 function AuthenticatedApp() {
   const demo = useEuroQaDemo();
+  const handleRefreshDocuments = useStableCallback(demo.refreshDocuments);
   const docImport = useDocumentImport({
-    onComplete: demo.refreshDocuments,
+    onComplete: handleRefreshDocuments,
   });
+  const handleResetLlmSettings = useStableCallback(demo.resetLlmSettings);
+  const handleSaveLlmSettings = useStableCallback(demo.saveLlmSettings);
+  const handleNewSession = useStableCallback(demo.newSession);
+  const handleSelectHistorySession = useStableCallback(
+    demo.selectHistorySession
+  );
+  const handleAskQuestion = useStableCallback(demo.askQuestion);
+  const handleDraftQuestionChange = useStableCallback(demo.setDraftQuestion);
+  const handleReferenceClick = useStableCallback(demo.setActiveReferenceId);
+  const handleRegenerateAnswer = useStableCallback(demo.regenerateAnswer);
+  const handleStopStreaming = useStableCallback(demo.stopStreaming);
+  const handleSubmitDraftQuestion = useStableCallback(demo.submitDraftQuestion);
+  const handlePdfLocationResolved = useStableCallback(demo.setPdfLocationStatus);
+  const handleSourceTranslationEnabledChange = useStableCallback(
+    demo.setSourceTranslationEnabled
+  );
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-stone-50 font-sans text-stone-900 selection:bg-cyan-100 selection:text-cyan-900">
@@ -67,8 +96,8 @@ function AuthenticatedApp() {
         llmDefaultSettings={demo.llmDefaultSettings}
         llmSettings={demo.llmSettings}
         messages={demo.messages}
-        onResetLlmSettings={demo.resetLlmSettings}
-        onSaveLlmSettings={demo.saveLlmSettings}
+        onResetLlmSettings={handleResetLlmSettings}
+        onSaveLlmSettings={handleSaveLlmSettings}
       />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -77,9 +106,9 @@ function AuthenticatedApp() {
           glossary={demo.glossary}
           historySessions={demo.historySessions}
           hotQuestions={demo.hotQuestions}
-          onNewSession={demo.newSession}
-          onSelectHistorySession={demo.selectHistorySession}
-          onSelectHotQuestion={demo.askQuestion}
+          onNewSession={handleNewSession}
+          onSelectHistorySession={handleSelectHistorySession}
+          onSelectHotQuestion={handleAskQuestion}
           onUploadFile={docImport.handleUpload}
           onDeleteDocument={docImport.handleDelete}
           processingDocId={docImport.processingDocId}
@@ -95,17 +124,19 @@ function AuthenticatedApp() {
           hotQuestions={demo.hotQuestions}
           isSubmitting={demo.isSubmitting}
           messages={demo.messages}
-          onDraftQuestionChange={demo.setDraftQuestion}
-          onReferenceClick={demo.setActiveReferenceId}
-          onRegenerateAnswer={demo.regenerateAnswer}
-          onSelectHotQuestion={demo.askQuestion}
-          onStop={demo.stopStreaming}
-          onSubmit={demo.submitDraftQuestion}
+          onDraftQuestionChange={handleDraftQuestionChange}
+          onReferenceClick={handleReferenceClick}
+          onRegenerateAnswer={handleRegenerateAnswer}
+          onSelectHotQuestion={handleAskQuestion}
+          onStop={handleStopStreaming}
+          onSubmit={handleSubmitDraftQuestion}
         />
         <EvidencePanel
           activeReference={demo.activeReference}
-          onPdfLocationResolved={demo.setPdfLocationStatus}
-          onSourceTranslationEnabledChange={demo.setSourceTranslationEnabled}
+          onPdfLocationResolved={handlePdfLocationResolved}
+          onSourceTranslationEnabledChange={
+            handleSourceTranslationEnabledChange
+          }
           pdfFileUrl={demo.activeReferencePdfUrl}
           pdfLocationStatus={demo.pdfLocationStatus}
           sourceTranslation={demo.activeSourceTranslation}

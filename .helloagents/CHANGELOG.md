@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.31] - 2026-06-03
+
+### 优化
+- **[frontend.components.MainWorkspace / frontend.components.Sidebar / frontend.components.TopBar / frontend.App]**: 优化前端输入性能，将聊天记录渲染区拆成 memo 化 `ChatTranscript`，输入框拆成轻量 `QuestionComposer`，并在 `App` 层为跨组件回调提供稳定引用；`Sidebar` 与 `TopBar` 同步 memo 化，避免输入 `draftQuestion` 时反复重绘历史会话、文档列表、导出状态和完整 Markdown 回答 — by Codex
+  - 类型: 标准流程（全自动执行）
+  - 文件: frontend/src/App.tsx; frontend/src/components/MainWorkspace.tsx; frontend/src/components/Sidebar.tsx; frontend/src/components/TopBar.tsx; .helloagents/modules/frontend.components.MainWorkspace.md; .helloagents/modules/frontend.components.Sidebar.md; .helloagents/modules/frontend.components.TopBar.md
+
 ## [0.1.30] - 2026-06-01
 
 ### 新增

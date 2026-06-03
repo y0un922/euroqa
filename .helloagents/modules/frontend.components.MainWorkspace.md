@@ -20,6 +20,8 @@
 - reasoning 与 answer 分开累计，避免把思考内容混入最终回答正文。
 - 已完成回答始终直接展示完整 LLM 正文，不再提供“现场 / 设计 / 审图”分层切换。
 - 回答头部不再显示 `questionType` 小标签（如 `rule`），避免把内部分类暴露给最终用户。
+- 输入框区域必须与聊天记录渲染区保持性能隔离：`draftQuestion` 变化只应刷新轻量 composer，不应重新遍历全部 `messages`、重建引用记录或重新渲染 Markdown。
+- 大量历史回答存在时，聊天记录区应通过 memo 化边界接收稳定回调，只有 `messages`、`documents`、`activeReferenceId`、提交状态等真实影响回答展示的 props 变化时才重绘。
 
 ## 依赖关系
 

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import {
   BookMarked,
   History,
@@ -33,7 +34,7 @@ type SidebarProps = {
   pipelineProgress?: number;
 };
 
-export default function Sidebar(props: SidebarProps) {
+export default memo(function Sidebar(props: SidebarProps) {
   const {
     documents,
     historySessions = [],
@@ -187,4 +188,4 @@ export default function Sidebar(props: SidebarProps) {
       </div>
     </aside>
   );
-}
+});
