@@ -12,6 +12,7 @@ import {
   buildChatQueryPayload,
   buildDocumentFileUrl,
   buildReferenceRecords,
+  deleteConversationSession,
   getConversationSession,
   getConversationSessions,
   getPreferredReferenceIndex,
@@ -967,6 +968,28 @@ export function useEuroQaDemo() {
     restoreSession(buildSessionRecordFromResponse(targetSession));
   }
 
+  async function deleteHistorySession(sessionId: string) {
+    if (isSubmitting || sessionId === activeSessionId) {
+      return;
+    }
+
+    setHistorySessions((current) =>
+      current.filter((session) => session.id !== sessionId),
+    );
+    try {
+      await deleteConversationSession(sessionId);
+    } catch {
+      try {
+        const refreshed = await getConversationSessions(getSessionUserId(sessionId));
+        setHistorySessions(
+          refreshed.sessions.map(buildHistorySessionSummaryFromResponse),
+        );
+      } catch {
+        // 保持乐观删除结果，避免短暂后端错误让 UI 反复闪回。
+      }
+    }
+  }
+
   function saveLlmSettings(nextSettings: LlmSettings) {
     const normalized = normalizeLlmSettings(nextSettings);
     setLlmSettings(
@@ -1005,6 +1028,7 @@ export function useEuroQaDemo() {
     isSubmitting,
     messages,
     newSession,
+    deleteHistorySession,
     llmApiKeyConfigured: llmSettingsDefaults?.api_key_configured ?? false,
     llmDefaultSettings,
     llmSettings,

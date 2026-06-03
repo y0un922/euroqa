@@ -50,12 +50,14 @@ test("Sidebar renders history sessions and omits glossary preview", () => {
       activeSessionId: "current",
       onNewSession: () => {},
       onSelectHistorySession: () => {},
+      onDeleteHistorySession: () => {},
       onSelectHotQuestion: () => {}
     })
   );
 
   assert.match(html, /历史会话/);
   assert.match(html, /保护层都与什么因素相关，该怎么计算\?/);
+  assert.match(html, /删除历史会话 保护层都与什么因素相关，该怎么计算\?/);
   assert.match(html, /请给出混凝土结构设计中相关作用荷载和材料的分项系数。/);
   assert.match(html, /极限受力状态下混凝土受压区高度限值为多少？/);
   assert.doesNotMatch(html, /受弯构件正截面承载力计算的一般步骤是什么？/);

@@ -8,6 +8,7 @@
 ## 行为规范
 
 - `POST /documents/parse` 接受 `docId`、`fileName`、`minioPath` 和可选 `contextSummaryEnabled`，返回 `code`、`docId`、`status`、`message`
+- `GET /documents` 的前端“已载入文档”列表来源是 `config.pdf_dir` 下的本地 `*.pdf` 文件；只在该目录存在本地 PDF 的文档才会显示在侧边栏和顶部文档计数中。
 - `minioPath` 使用 `bucket/key` 格式时，后端会通过 MinIO 客户端下载到 `pdf_dir/{docId}.pdf` 后入队；本地可见文件路径仍作为开发兼容路径
 - `contextSummaryEnabled` 默认 `true`；为 `false` 时跳过 Stage 3.5 上下文摘要/上下文化增强，但仍执行解析、结构化、分块和索引
 - 外部契约接口 `POST /documents/parse`、`POST /documents/status`、`POST /documents/delete` 不要求后台调试 token；旧上传、列表、文件预览和单文档兼容接口仍受管理端鉴权保护

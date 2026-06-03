@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from server.api.v1.auth import require_auth
 from server.deps import get_conversation_manager
 from server.models.schemas import (
+    ConversationSessionDeleteResponse,
     ConversationSessionListResponse,
     ConversationSessionResponse,
 )
@@ -41,3 +42,18 @@ async def get_session(
     else:
         payload = conv_mgr.get_session(session_id)
     return ConversationSessionResponse.model_validate(payload)
+
+
+@router.delete("/sessions/{session_id}", response_model=ConversationSessionDeleteResponse)
+async def delete_session(
+    session_id: str,
+    _auth=Depends(require_auth),
+    conv_mgr=Depends(get_conversation_manager),
+) -> ConversationSessionDeleteResponse:
+    """Delete a chat session from Redis or the in-memory fallback store."""
+    deleter = getattr(conv_mgr, "delete_session_async", None)
+    if deleter is not None:
+        payload = await deleter(session_id)
+    else:
+        payload = conv_mgr.delete_session(session_id)
+    return ConversationSessionDeleteResponse.model_validate(payload)

@@ -74,6 +74,9 @@ function AuthenticatedApp() {
   const handleSelectHistorySession = useStableCallback(
     demo.selectHistorySession
   );
+  const handleDeleteHistorySession = useStableCallback(
+    demo.deleteHistorySession
+  );
   const handleAskQuestion = useStableCallback(demo.askQuestion);
   const handleDraftQuestionChange = useStableCallback(demo.setDraftQuestion);
   const handleReferenceClick = useStableCallback(demo.setActiveReferenceId);
@@ -108,6 +111,7 @@ function AuthenticatedApp() {
           hotQuestions={demo.hotQuestions}
           onNewSession={handleNewSession}
           onSelectHistorySession={handleSelectHistorySession}
+          onDeleteHistorySession={handleDeleteHistorySession}
           onSelectHotQuestion={handleAskQuestion}
           onUploadFile={docImport.handleUpload}
           onDeleteDocument={docImport.handleDelete}

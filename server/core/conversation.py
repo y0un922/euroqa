@@ -84,6 +84,12 @@ class ConversationManager:
             )
         return {"sessions": sessions}
 
+    def delete_session(self, conversation_id: str) -> dict[str, Any]:
+        """Delete one session from the in-memory cache."""
+        deleted = conversation_id in self._cache
+        self._cache.pop(conversation_id, None)
+        return {"session_id": conversation_id, "deleted": deleted}
+
 
 def _utc_iso() -> str:
     """Return an ISO 8601 UTC timestamp."""
@@ -463,6 +469,21 @@ class RedisConversationManager:
 
         sessions.sort(key=lambda item: item.get("updated_at") or "", reverse=True)
         return {"sessions": sessions}
+
+    async def delete_session_async(self, conversation_id: str) -> dict[str, Any]:
+        """Delete one frontend-facing session from Redis."""
+        deleted_count = await self._redis.delete(f"context:{conversation_id}")
+        user_id = _user_id_from_session_id(conversation_id)
+        metadata_deleted = 0
+        if user_id:
+            metadata_deleted = await self._redis.hdel(
+                f"user:{user_id}:sessions",
+                conversation_id,
+            )
+        return {
+            "session_id": conversation_id,
+            "deleted": bool(deleted_count or metadata_deleted),
+        }
 
     def add_turn(self, conversation_id: str, question: str, answer: str) -> None:
         del conversation_id, question, answer

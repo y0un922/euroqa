@@ -5,6 +5,7 @@ import {
   buildChatQueryPayload,
   buildDocumentFileUrl,
   buildReferenceRecords,
+  deleteConversationSession,
   getConversationSession,
   getConversationSessions,
   getPreferredReferenceIndex,
@@ -805,6 +806,34 @@ test("getConversationSessions fetches redis-backed session summaries", async () 
   }
 
   assert.match(seenUrls[0] ?? "", /\/api\/v1\/sessions\?userId=1001$/);
+});
+
+test("deleteConversationSession deletes one redis-backed session", async () => {
+  const seen: Array<{ url: string; method?: string }> = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async (input, init) => {
+      seen.push({ url: String(input), method: init?.method });
+      return new Response(
+        JSON.stringify({
+          sessionId: "1001_abc123",
+          deleted: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const response = await deleteConversationSession("1001_abc123");
+
+    assert.equal(response.sessionId, "1001_abc123");
+    assert.equal(response.deleted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.match(seen[0]?.url ?? "", /\/api\/v1\/sessions\/1001_abc123$/);
+  assert.equal(seen[0]?.method, "DELETE");
 });
 
 test("queryStream sends llm overrides in the stream request body", async () => {

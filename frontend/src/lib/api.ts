@@ -17,6 +17,7 @@ export type DemoDocumentInfo = {
 };
 
 import type {
+  ConversationSessionDeleteResponse,
   ConversationSessionListResponse,
   ConversationSessionResponse,
   DocumentInfo,
@@ -392,6 +393,15 @@ export async function getConversationSessions(
   return fetchJson<ConversationSessionListResponse>(
     `/api/v1/sessions?userId=${encodeURIComponent(userId)}`,
     { method: "GET" },
+  );
+}
+
+export async function deleteConversationSession(
+  sessionId: string,
+): Promise<ConversationSessionDeleteResponse> {
+  return fetchJson<ConversationSessionDeleteResponse>(
+    `/api/v1/sessions/${encodeURIComponent(sessionId)}`,
+    { method: "DELETE" },
   );
 }
 

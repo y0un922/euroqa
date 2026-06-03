@@ -236,6 +236,11 @@ class ConversationSessionListResponse(CamelModel):
     sessions: list[ConversationSessionSummary] = Field(default_factory=list)
 
 
+class ConversationSessionDeleteResponse(CamelModel):
+    session_id: str
+    deleted: bool
+
+
 class SourceTranslationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

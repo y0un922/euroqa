@@ -12,6 +12,7 @@
 - Redis `user:{userId}:sessions` 保存每个 session 的 `title`、`createdAt`、`updatedAt` 元数据。
 - `get_session_async()` 将 Redis 消息还原为前端 `ChatTurn` 列表。
 - `get_sessions_async()` 从 Redis 元数据哈希枚举会话摘要，并读取对应消息列表计算 `messageCount`。
+- `delete_session_async()` 删除 Redis `context:{sessionId}` 消息列表和 `user:{userId}:sessions` 元数据字段。
 - 会话摘要标题优先使用 Redis metadata `title`，为空时使用第一条问题，再回退到 `sessionId`。
 
 ## 依赖关系

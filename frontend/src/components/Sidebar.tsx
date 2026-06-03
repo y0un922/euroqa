@@ -26,6 +26,7 @@ type SidebarProps = {
   activeSessionId?: string | null;
   onNewSession: () => void;
   onSelectHistorySession?: (sessionId: string) => void;
+  onDeleteHistorySession?: (sessionId: string) => void;
   onSelectHotQuestion: (question: string) => void;
   onUploadFile?: (file: File) => void;
   onDeleteDocument?: (docId: string) => void;
@@ -42,6 +43,7 @@ export default memo(function Sidebar(props: SidebarProps) {
     activeSessionId = null,
     onNewSession,
     onSelectHistorySession,
+    onDeleteHistorySession,
     onSelectHotQuestion,
     onUploadFile,
     onDeleteDocument,
@@ -74,13 +76,16 @@ export default memo(function Sidebar(props: SidebarProps) {
               {historySessions.map((session) => {
                 const isActive = session.id === activeSessionId;
                 return (
-                  <li key={session.id}>
+                  <li
+                    className={`group flex items-start gap-1 rounded-md transition-colors ${
+                      isActive
+                        ? "bg-stone-200/80 text-stone-900"
+                        : "text-stone-600 hover:bg-stone-200/50 hover:text-stone-900"
+                    }`}
+                    key={session.id}
+                  >
                     <button
-                      className={`flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors ${
-                        isActive
-                          ? "bg-stone-200/80 text-stone-900"
-                          : "text-stone-600 hover:bg-stone-200/50 hover:text-stone-900"
-                      }`}
+                      className="flex min-w-0 flex-1 items-start gap-2 px-2 py-2 text-left"
                       onClick={() => onSelectHistorySession?.(session.id)}
                       type="button"
                     >
@@ -94,6 +99,21 @@ export default memo(function Sidebar(props: SidebarProps) {
                         </span>
                       </span>
                     </button>
+                    {onDeleteHistorySession && !isActive && (
+                      <button
+                        aria-label={`删除历史会话 ${session.title}`}
+                        className="mt-1.5 mr-1 hidden rounded p-1 text-stone-300 transition-colors hover:bg-rose-100 hover:text-rose-500 group-hover:inline-flex"
+                        onClick={() => {
+                          if (window.confirm(`确认删除历史会话 "${session.title}"？`)) {
+                            onDeleteHistorySession(session.id);
+                          }
+                        }}
+                        title="删除历史会话"
+                        type="button"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </li>
                 );
               })}

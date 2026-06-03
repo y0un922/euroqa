@@ -124,6 +124,11 @@ export type ConversationSessionListResponse = {
   sessions: ConversationSessionSummaryResponse[];
 };
 
+export type ConversationSessionDeleteResponse = {
+  sessionId: string;
+  deleted: boolean;
+};
+
 export type StreamDonePayload = {
   code?: number;
   sources: Source[];

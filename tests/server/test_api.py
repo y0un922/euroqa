@@ -171,6 +171,9 @@ class _FakeRedis:
     async def rpush(self, key, *values):
         self.lists.setdefault(key, []).extend(values)
 
+    async def delete(self, key):
+        return 1 if self.lists.pop(key, None) is not None else 0
+
     async def expire(self, key, ttl_seconds):
         self.expire_calls.append((key, ttl_seconds))
 
@@ -179,6 +182,13 @@ class _FakeRedis:
 
     async def hgetall(self, key):
         return self.hashes.get(key, {})
+
+    async def hdel(self, key, field):
+        values = self.hashes.get(key)
+        if values is None or field not in values:
+            return 0
+        del values[field]
+        return 1
 
     async def hset(self, key, field, value):
         self.hashes.setdefault(key, {})[field] = value
@@ -434,6 +444,25 @@ class TestRedisConversationManager:
         assert payload["sessions"][0]["title"] == "新会话"
         assert payload["sessions"][0]["message_count"] == 2
 
+    @pytest.mark.anyio
+    async def test_delete_session_removes_redis_context_and_metadata(self):
+        manager = RedisConversationManager.__new__(RedisConversationManager)
+        fake_redis = _FakeRedis()
+        manager._redis = fake_redis
+        fake_redis.hashes["user:1001:sessions"] = {
+            "1001_delete": json.dumps({"title": "待删除"}, ensure_ascii=False)
+        }
+        fake_redis.lists["context:1001_delete"] = [
+            json.dumps({"role": "user", "content": "问题"}, ensure_ascii=False),
+            json.dumps({"role": "assistant", "content": "回答"}, ensure_ascii=False),
+        ]
+
+        payload = await manager.delete_session_async("1001_delete")
+
+        assert payload == {"session_id": "1001_delete", "deleted": True}
+        assert "context:1001_delete" not in fake_redis.lists
+        assert "1001_delete" not in fake_redis.hashes["user:1001:sessions"]
+
 
 class TestConversationTurnPersistence:
     @pytest.mark.anyio
@@ -598,6 +627,32 @@ class TestQueryEndpoint:
         )
 
         resp = client.get("/api/v1/sessions?userId=1001")
+
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 401
+
+    def test_session_delete_endpoint_returns_frontend_contract(self, client):
+        class _FakeConversationManager:
+            def delete_session(self, session_id):
+                return {"session_id": session_id, "deleted": True}
+
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
+        )
+
+        resp = client.delete("/api/v1/sessions/1001_delete")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["sessionId"] == "1001_delete"
+        assert payload["deleted"] is True
+
+    def test_session_delete_requires_auth_when_password_enabled(self, client):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            access_password="required"
+        )
+
+        resp = client.delete("/api/v1/sessions/1001_delete")
 
         assert resp.status_code == 200
         assert resp.json()["code"] == 401
