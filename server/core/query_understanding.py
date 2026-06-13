@@ -114,6 +114,56 @@ _PARTIAL_FACTOR_STABLE_QUERIES = (
     "gamma_F gamma_G gamma_Q gamma_M gamma_C gamma_S",
 )
 
+_QUERY_EXPANSION_SYSTEM_PROMPT = (
+    "你是 Eurocode 规范检索专家。将以下中文工程问题扩展为三条英文检索查询，"
+    "同时判断问题类型、提取工程上下文，并判断是否需要去 Designers' Guide 中找算例。\n\n"
+    "如果当前问题包含代词（它、这个、那个、该参数、上面的表格等）或省略了关键语境"
+    "（如文档号、条款号、构件类型），你必须先根据对话历史还原为完整的自包含问题，"
+    '然后再进行查询扩展。还原后的完整问题输出在 "rewritten_question" 字段中。'
+    '如果当前问题已经是完整的自包含问题，"rewritten_question" 填原问题即可。\n\n'
+    "三条查询的视角：\n"
+    "1. semantic: 一句自然语言英文短句，忠实表达问题核心含义\n"
+    "2. concepts: 相关概念、同义词、上下位术语（空格分隔）\n"
+    "3. terms: 规范中会出现的变量名、缩写、公式符号（空格分隔）\n\n"
+    "问题类型（question_type），从以下四类中选一个：\n"
+    '- "rule": 规则/假设类 — 问"采用什么模型/假定"\n'
+    '- "parameter": 参数/限值类 — 问"约束条件/限值是什么"\n'
+    '- "calculation": 计算类 — 问"从已知量到设计值怎么走"\n'
+    '- "mechanism": 机理/影响因素类 — 问"哪些变量会改变结果"\n\n'
+    "目标线索字段：\n"
+    '- "intent_label": definition|assumption|applicability|formula|limit|clause_lookup|'
+    "explanation|mechanism|calculation\n"
+    '- "target_hint": {"document": str|null, "clause": str|null, "object": str|null}\n'
+    '- "reason_short": 一句简短英文原因\n\n'
+    "工程上下文（context），从问题中提取（缺失填 null）：\n"
+    "country, structure_type (beam/slab/column/wall/foundation), "
+    "limit_state (ULS/SLS), load_combination (bool), "
+    "concrete_class, rebar_grade, prestressed (bool), "
+    "discontinuity_region (bool)\n\n"
+    "指南算例提示（guide_hint）：\n"
+    '- "need_example": true/false，只有当用户明显在问计算步骤、如何取值，或提供一个算例能显著帮助理解时才设为 true\n'
+    '- "example_query": 一句简短英文检索短语，用于在 Designers\' Guide 中检索相关算例；没有明确算例需求时填 null\n'
+    '- "example_kind": worked_example|procedure|commentary|null\n\n'
+    "要求：\n"
+    "- 不要猜测问题中未提及的条款号或表格号\n"
+    "- semantic/concepts/terms 只输出英文\n"
+    "- question_type 必须基于问题意图判断\n"
+    "- 是否需要指南算例主要由 question_type 和问题意图共同决定，不要机械地对所有问题都要求算例\n"
+    "- context 中未明确出现的信息必须保留为 null，不要臆测\n"
+    "- target_hint 只能填问题中明确出现或可由目标对象稳定推出的信息，不确定时填 null\n"
+    "- 严格按 JSON 格式输出：\n"
+    '{"rewritten_question":"...","semantic":"...","concepts":"...","terms":"...",'
+    '"question_type":"rule|parameter|calculation|mechanism",'
+    '"guide_hint":{"need_example":false,"example_query":null,"example_kind":null},'
+    '"intent_label":"...",'
+    '"target_hint":{"document":null,"clause":null,"object":null},'
+    '"reason_short":"...",'
+    '"context":{"country":null,"structure_type":null,'
+    '"limit_state":null,"load_combination":null,'
+    '"concrete_class":null,"rebar_grade":null,'
+    '"prestressed":null,"discontinuity_region":null}}'
+)
+
 
 @dataclass
 class ExpansionResult:
@@ -339,6 +389,31 @@ def _format_history_for_expansion(history: list[dict[str, str]] | None) -> str:
     return "\n".join(lines) + "\n" if len(lines) > 1 else ""
 
 
+def _should_enable_prompt_cache(
+    cfg: ServerConfig,
+    *,
+    base_url: str,
+    model: str,
+) -> bool:
+    """Return whether this concrete LLM endpoint should receive cache markers."""
+    if not cfg.llm_prompt_cache_enabled:
+        return False
+    return "qwen" in model.lower() or "dashscope.aliyuncs.com" in base_url.lower()
+
+
+def _build_cacheable_system_message(system_prompt: str) -> dict[str, object]:
+    return {
+        "role": "system",
+        "content": [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+    }
+
+
 async def expand_queries(
     question: str,
     glossary: dict[str, str],
@@ -368,61 +443,14 @@ async def expand_queries(
         term_hint = f"已知术语对照：{pairs}\n"
 
     history_block = _format_history_for_expansion(history)
-    prompt = (
-        "你是 Eurocode 规范检索专家。将以下中文工程问题扩展为三条英文检索查询，"
-        "同时判断问题类型、提取工程上下文，并判断是否需要去 Designers' Guide 中找算例。\n\n"
-        f"{history_block}\n"
-        "如果当前问题包含代词（它、这个、那个、该参数、上面的表格等）或省略了关键语境"
-        "（如文档号、条款号、构件类型），你必须先根据对话历史还原为完整的自包含问题，"
-        '然后再进行查询扩展。还原后的完整问题输出在 "rewritten_question" 字段中。'
-        '如果当前问题已经是完整的自包含问题，"rewritten_question" 填原问题即可。\n\n'
-        "三条查询的视角：\n"
-        "1. semantic: 一句自然语言英文短句，忠实表达问题核心含义\n"
-        "2. concepts: 相关概念、同义词、上下位术语（空格分隔）\n"
-        "3. terms: 规范中会出现的变量名、缩写、公式符号（空格分隔）\n\n"
-        "问题类型（question_type），从以下四类中选一个：\n"
-        '- "rule": 规则/假设类 — 问"采用什么模型/假定"\n'
-        '- "parameter": 参数/限值类 — 问"约束条件/限值是什么"\n'
-        '- "calculation": 计算类 — 问"从已知量到设计值怎么走"\n'
-        '- "mechanism": 机理/影响因素类 — 问"哪些变量会改变结果"\n\n'
-        "目标线索字段：\n"
-        '- "intent_label": definition|assumption|applicability|formula|limit|clause_lookup|'
-        "explanation|mechanism|calculation\n"
-        '- "target_hint": {"document": str|null, "clause": str|null, "object": str|null}\n'
-        '- "reason_short": 一句简短英文原因\n\n'
-        "工程上下文（context），从问题中提取（缺失填 null）：\n"
-        "country, structure_type (beam/slab/column/wall/foundation), "
-        "limit_state (ULS/SLS), load_combination (bool), "
-        "concrete_class, rebar_grade, prestressed (bool), "
-        "discontinuity_region (bool)\n\n"
-        "指南算例提示（guide_hint）：\n"
-        '- "need_example": true/false，只有当用户明显在问计算步骤、如何取值，或提供一个算例能显著帮助理解时才设为 true\n'
-        '- "example_query": 一句简短英文检索短语，用于在 Designers\' Guide 中检索相关算例；没有明确算例需求时填 null\n'
-        '- "example_kind": worked_example|procedure|commentary|null\n\n'
-        "要求：\n"
-        "- 不要猜测问题中未提及的条款号或表格号\n"
-        "- semantic/concepts/terms 只输出英文\n"
-        "- question_type 必须基于问题意图判断\n"
-        "- 是否需要指南算例主要由 question_type 和问题意图共同决定，不要机械地对所有问题都要求算例\n"
-        "- context 中未明确出现的信息必须保留为 null，不要臆测\n"
-        "- target_hint 只能填问题中明确出现或可由目标对象稳定推出的信息，不确定时填 null\n"
-        "- 严格按 JSON 格式输出：\n"
-        '{"rewritten_question":"...","semantic":"...","concepts":"...","terms":"...",'
-        '"question_type":"rule|parameter|calculation|mechanism",'
-        '"guide_hint":{"need_example":false,"example_query":null,"example_kind":null},'
-        '"intent_label":"...",'
-        '"target_hint":{"document":null,"clause":null,"object":null},'
-        '"reason_short":"...",'
-        '"context":{"country":null,"structure_type":null,'
-        '"limit_state":null,"load_combination":null,'
-        '"concrete_class":null,"rebar_grade":null,'
-        '"prestressed":null,"discontinuity_region":null}}\n\n'
-        f"{term_hint}"
-        f"问题：{question}"
-    )
+    user_prompt = f"{history_block}\n{term_hint}问题：{question}"
 
     try:
-        raw = await _call_llm(prompt, config)
+        raw = await _call_llm(
+            user_prompt,
+            config,
+            system_prompt=_QUERY_EXPANSION_SYSTEM_PROMPT,
+        )
         result = _parse_expansion_result(raw)
         if result and result.queries:
             return _stabilize_partial_factor_expansion(question, result)
@@ -618,7 +646,12 @@ async def analyze_query(
 # ===== 内部辅助 =====
 
 
-async def _call_llm(prompt: str, config: ServerConfig | None = None) -> str:
+async def _call_llm(
+    prompt: str,
+    config: ServerConfig | None = None,
+    *,
+    system_prompt: str | None = None,
+) -> str:
     """调用 LLM 获取文本回复（内部使用，可被测试 mock）."""
     cfg = config or ServerConfig()
     api_key = cfg.query_expansion_llm_api_key or cfg.llm_api_key
@@ -630,10 +663,19 @@ async def _call_llm(prompt: str, config: ServerConfig | None = None) -> str:
         timeout=httpx.Timeout(timeout=30.0, connect=5.0),
         client_factory=AsyncOpenAI,
     )
+    messages: list[dict[str, object]]
+    if system_prompt is not None:
+        if _should_enable_prompt_cache(cfg, base_url=base_url, model=model):
+            system_message = _build_cacheable_system_message(system_prompt)
+        else:
+            system_message = {"role": "system", "content": system_prompt}
+        messages = [system_message, {"role": "user", "content": prompt}]
+    else:
+        messages = [{"role": "user", "content": prompt}]
     logger.info("query_expansion_llm_start model=%s", model)
     resp = await client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         temperature=0.1,
         max_tokens=500,
     )

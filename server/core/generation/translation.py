@@ -43,6 +43,33 @@ _SOURCE_TRANSLATION_SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eu
 }"""
 
 
+def _should_enable_prompt_cache(
+    cfg: ServerConfig,
+    *,
+    base_url: str,
+    model: str,
+) -> bool:
+    """Return whether this concrete LLM endpoint should receive cache markers."""
+    if not cfg.llm_prompt_cache_enabled:
+        return False
+    return "qwen" in model.lower() or "dashscope.aliyuncs.com" in base_url.lower()
+
+
+def _build_system_message(content: str, *, prompt_cache_enabled: bool) -> dict:
+    if not prompt_cache_enabled:
+        return {"role": "system", "content": content}
+    return {
+        "role": "system",
+        "content": [
+            {
+                "type": "text",
+                "text": content,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+    }
+
+
 def _build_source_translation_prompt(
     sources: list[Source], indexes: list[int] | None = None
 ) -> str:
@@ -83,6 +110,14 @@ async def _call_source_translation_llm(
     api_key = cfg.translation_llm_api_key or cfg.llm_api_key
     base_url = cfg.translation_llm_base_url or cfg.llm_base_url
     model = cfg.translation_llm_model or cfg.llm_model
+    system_message = _build_system_message(
+        _SOURCE_TRANSLATION_SYSTEM_PROMPT,
+        prompt_cache_enabled=_should_enable_prompt_cache(
+            cfg,
+            base_url=base_url,
+            model=model,
+        ),
+    )
     client = await get_async_openai_client(
         api_key=api_key,
         base_url=base_url,
@@ -91,10 +126,7 @@ async def _call_source_translation_llm(
     )
     response = await client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": _SOURCE_TRANSLATION_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
+        messages=[system_message, {"role": "user", "content": prompt}],
         temperature=0.0,
         response_format={"type": "json_object"},
     )
