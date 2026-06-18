@@ -22,6 +22,7 @@ from server.core.generation.context import (
     _dedupe_chunks_by_id,
 )
 from server.core.generation.prompts import (
+    _build_dynamic_guidance,
     _build_json_system_prompt,
     _build_stream_mode_system_prompt,
     _normalize_engineering_context,
@@ -61,6 +62,11 @@ def _is_qwen_provider(config: ServerConfig) -> bool:
     return "qwen" in model_name or "dashscope.aliyuncs.com" in base_url
 
 
+def _should_enable_prompt_cache(config: ServerConfig) -> bool:
+    """Return whether to attach DashScope explicit cache markers."""
+    return config.llm_prompt_cache_enabled and _is_qwen_provider(config)
+
+
 def _should_enable_reasoning(config: ServerConfig) -> bool:
     """Return whether the current model/provider should request thinking tokens."""
     if not config.llm_enable_thinking:
@@ -75,7 +81,62 @@ def _build_stream_completion_kwargs(config: ServerConfig) -> dict[str, Any]:
         kwargs["extra_body"] = {"enable_thinking": True}
     elif _is_qwen_provider(config):
         kwargs["extra_body"] = {"enable_thinking": False}
+    if _should_enable_prompt_cache(config):
+        kwargs["stream_options"] = {"include_usage": True}
     return kwargs
+
+
+def _build_text_message(
+    role: str,
+    content: str,
+    *,
+    prompt_cache_enabled: bool,
+) -> dict[str, Any]:
+    """Build a chat message, optionally marking the text for explicit cache."""
+    if not prompt_cache_enabled:
+        return {"role": role, "content": content}
+    return {
+        "role": role,
+        "content": [
+            {
+                "type": "text",
+                "text": content,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+    }
+
+
+def _build_chat_messages(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    config: ServerConfig,
+) -> list[dict[str, Any]]:
+    prompt_cache_enabled = _should_enable_prompt_cache(config)
+    return [
+        _build_text_message(
+            "system",
+            system_prompt,
+            prompt_cache_enabled=prompt_cache_enabled,
+        ),
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _extract_cached_prompt_tokens(usage: Any) -> int | None:
+    """Extract provider-reported cached prompt tokens from usage payloads."""
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        details = usage.get("prompt_tokens_details") or {}
+        cached = details.get("cached_tokens")
+    else:
+        details = getattr(usage, "prompt_tokens_details", None)
+        cached = getattr(details, "cached_tokens", None)
+        if cached is None and isinstance(details, dict):
+            cached = details.get("cached_tokens")
+    return cached if isinstance(cached, int) else None
 
 
 async def generate_answer_stream(
@@ -138,6 +199,12 @@ async def generate_answer_stream(
         ctx_normalized,
         intent_label=intent_label,
     )
+    dynamic_guidance = _build_dynamic_guidance(
+        generation_mode,
+        qt_normalized,
+        ctx_normalized,
+    )
+    full_user_prompt = f"{dynamic_guidance}\n\n{prompt}"
     system_prompt_duration_ms = (time.perf_counter() - system_prompt_started) * 1000
 
     client_started = time.perf_counter()
@@ -149,7 +216,7 @@ async def generate_answer_stream(
     )
     client_duration_ms = (time.perf_counter() - client_started) * 1000
     token_count_started = time.perf_counter()
-    prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
+    prompt_tokens, prompt_tokens_estimate = _count_tokens(full_user_prompt, cfg)
     token_count_duration_ms = (time.perf_counter() - token_count_started) * 1000
     prepare_duration_ms = (time.perf_counter() - prepare_started) * 1000
     record_spot_check(
@@ -192,10 +259,11 @@ async def generate_answer_stream(
         )
         stream = await client.chat.completions.create(
             model=cfg.llm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
+            messages=_build_chat_messages(
+                system_prompt=system_prompt,
+                user_prompt=full_user_prompt,
+                config=cfg,
+            ),
             temperature=0.2,
             max_tokens=8192,
             stream=True,
@@ -204,8 +272,10 @@ async def generate_answer_stream(
         chunk_count = 0
         total_content_len = 0
         finish_reason = None
+        stream_usage = None
         async for token in stream:
             if not getattr(token, "choices", None):
+                stream_usage = getattr(token, "usage", None) or stream_usage
                 continue
 
             delta = token.choices[0].delta
@@ -225,10 +295,12 @@ async def generate_answer_stream(
                 finish_reason = token_finish_reason
 
         logger.info(
-            "llm_stream_end chunks=%d content_chars=%d finish_reason=%s",
+            "llm_stream_end chunks=%d content_chars=%d finish_reason=%s "
+            "cached_prompt_tokens=%s",
             chunk_count,
             total_content_len,
             finish_reason,
+            _extract_cached_prompt_tokens(stream_usage),
         )
 
         # 从检索结果直接构建结构化元数据，不依赖 LLM 输出
@@ -360,13 +432,25 @@ async def generate_answer(
         intent_label=intent_label,
         config=cfg,
     )
+    system_prompt = _build_json_system_prompt(
+        generation_mode,
+        question_type=qt_normalized,
+        engineering_context=ctx_normalized,
+        intent_label=intent_label,
+    )
+    dynamic_guidance = _build_dynamic_guidance(
+        generation_mode,
+        qt_normalized,
+        ctx_normalized,
+    )
+    full_user_prompt = f"{dynamic_guidance}\n\n{prompt}"
 
     client = await get_async_openai_client(
         api_key=cfg.llm_api_key,
         base_url=cfg.llm_base_url,
         client_factory=_current_async_openai_factory(),
     )
-    prompt_tokens, prompt_tokens_estimate = _count_tokens(prompt, cfg)
+    prompt_tokens, prompt_tokens_estimate = _count_tokens(full_user_prompt, cfg)
     record_spot_check(
         "final_prompt_tokens",
         {
@@ -387,28 +471,23 @@ async def generate_answer(
         )
         resp = await client.chat.completions.create(
             model=cfg.llm_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": _build_json_system_prompt(
-                        generation_mode,
-                        question_type=qt_normalized,
-                        engineering_context=ctx_normalized,
-                        intent_label=intent_label,
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
+            messages=_build_chat_messages(
+                system_prompt=system_prompt,
+                user_prompt=full_user_prompt,
+                config=cfg,
+            ),
             temperature=0.2,
             max_tokens=8192,
             response_format={"type": "json_object"},
         )
         raw = resp.choices[0].message.content.strip()
         logger.info(
-            "llm_call_end finish_reason=%s usage=%s content_len=%d",
+            "llm_call_end finish_reason=%s usage=%s content_len=%d "
+            "cached_prompt_tokens=%s",
             getattr(resp.choices[0], "finish_reason", None),
             getattr(resp, "usage", None),
             len(raw),
+            _extract_cached_prompt_tokens(getattr(resp, "usage", None)),
         )
         response = parse_llm_response(raw)
         all_citable = (

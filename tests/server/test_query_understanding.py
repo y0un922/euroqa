@@ -1,10 +1,13 @@
 """Test query understanding layer."""
 import json
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 import pytest
 
+from server.config import ServerConfig
 from server.core.query_understanding import (
+    _call_llm,
     analyze_query,
     expand_queries,
     extract_requested_objects,
@@ -268,6 +271,57 @@ class TestParseExpansionResult:
         assert result.question_type is None
         assert result.engineering_context is None
         assert result.routing is None
+
+
+class TestCallLlm:
+    @pytest.mark.asyncio
+    async def test_call_llm_marks_qwen_system_prompt_for_cache(self):
+        seen_kwargs: dict = {}
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_kwargs.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
+                )
+
+        config = ServerConfig(
+            llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            llm_model="qwen3.6-flash",
+        )
+        with patch("server.core.query_understanding.AsyncOpenAI", _FakeClient):
+            await _call_llm("问题：设计使用年限", config, system_prompt="固定指令")
+
+        messages = seen_kwargs["messages"]
+        assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert messages[0]["content"][0]["text"] == "固定指令"
+        assert messages[1] == {"role": "user", "content": "问题：设计使用年限"}
+
+    @pytest.mark.asyncio
+    async def test_call_llm_keeps_single_user_message_without_system_prompt(self):
+        seen_kwargs: dict = {}
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_kwargs.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))]
+                )
+
+        with patch("server.core.query_understanding.AsyncOpenAI", _FakeClient):
+            await _call_llm("旧格式 prompt", ServerConfig())
+
+        assert seen_kwargs["messages"] == [{"role": "user", "content": "旧格式 prompt"}]
 
 
 class TestExpandQueries:

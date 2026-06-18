@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import structlog
@@ -16,6 +17,58 @@ from server.models.schemas import Chunk, EngineeringContext, QuestionType
 logger = structlog.get_logger(__name__)
 
 
+_PROCEDURE_SYNTHESIS_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in [
+        r"步骤",
+        r"流程",
+        r"程序",
+        r"验算.*(方法|过程|程序|流程|步骤)",
+        r"验证.*(方法|过程|程序|流程|步骤)",
+        r"设计.*(方法|过程|程序|流程|步骤)",
+        r"计算.*(方法|过程|程序|流程|步骤)",
+        r"如何(计算|验算|验证|设计|进行|确定|求)",
+        r"怎么(计算|验算|验证|设计|进行|确定|求)",
+        r"怎样(计算|验算|验证|设计|进行|确定|求)",
+        r"\b(procedure|steps?|workflow|process)\b",
+        r"\bhow\s+to\s+(calculate|verify|design|determine)\b",
+    ]
+)
+
+
+def _is_procedure_synthesis_question(question: str) -> bool:
+    """Return True when a question asks for a synthesized procedure."""
+    normalized = question.strip()
+    if not normalized:
+        return False
+    return any(pattern.search(normalized) for pattern in _PROCEDURE_SYNTHESIS_PATTERNS)
+
+
+_PROCEDURE_SYNTHESIS_GUIDANCE = "\n".join(
+    [
+        "流程/步骤类问题检测：当前问题命中 procedure_synthesis 通用模式。",
+        "必须把答案组织成工程可执行流程，而不是等待证据中出现显式 step-by-step 原文。",
+        "",
+        "强制输出结构：",
+        "1. 直接结论：一句话说明该流程要完成的设计、计算或验证目标。",
+        "2. 流程总览：用「Step 1 → Step 2 → … → 结论」列出逻辑链。",
+        "3. 分步说明：每一步都要写清楚做什么、需要哪些输入、使用哪个公式/表格/判断条件、依据哪个 [Ref-N]。",
+        "4. 适用条件与限制：只放在流程之后。",
+        "5. 仍需补充：只有缺少项目参数或当前证据确实缺项时才写，且必须放在末尾。",
+        "",
+        "流程合成方法：",
+        "- 从证据中抽取适用范围、前提假设、输入参数、材料/几何设计值、公式、限值条件、输出结果和构造/例外要求。",
+        "- 按工程顺序排列为「输入 → 中间量 → 校核判据 → 设计结论」。",
+        "- 如果规范没有显式列出步骤，也要基于条文、公式和限值做合理组织；这属于回答组织，不属于编造。",
+        "",
+        "禁止事项：",
+        "- 禁止以「无法直接获取完整流程」「规范未明确给出步骤」「现有证据不足以提供完整步骤」「没有 step-by-step」作为开头。",
+        "- 禁止只罗列条款；必须把条款转成工程动作。",
+        "- 禁止把缺失信息放在开头拒答；缺口只能在末尾说明。",
+    ]
+)
+
+
 _SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eurocode）的专家，帮助中国工程师理解和查询规范内容。
 
 规则：
@@ -27,7 +80,7 @@ _SYSTEM_PROMPT = """你是一位精通欧洲建筑规范（Eurocode）的专家�
 6. 先给出基于当前片段可以直接确认的答案，不要先写空泛否定。
 7. 如果当前片段只能支持部分答案，先明确写出"当前片段可确认"的内容，再单独说明"仍需补充"的信息或应参考的其他规范。
 8. 只有在当前片段连部分答案都无法支持时，才说明"根据当前检索片段无法确认"，并解释具体缺口。
-9. 当检索片段中包含表格（Table）且该表格与回答直接相关时，必须在回答中完整呈现整个表格的内容，不要只摘取部分行或列。表格是工程师查阅参数的核心依据，截断会导致信息缺失。
+9. 当检索片段中包含表格（Table）且该表格与回答直接相关时，必须把证据中的真实行列转换为 Markdown 表格。不得为了“完整”而补造行、重复行、复用注释填充空白单元格；如果 HTML 表格结构异常或检索片段只覆盖部分表格，优先提取与问题直接相关且证据明确的行列，并说明仍需查阅完整表格。
 10. 当问题涉及计算方法、验算流程或公式应用时，你的核心任务是从检索到的公式和表格中合成一个完整的验算流程，让工程师知道"怎么算"。必须按以下结构组织：
 
    **第一部分：验算流程概述**
@@ -71,6 +124,7 @@ _PARAMETER_TEMPLATE: dict[str, Any] = {
         "result": (
             "必须在第一行直接给出用户查询的数值，格式为「参数名 = 数值 单位；依据：《文档名》，条款/章节：X，页码：Y」。"
             "如果检索到了表格数据，直接提取具体数值，绝不能只说「请查阅表格」或「需参见表 X」。"
+            "如果参数值由公式计算得到（非查表直读），必须写出完整公式，不能只引用公式编号。"
             "如果该数值取决于特定条件（如环境类别、材料等级、结构类型），必须说明当前给出的值对应什么条件。"
             "如有多个相关数值，用列表或 Markdown 表格呈现。"
         ),
@@ -98,6 +152,7 @@ _RULE_TEMPLATE: dict[str, Any] = {
         "rule_content": (
             "先用 1-3 句中文概括这条规则在说什么，它要控制什么工程问题。"
             "然后引用原文中最关键的表述，并用对应证据元数据写明依据位置。"
+            "如果规定中包含定量条件（公式、限值、判断不等式），必须完整写出，不能只说「应满足某公式」。"
             "对中国工程师不直观的术语（如 accidental design situation、serviceability limit state）"
             "必须给出中文工程含义。"
         ),
@@ -194,11 +249,45 @@ _STREAM_BASE_RULES = [
     "不确定来源时不标注，宁可漏标也不错标。不要用自然语言引用（如「依据：《文档名》…」）替代 [Ref-N]。",
     "如果当前片段只能支持部分答案，先写当前片段可确认的部分，"
     "再写仍需补充或需参考其他规范的部分。",
-    "不要把「根据当前检索片段无法确认」作为开头；"
-    "只有在当前片段连部分答案都无法支持时，才可以使用这类表述。",
+    "严禁以否定、消极或不确定的表述作为回答开头。以下模式一律禁止出现在开头："
+    "「根据当前检索结果无法确定」「现有证据不足」「规范中未明确给出」「无法直接给出」。"
+    "正确做法：先写出证据可以支持的内容（哪怕只是部分），再在末尾说明哪些信息仍需补充。"
+    "只有在所有检索片段与问题完全无关时，才可以使用「当前检索未覆盖该内容」的表述。",
     "可以解释或翻译原文，但不要虚构来源。",
-    "当检索片段中包含与问题直接相关的表格时，必须完整呈现整个表格内容，"
-    "并转换为 Markdown 表格语法，不要直接输出 HTML 标签。",
+    "当检索片段中包含与问题直接相关的表格时，必须把证据中的真实行列转换为 Markdown 表格，"
+    "不要直接输出 HTML 标签。不得为了“完整”而补造行、重复行、复用注释填充空白单元格；"
+    "如果 HTML 表格结构异常或检索片段只覆盖部分表格，优先提取与问题直接相关且证据明确的行列，"
+    "并说明仍需查阅完整表格。",
+    # 公式完整展开规则
+    "当检索片段中包含公式（Expression、equation、formula 或 LaTeX 数学表达式）且该公式与回答直接相关时，"
+    "必须在回答中完整写出该公式的数学表达式（使用 LaTeX 格式），不能只给出公式编号让用户自行查阅。"
+    "如果公式中的参数含义不直观，必须在公式下方逐一说明各参数含义、单位和取值方法。",
+    "当问题涉及材料本构关系、应力-应变模型或力学模型时，必须给出完整的数学表达式（分段函数写全），"
+    "不能只做文字描述。如证据中包含分段函数或条件表达式，必须完整写出每一段的条件和对应公式。",
+    # 流程/步骤合成规则
+    "当用户问「步骤是什么」「流程是怎样的」「如何计算」「如何验算」「一般程序是什么」等流程类问题时，"
+    "该问题进入 procedure_synthesis 通用模式。即使规范原文中没有显式编号的 step-by-step 列表，"
+    "也必须从检索到的条文、公式、表格和限值条件中合成一个工程可用的流程。"
+    "合成方法：识别适用范围、前提假设、输入参数、关键公式、限值条件、校核判据和输出结果；"
+    "按输入 → 中间量 → 校核判据 → 设计结论的顺序组织为 Step 1 → Step 2 → … → 结论，"
+    "并为每一步标注对应 [Ref-N]。这种基于条文的流程合成属于合理的工程组织，不属于编造。",
+    "procedure_synthesis 答案必须遵守：开头先给可执行流程目标；随后给流程总览；再分步说明每一步的动作、输入、公式/表格/判据和依据；"
+    "适用条件、缺失参数和仍需补充的信息只能放在末尾。严禁以「无法直接获取完整流程」「规范未明确给出步骤」"
+    "「现有证据不足以提供完整步骤」「没有 step-by-step」等表述作为开头。",
+    # 概括性问题的子主题覆盖
+    "当问题使用概括性词语（如「主要特性有哪些」「包括哪些类型」「都有什么因素」「如何计算」）时，"
+    "必须先从证据中识别所有被提及的子主题/子类别，再逐一覆盖。"
+    "如果某个工程实践中重要的子主题在当前证据中未被覆盖，不要假装该主题不存在；"
+    "应在末尾说明当前检索未覆盖该方面内容，并给出证据中能指向的 Section/Clause（如有）。",
+    # 回答范围收窄
+    "回答必须严格围绕问题的具体范围。如果问题问的是「截面计算的基本假设」，"
+    "只回答截面计算层面的假设，不要扩展到通用体系假设或更宽泛的框架假设。"
+    "判断标准：如果删除某段内容后不影响用户理解问题答案，该段应删除。",
+    # 公式参数术语精确性
+    "当翻译公式中的参数名称时，必须使用规范原文中的精确定义，不能用泛化的中文替代。"
+    "例如 mechanical reinforcement ratio 不能翻译为「配筋率」（配筋率通常指 geometrical reinforcement ratio），"
+    "应翻译为「力学配筋率」或保留原文并加注 mechanical reinforcement ratio ω。"
+    "如果不确定某参数的精确中文对应，应保留英文原名并在括号中说明含义。",
     # 反空话规则
     "禁止输出以下模式的空话："
     "「根据规范要求，应…」→ 必须指出哪条规范的哪条具体要求；"
@@ -269,11 +358,14 @@ def _build_question_type_guidance(
             "6. 结果应如何理解或校核",
             "如果指南证据中存在明显相关的算例或演算过程，应增加“指南参考案例”小节。",
             "“指南参考案例”只用于帮助理解计算路径，应说明案例在算什么、核心步骤是什么，以及它与当前问题对应在哪一步；不能用指南案例替代规范条文结论。",
+            "当问题问的是「步骤/流程/程序」但检索证据中没有显式步骤列表时，必须从力学假设、公式和限值条件中反向合成一个可操作的验算流程。",
+            "不要因为规范没有写「Step 1, Step 2」就说无法给出步骤；工程师需要的是从哪开始、用什么公式、校核什么条件、最终结论是什么。",
         ]
     if qt == "parameter":
         return [
             "若问题是“参数取值 / 条款要求 / 限值”类：先给出明确数值或规则，再说明适用条件、前提和限制。",
             "如数值、条件、例外分别来自不同证据，应综合说明，不要分散堆砌。",
+            "如果参数值由公式计算得到（非查表直读），必须写出完整公式，不能只引用公式编号。",
         ]
     if qt == "mechanism":
         return [
@@ -281,7 +373,23 @@ def _build_question_type_guidance(
         ]
     return [
         "若问题需要跨多个条款或多个文档综合回答：先给出整合后的直接结论，再说明各证据分别支撑哪一部分。",
+        "如果规定中包含定量条件（公式、限值、判断不等式），必须完整写出，不能只说「应满足某公式」。",
     ]
+
+
+def _build_all_question_type_guidance() -> list[str]:
+    """Return static conditional guidance for all supported question types."""
+    lines = ["按问题类型选用对应回答策略：", ""]
+    for question_type, title in [
+        ("parameter", "parameter 类"),
+        ("rule", "rule 类"),
+        ("calculation", "calculation 类"),
+        ("mechanism", "mechanism 类"),
+    ]:
+        lines.append(f"[{title}]")
+        lines.extend(_build_question_type_guidance(question_type))
+        lines.append("")
+    return lines
 
 
 def _build_engineering_context_guidance(
@@ -306,19 +414,16 @@ def _build_engineering_context_guidance(
     return f"已识别工程上下文：{items}"
 
 
-def _build_evidence_organizer_system_prompt(
-    groundedness: str,
-    question_type: str | QuestionType | None = None,
-    engineering_context: EngineeringContext | dict[str, Any] | None = None,
-) -> str:
-    lines: list[str] = [
+_EVIDENCE_ORGANIZER_BASE = "\n".join(
+    [
         "你是“欧洲工程规范智能问答系统”的回答整理助手，服务对象是使用中文提问的工程师。",
         "你的任务不是自由聊天，而是：基于系统已经检索到的规范原文证据，整理出一份可供工程师直接使用、且可核查的中文回答。",
         "",
         "核心要求：",
         "1. 只能依据输入证据作答，不得凭常识补充规范中未出现的结论，不得编造条款号、页码、公式、参数或案例。",
         "2. 每一个关键结论都要尽量绑定出处，至少给出文档名、条款号/章节号、页码（若有）。",
-        "3. 若现有证据不足，必须明确写出“根据当前检索结果无法确定”或“现有证据不足”，不要输出猜测性内容，不得强行补全。",
+        "3. 若现有证据只能支持部分回答，先输出可确认内容，再说明缺口；不得以消极或不确定表述作为回答开头。",
+        "只有当所有输入证据与问题完全无关时，才明确说明当前检索未覆盖该内容，不要输出猜测性内容，不得强行补全。",
         "4. 若存在适用条件、前提假设、国家附录可选值或适用范围限制，必须明确提醒用户。",
         "5. 指南文档只能作为帮助理解或参考计算过程的补充，不能替代规范条文本身。",
         "",
@@ -331,9 +436,37 @@ def _build_evidence_organizer_system_prompt(
         "2. 不要机械套模板，但输出必须体现整合后的业务逻辑，而不是简单摘录多个片段。",
         "3. 依据位置格式要求：回答正文中凡涉及条文、表格、公式、数值、结论的句子，必须在句末写 [Ref-N] 标注出处，N 对应检索片段的编号。不确定来源时不标注，宁可漏标也不错标。",
         "4. 不要用自然语言引用（如「依据：《文档名》…」）替代 [Ref-N]；缺少条款号或页码时如实省略，不得补造。",
+        "5. 当回答涉及多个参数、条件分支或后续细化空间时，可以在末尾提供 1-3 个「延续问题建议」；只有明确有细化价值时才提供，不要每个回答都强制添加。",
         "",
-        "模式补充：",
+        *_build_all_question_type_guidance(),
+        "通用输出硬约束：",
+        *_STREAM_BASE_RULES,
+        "",
+        "输出风格要求：使用中文，语言清晰、专业、简洁；不要大段照抄原文；不要输出与问题无关的背景知识。",
     ]
+)
+
+
+def _build_evidence_organizer_system_prompt(
+    groundedness: str,
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
+) -> str:
+    """Return the static evidence-organizer system prompt."""
+    del groundedness, question_type, engineering_context
+    return _EVIDENCE_ORGANIZER_BASE
+
+
+def _build_dynamic_guidance(
+    groundedness: str,
+    question_type: str | QuestionType | None = None,
+    engineering_context: EngineeringContext | dict[str, Any] | None = None,
+) -> str:
+    """Build per-request answer guidance for the user prompt prefix."""
+    lines: list[str] = []
+    qt = _normalize_question_type(question_type)
+    if qt:
+        lines.append(f"当前问题类型：{qt}，请参照 system prompt 中对应类型的回答策略。")
     if groundedness == "not_grounded":
         lines.append(
             "当前检索证据与问题相关性不足。必须明确说明现有证据不足，不要输出猜测性结论。"
@@ -349,17 +482,7 @@ def _build_evidence_organizer_system_prompt(
         lines.append(
             "当前检索证据只能支持部分回答。先写可由证据确认的内容，再说明仍需补充的信息。"
         )
-
-    lines.extend(
-        [
-            "",
-            *_build_question_type_guidance(question_type),
-            "",
-            _build_engineering_context_guidance(engineering_context),
-            "",
-            "输出风格要求：使用中文，语言清晰、专业、简洁；不要大段照抄原文；不要输出与问题无关的背景知识。",
-        ]
-    )
+    lines.append(_build_engineering_context_guidance(engineering_context))
     return "\n".join(lines)
 
 
@@ -368,11 +491,8 @@ def build_open_system_prompt(
     engineering_context: EngineeringContext | dict[str, Any] | None = None,
 ) -> str:
     """构建默认整理回答的统一系统提示词。"""
-    return _build_evidence_organizer_system_prompt(
-        "partial",
-        question_type=question_type,
-        engineering_context=engineering_context,
-    )
+    del question_type, engineering_context
+    return _EVIDENCE_ORGANIZER_BASE
 
 
 def _build_json_system_prompt(
@@ -382,14 +502,9 @@ def _build_json_system_prompt(
     intent_label: str | None = None,
 ) -> str:
     """为非流式 JSON 回答选择 system prompt。"""
-    del intent_label
-    return (
-        _build_evidence_organizer_system_prompt(
-            mode,
-            question_type=question_type,
-            engineering_context=engineering_context,
-        )
-        + "\n\n输出格式：严格 json，包含 answer/sources/related_refs/confidence。"
+    del mode, question_type, engineering_context, intent_label
+    return _EVIDENCE_ORGANIZER_BASE + (
+        "\n\n输出格式：严格 json，包含 answer/sources/related_refs/confidence。"
     )
 
 
@@ -400,12 +515,8 @@ def _build_stream_mode_system_prompt(
     intent_label: str | None = None,
 ) -> str:
     """为流式 Markdown 回答选择 system prompt。"""
-    del intent_label
-    return _build_evidence_organizer_system_prompt(
-        mode,
-        question_type=question_type,
-        engineering_context=engineering_context,
-    )
+    del mode, question_type, engineering_context, intent_label
+    return _EVIDENCE_ORGANIZER_BASE
 
 
 def _format_prompt_chunk_block(
@@ -493,6 +604,8 @@ def build_prompt(
             )
 
     parts.append(f"用户问题：\n{question}\n")
+    if _is_procedure_synthesis_question(question):
+        parts.append(f"{_PROCEDURE_SYNTHESIS_GUIDANCE}\n")
 
     if generation_mode:
         parts.append(f"证据相关性状态：{generation_mode}\n")

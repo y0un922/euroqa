@@ -16,6 +16,7 @@
 - `frontend.lib.auth`: 前端访问密码 token 的本地存储、过期判定与认证过期事件
 - `frontend.lib.api`: 前端后端 API 封装，包含代理上传、流式问答和引用翻译请求
 - `server.core.conversation`: Redis/内存会话状态管理、完整会话恢复与会话摘要枚举
+- `server.core.query_understanding`: 查询扩展、问题分型、工程上下文提取与 query expansion system prompt 显式缓存
 - `server.core.retrieval`: 混合检索、去重聚合、重排序与原问题补召回
 - `server.core.generation`: 回答生成、source 构造、流式 done 元数据
 - `frontend.lib.session`: 前端当前会话轻量指针的本地持久化结构

@@ -10,7 +10,9 @@ import pytest
 from server.config import ServerConfig
 from server.core.generation import (
     _SOURCE_TRANSLATION_SYSTEM_PROMPT,
+    _build_dynamic_guidance,
     _build_json_system_prompt,
+    _build_stream_mode_system_prompt,
     _build_retrieval_context,
     _build_sources_from_chunks,
     _build_source_translation_prompt,
@@ -25,6 +27,12 @@ from server.core.generation import (
     parse_llm_response,
 )
 from server.models.schemas import Chunk, ChunkMetadata, Confidence, ElementType
+
+
+def _message_text(content):
+    if isinstance(content, list):
+        return content[0]["text"]
+    return content
 
 
 class TestBuildPrompt:
@@ -150,6 +158,33 @@ class TestBuildPrompt:
         assert "[Ref-2]" in prompt
         assert sample_table_chunk.content in prompt
 
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "受弯构件正截面承载力计算的一般步骤是什么？",
+            "剪应力一般验证程序是怎样的？",
+            "单向板的设计流程包括哪些？",
+            "后张法预应力损失如何计算？",
+            "What is the procedure to verify torsion resistance?",
+        ],
+    )
+    def test_procedure_questions_get_synthesis_guidance(
+        self, sample_text_chunk, question
+    ):
+        prompt = build_prompt(question, [sample_text_chunk], [])
+
+        assert "procedure_synthesis 通用模式" in prompt
+        assert "Step 1 → Step 2 → … → 结论" in prompt
+        assert "禁止以「无法直接获取完整流程」" in prompt
+        assert "禁止只罗列条款" in prompt
+
+    def test_non_procedure_question_does_not_get_synthesis_guidance(
+        self, sample_text_chunk
+    ):
+        prompt = build_prompt("什么是单向板？", [sample_text_chunk], [])
+
+        assert "procedure_synthesis 通用模式" not in prompt
+
 
 def test_count_tokens_uses_unified_tokenizer(monkeypatch):
     monkeypatch.setattr(
@@ -184,8 +219,35 @@ class TestAnswerPrompts:
         assert "计算目标是什么" in prompt
         assert "参数应从哪里取值" in prompt
         assert "指南参考案例" in prompt
+        assert "反向合成一个可操作的验算流程" in prompt
+        assert "不要因为规范没有写「Step 1, Step 2」就说无法给出步骤" in prompt
         assert "DG_EN1990" not in prompt
         assert "DG EN1990" not in prompt
+
+    def test_parameter_prompt_requires_formula_expansion(self):
+        prompt = build_open_system_prompt(question_type="parameter")
+        assert "参数值由公式计算得到" in prompt
+        assert "必须写出完整公式" in prompt
+        assert "不能只引用公式编号" in prompt
+
+    def test_rule_prompt_requires_quantitative_conditions(self):
+        prompt = build_open_system_prompt(question_type="rule")
+        assert "定量条件" in prompt
+        assert "判断不等式" in prompt
+        assert "不能只说「应满足某公式」" in prompt
+
+    def test_system_prompt_includes_client_feedback_quality_rules(self):
+        prompt = _build_stream_mode_system_prompt("partial", question_type="calculation")
+        assert "不能只给出公式编号让用户自行查阅" in prompt
+        assert "procedure_synthesis 通用模式" in prompt
+        assert "合成一个工程可用的流程" in prompt
+        assert "输入 → 中间量 → 校核判据 → 设计结论" in prompt
+        assert "无法直接获取完整流程" in prompt
+        assert "不要假装该主题不存在" in prompt
+        assert "该段应删除" in prompt
+        assert "mechanical reinforcement ratio" in prompt
+        assert "延续问题建议" in prompt
+        assert "不得为了“完整”而补造行、重复行、复用注释填充空白单元格" in prompt
 
     def test_unknown_question_type_falls_back_to_rule(self):
         prompt = build_open_system_prompt(question_type=None)
@@ -212,19 +274,32 @@ class TestAnswerPrompts:
 
         ctx = EngineeringContext(country="Germany", structure_type="bridge")
         for qt in ["parameter", "rule", "calculation", "mechanism"]:
-            prompt = build_open_system_prompt(question_type=qt, engineering_context=ctx)
-            assert "Germany" in prompt, f"Context missing in {qt} template"
+            guidance = _build_dynamic_guidance("grounded", qt, ctx)
+            assert "Germany" in guidance, f"Context missing in {qt} guidance"
 
     def test_engineering_context_missing_fields_use_generic_wording(self):
         from server.models.schemas import EngineeringContext
 
         ctx = EngineeringContext(country="Germany")
-        prompt = build_open_system_prompt(question_type="rule", engineering_context=ctx)
-        assert "Germany" in prompt
+        guidance = _build_dynamic_guidance("grounded", "rule", ctx)
+        assert "Germany" in guidance
 
     def test_no_context_uses_generic_wording(self):
-        prompt = build_open_system_prompt(question_type="rule")
-        assert "根据输入证据直接组织回答" in prompt
+        guidance = _build_dynamic_guidance("grounded", "rule")
+        assert "根据输入证据直接组织回答" in guidance
+
+    def test_system_prompt_is_stable_across_dynamic_answer_context(self):
+        sp1 = _build_stream_mode_system_prompt("grounded", "calculation", None)
+        sp2 = _build_stream_mode_system_prompt("not_grounded", "parameter", None)
+
+        assert sp1 == sp2
+        assert "当前检索证据相关性较强" not in sp1
+
+    def test_dynamic_guidance_carries_answer_mode_and_question_type(self):
+        guidance = _build_dynamic_guidance("grounded", "parameter", None)
+
+        assert "当前问题类型：parameter" in guidance
+        assert "当前检索证据相关性较强" in guidance
 
     def test_decide_generation_mode_prefers_groundedness(self):
         assert decide_generation_mode("grounded") == "grounded"
@@ -649,8 +724,141 @@ class TestSourceTranslationFill:
 
         assert "max_tokens" not in seen_kwargs
 
+    @pytest.mark.asyncio
+    async def test_call_source_translation_llm_marks_qwen_system_prompt_for_cache(self):
+        seen_kwargs: dict[str, object] = {}
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_kwargs.update(kwargs)
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(
+                                content=json.dumps(
+                                    {
+                                        "translations": [
+                                            {
+                                                "index": 0,
+                                                "translation": "设计使用年限应予规定。",
+                                            }
+                                        ]
+                                    }
+                                )
+                            )
+                        )
+                    ]
+                )
+
+        config = ServerConfig(
+            llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            llm_model="qwen3.6-flash",
+        )
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            await _call_source_translation_llm("translate this", config)
+
+        messages = seen_kwargs["messages"]
+        assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert isinstance(messages[1]["content"], str)
+
 
 class TestGenerateAnswer:
+    @pytest.mark.asyncio
+    async def test_generate_answer_marks_qwen_prompts_for_explicit_cache(
+        self, sample_text_chunk
+    ):
+        seen_kwargs: dict = {}
+        raw = json.dumps(
+            {
+                "answer": "当前可确认。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_kwargs.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))],
+                    usage=SimpleNamespace(
+                        prompt_tokens_details=SimpleNamespace(cached_tokens=128)
+                    ),
+                )
+
+        config = ServerConfig(
+            llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            llm_model="qwen3.6-flash",
+        )
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            await generate_answer(
+                "设计使用年限怎么确定？",
+                [sample_text_chunk],
+                [],
+                config=config,
+            )
+
+        messages = seen_kwargs["messages"]
+        assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "当前检索证据" not in messages[0]["content"][0]["text"]
+        assert isinstance(messages[1]["content"], str)
+        assert messages[1]["content"].startswith("当前检索证据")
+        assert "用户问题：" in messages[1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_keeps_plain_messages_when_prompt_cache_disabled(
+        self, sample_text_chunk
+    ):
+        seen_kwargs: dict = {}
+        raw = json.dumps(
+            {
+                "answer": "当前可确认。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_kwargs.update(kwargs)
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))],
+                    usage=None,
+                )
+
+        config = ServerConfig(
+            llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            llm_model="qwen3.6-flash",
+            llm_prompt_cache_enabled=False,
+        )
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            await generate_answer(
+                "设计使用年限怎么确定？",
+                [sample_text_chunk],
+                [],
+                config=config,
+            )
+
+        assert isinstance(seen_kwargs["messages"][0]["content"], str)
+        assert isinstance(seen_kwargs["messages"][1]["content"], str)
+
     @pytest.mark.asyncio
     async def test_generate_answer_prompt_includes_resolved_and_unresolved_refs(
         self, sample_text_chunk, sample_table_chunk
@@ -672,7 +880,9 @@ class TestGenerateAnswer:
                 )
 
             async def _create(self, **kwargs):
-                seen_user_prompts.append(kwargs["messages"][1]["content"])
+                seen_user_prompts.append(
+                    _message_text(kwargs["messages"][1]["content"])
+                )
                 return SimpleNamespace(
                     choices=[SimpleNamespace(message=SimpleNamespace(content=raw))],
                     usage=None,
@@ -1309,6 +1519,63 @@ class TestBuildSourcesBbox:
 
 class TestGenerateAnswerStream:
     @pytest.mark.asyncio
+    async def test_generate_answer_stream_marks_qwen_prompts_for_explicit_cache(
+        self, sample_text_chunk
+    ):
+        seen_kwargs: dict = {}
+
+        class _FakeStreamClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_kwargs.update(kwargs)
+
+                async def _stream():
+                    yield SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content="结论：开放式回答。"),
+                                finish_reason="stop",
+                            )
+                        ]
+                    )
+                    yield SimpleNamespace(
+                        choices=[],
+                        usage=SimpleNamespace(
+                            prompt_tokens_details=SimpleNamespace(cached_tokens=256)
+                        ),
+                    )
+
+                return _stream()
+
+        config = ServerConfig(
+            llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            llm_model="qwen3.6-flash",
+        )
+        with patch("server.core.generation.AsyncOpenAI", _FakeStreamClient):
+            events = []
+            async for event_type, data in generate_answer_stream(
+                "设计使用年限怎么确定？",
+                [sample_text_chunk],
+                [],
+                scores=[0.9],
+                config=config,
+            ):
+                events.append((event_type, data))
+
+        messages = seen_kwargs["messages"]
+        assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "当前检索证据" not in messages[0]["content"][0]["text"]
+        assert isinstance(messages[1]["content"], str)
+        assert messages[1]["content"].startswith("当前检索证据")
+        assert seen_kwargs["stream_options"] == {"include_usage": True}
+        assert ("chunk", {"text": "结论：开放式回答。", "done": False}) in events
+        assert events[-1][0] == "done"
+
+    @pytest.mark.asyncio
     async def test_generate_answer_stream_uses_open_prompt_by_default(
         self, sample_text_chunk
     ):
@@ -1321,7 +1588,9 @@ class TestGenerateAnswerStream:
                 )
 
             async def _create(self, **kwargs):
-                seen_system_prompts.append(kwargs["messages"][0]["content"])
+                seen_system_prompts.append(
+                    _message_text(kwargs["messages"][0]["content"])
+                )
 
                 async def _stream():
                     yield SimpleNamespace(

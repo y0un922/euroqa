@@ -21,6 +21,7 @@ class ServerConfig(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     llm_enable_thinking: bool = False
+    llm_prompt_cache_enabled: bool = True
     use_unified_tokenizer: bool = True
 
     access_password: str = ""

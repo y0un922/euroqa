@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.33] - 2026-06-03
+
+### 优化
+- **[server.config / server.core.generation / server.core.query_understanding / tests]**: 为 DashScope/Qwen LLM 调用启用显式 prompt cache，新增 `LLM_PROMPT_CACHE_ENABLED` 配置；主回答 system prompt 静态化为通用规则、四类问题策略和流式硬约束，`groundedness`、当前问题类型和工程上下文移入 user prompt 动态前缀，查询扩展和 source 翻译仅将稳定 system prompt 包装为带 `cache_control={"type":"ephemeral"}` 的 text block；真实 Qwen 测试主回答 system cache 从约 545 tokens 提升到约 1258 tokens — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/config.py; server/core/generation/llm.py; server/core/generation/translation.py; server/core/query_understanding.py; tests/server/test_generation.py; tests/server/test_query_understanding.py; .env.example; .helloagents/modules/server.core.generation.md; .helloagents/modules/server.core.query_understanding.md
+
 ## [0.1.32] - 2026-06-03
 
 ### 修复

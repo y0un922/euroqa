@@ -22,6 +22,10 @@
 - 当批量 source 翻译返回的 JSON 因长表格或长原文被截断而解析失败时，生成层应自动退回逐条翻译重试，避免整批来源全部丢失中文解释。
 - source 翻译补齐失败时保留空字符串，由前端继续走现有空态兜底。
 - DashScope/Qwen 链路会自动附带 `enable_thinking`，其他模型即使无 reasoning 也应保持正常回答。
+- DashScope/Qwen 主回答链路默认启用显式 prompt cache：静态 system prompt 会按 OpenAI-compatible text block 包装并附带 `cache_control={"type":"ephemeral"}`；`groundedness`、当前问题类型和工程上下文通过动态 guidance 拼到 user prompt 前缀，避免这些动态字段破坏 system prompt 缓存命中。
+- 主回答静态 system prompt 包含通用回答规则、四类问题策略和流式输出硬约束，真实 Qwen 测试可创建约 1250 个 ephemeral cache input tokens；动态 user prompt 保持普通字符串。
+- source 翻译 LLM 调用同样只对固定 system prompt 添加显式缓存标记，待翻译 source payload 保持普通 user prompt。
+- 流式 Qwen 调用会请求 `stream_options={"include_usage": true}`，并从 `usage.prompt_tokens_details.cached_tokens` 记录缓存命中 token 数，非流式调用同样在结束日志记录缓存命中信息。
 
 ## 依赖关系
 
