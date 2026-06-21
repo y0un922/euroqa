@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import EvidencePanel from "./components/EvidencePanel";
+import IndexAdminPage from "./components/IndexAdminPage";
+import KnowledgeBasesPage from "./components/KnowledgeBasesPage";
 import LoginPage from "./components/LoginPage";
 import MainWorkspace from "./components/MainWorkspace";
 import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
 import { useDocumentImport } from "./hooks/useDocumentImport";
 import { useEuroQaDemo } from "./hooks/useEuroQaDemo";
-import { checkAuthRequired } from "./lib/api";
+import { checkAuthRequired, listKnowledgeBases } from "./lib/api";
 import { isAuthenticated, onAuthExpired } from "./lib/auth";
+import type { KnowledgeBaseInfo } from "./lib/types";
 
 function useStableCallback<T extends (...args: any[]) => unknown>(
   callback: T
@@ -63,8 +66,20 @@ export default function App() {
 }
 
 function AuthenticatedApp() {
+  const [currentView, setCurrentView] = useState<
+    "chat" | "knowledge-bases" | "index-admin"
+  >("chat");
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseInfo[]>([]);
   const demo = useEuroQaDemo();
   const handleRefreshDocuments = useStableCallback(demo.refreshDocuments);
+  const refreshKnowledgeBases = useStableCallback(async () => {
+    try {
+      const nextKnowledgeBases = await listKnowledgeBases();
+      setKnowledgeBases(nextKnowledgeBases);
+    } catch {
+      setKnowledgeBases([]);
+    }
+  });
   const docImport = useDocumentImport({
     onComplete: handleRefreshDocuments,
   });
@@ -87,68 +102,89 @@ function AuthenticatedApp() {
   const handleSourceTranslationEnabledChange = useStableCallback(
     demo.setSourceTranslationEnabled
   );
+  const handleSelectedKbIdsChange = useStableCallback(demo.setSelectedKbIds);
+
+  useEffect(() => {
+    void refreshKnowledgeBases();
+  }, [refreshKnowledgeBases]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-stone-50 font-sans text-stone-900 selection:bg-cyan-100 selection:text-cyan-900">
       <TopBar
         apiState={demo.apiState}
         conversationId={demo.conversationId}
+        currentView={currentView}
         documentCount={demo.documents.length}
         glossaryCount={demo.glossary.length}
         llmApiKeyConfigured={demo.llmApiKeyConfigured}
         llmDefaultSettings={demo.llmDefaultSettings}
         llmSettings={demo.llmSettings}
         messages={demo.messages}
+        onViewChange={setCurrentView}
         onResetLlmSettings={handleResetLlmSettings}
         onSaveLlmSettings={handleSaveLlmSettings}
       />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          activeSessionId={demo.activeSessionId}
+      {currentView === "knowledge-bases" ? (
+        <KnowledgeBasesPage
           documents={demo.documents}
-          glossary={demo.glossary}
-          historySessions={demo.historySessions}
-          hotQuestions={demo.hotQuestions}
-          onNewSession={handleNewSession}
-          onSelectHistorySession={handleSelectHistorySession}
-          onDeleteHistorySession={handleDeleteHistorySession}
-          onSelectHotQuestion={handleAskQuestion}
-          onUploadFile={docImport.handleUpload}
-          onDeleteDocument={docImport.handleDelete}
-          processingDocId={docImport.processingDocId}
-          pipelineStage={docImport.pipelineStage}
-          pipelineProgress={docImport.pipelineProgress}
+          knowledgeBases={knowledgeBases}
+          onDocumentsChanged={handleRefreshDocuments}
+          onRefreshKnowledgeBases={refreshKnowledgeBases}
         />
-        <MainWorkspace
-          activeReferenceId={demo.activeReferenceId}
-          apiState={demo.apiState}
-          bootError={demo.bootError}
-          documents={demo.documents}
-          draftQuestion={demo.draftQuestion}
-          hotQuestions={demo.hotQuestions}
-          isSubmitting={demo.isSubmitting}
-          messages={demo.messages}
-          onDraftQuestionChange={handleDraftQuestionChange}
-          onReferenceClick={handleReferenceClick}
-          onRegenerateAnswer={handleRegenerateAnswer}
-          onSelectHotQuestion={handleAskQuestion}
-          onStop={handleStopStreaming}
-          onSubmit={handleSubmitDraftQuestion}
-        />
-        <EvidencePanel
-          activeReference={demo.activeReference}
-          onPdfLocationResolved={handlePdfLocationResolved}
-          onSourceTranslationEnabledChange={
-            handleSourceTranslationEnabledChange
-          }
-          pdfFileUrl={demo.activeReferencePdfUrl}
-          pdfLocationStatus={demo.pdfLocationStatus}
-          sourceTranslation={demo.activeSourceTranslation}
-          sourceTranslationEnabled={demo.sourceTranslationEnabled}
-          sourceTranslationError={demo.sourceTranslationError}
-          sourceTranslationLoading={demo.sourceTranslationLoading}
-        />
-      </div>
+      ) : currentView === "index-admin" ? (
+        <IndexAdminPage documents={demo.documents} />
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          <Sidebar
+            activeSessionId={demo.activeSessionId}
+            documents={demo.documents}
+            glossary={demo.glossary}
+            historySessions={demo.historySessions}
+            hotQuestions={demo.hotQuestions}
+            onNewSession={handleNewSession}
+            onSelectHistorySession={handleSelectHistorySession}
+            onDeleteHistorySession={handleDeleteHistorySession}
+            onSelectHotQuestion={handleAskQuestion}
+            onUploadFile={docImport.handleUpload}
+            onDeleteDocument={docImport.handleDelete}
+            processingDocId={docImport.processingDocId}
+            pipelineStage={docImport.pipelineStage}
+            pipelineProgress={docImport.pipelineProgress}
+          />
+          <MainWorkspace
+            activeReferenceId={demo.activeReferenceId}
+            apiState={demo.apiState}
+            bootError={demo.bootError}
+            documents={demo.documents}
+            draftQuestion={demo.draftQuestion}
+            hotQuestions={demo.hotQuestions}
+            isSubmitting={demo.isSubmitting}
+            knowledgeBases={knowledgeBases}
+            messages={demo.messages}
+            onDraftQuestionChange={handleDraftQuestionChange}
+            onReferenceClick={handleReferenceClick}
+            onRegenerateAnswer={handleRegenerateAnswer}
+            onSelectHotQuestion={handleAskQuestion}
+            onSelectedKbIdsChange={handleSelectedKbIdsChange}
+            onStop={handleStopStreaming}
+            onSubmit={handleSubmitDraftQuestion}
+            selectedKbIds={demo.selectedKbIds}
+          />
+          <EvidencePanel
+            activeReference={demo.activeReference}
+            onPdfLocationResolved={handlePdfLocationResolved}
+            onSourceTranslationEnabledChange={
+              handleSourceTranslationEnabledChange
+            }
+            pdfFileUrl={demo.activeReferencePdfUrl}
+            pdfLocationStatus={demo.pdfLocationStatus}
+            sourceTranslation={demo.activeSourceTranslation}
+            sourceTranslationEnabled={demo.sourceTranslationEnabled}
+            sourceTranslationError={demo.sourceTranslationError}
+            sourceTranslationLoading={demo.sourceTranslationLoading}
+          />
+        </div>
+      )}
     </div>
   );
 }

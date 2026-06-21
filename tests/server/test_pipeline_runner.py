@@ -116,6 +116,7 @@ async def test_run_single_document_uses_requested_file_name_for_source_title(
             {
                 "context_summary_enabled": False,
                 "file_name": requested_file_name,
+                "doc_type": "guide",
             },
             ensure_ascii=False,
         ),
@@ -146,13 +147,16 @@ async def test_run_single_document_uses_requested_file_name_for_source_title(
         return md_path
 
     indexed_titles: list[str] = []
+    indexed_doc_types: list[str] = []
 
     async def fake_index_to_milvus(chunks, _config):
         indexed_titles.extend(chunk.metadata.source_title for chunk in chunks)
+        indexed_doc_types.extend(chunk.metadata.doc_type.value for chunk in chunks)
         return len(chunks)
 
     async def fake_index_to_elasticsearch(chunks, _config):
         indexed_titles.extend(chunk.metadata.source_title for chunk in chunks)
+        indexed_doc_types.extend(chunk.metadata.doc_type.value for chunk in chunks)
         return len(chunks)
 
     async def fake_delete_document_chunks(source_name: str, _config):
@@ -184,6 +188,7 @@ async def test_run_single_document_uses_requested_file_name_for_source_title(
     assert result["chunks"] > 0
     assert indexed_titles
     assert set(indexed_titles) == {requested_file_name}
+    assert set(indexed_doc_types) == {"guide"}
 
 
 @pytest.mark.asyncio

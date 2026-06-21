@@ -4,7 +4,11 @@ from agents import RunContextWrapper, function_tool
 
 from server.agents.deps import QADeps
 from server.agents.tool_progress import RETRIEVE_STEPS, ToolProgressEmitter
-from server.core.query_understanding import analyze_query
+from server.core.query_understanding import (
+    FilterValue,
+    analyze_query,
+    build_filters_from_intent,
+)
 from server.core.retrieval import RetrievalResult
 
 _DEFAULT_TOP_K = 8
@@ -17,15 +21,32 @@ async def retrieve(
     ctx: RunContextWrapper[QADeps],
     query: str,
     top_k: int = _DEFAULT_TOP_K,
+    standard_family: str | None = None,
+    doc_type: str | None = None,
+    doc_version: str | list[str] | None = None,
 ) -> str:
-    """搜索欧洲规范知识库，可用 top_k 控制返回给回答生成的证据数量。"""
-    return await _retrieve_impl(ctx, query, top_k=top_k)
+    """搜索欧洲规范知识库，可用 top_k 控制返回给回答生成的证据数量。
+
+    通常只传 query/top_k；当需要显式切换规范族、文档类型或版本时，
+    再传 standard_family/doc_type/doc_version 覆盖自动路由。
+    """
+    return await _retrieve_impl(
+        ctx,
+        query,
+        top_k=top_k,
+        standard_family=standard_family,
+        doc_type=doc_type,
+        doc_version=doc_version,
+    )
 
 
 async def _retrieve_impl(
     ctx: RunContextWrapper[QADeps],
     query: str,
     top_k: int = _DEFAULT_TOP_K,
+    standard_family: str | None = None,
+    doc_type: str | None = None,
+    doc_version: str | list[str] | None = None,
 ) -> str:
     if ctx.context.bundle.groundedness == "grounded":
         ctx.context.bundle.tool_trace.append(
@@ -81,9 +102,38 @@ async def _retrieve_impl(
         },
     )
 
-    filters = dict(analysis.filters)
+    agent_overrides = _agent_override_filters(
+        standard_family=standard_family,
+        doc_type=doc_type,
+        doc_version=doc_version,
+    )
+    filters, soft_boosts = build_filters_from_intent(
+        getattr(analysis, "retrieval_intent", None),
+        base_filters=analysis.filters,
+        agent_overrides=agent_overrides,
+    )
     if ctx.context.domain_filter:
         filters["source"] = ctx.context.domain_filter
+        _relax_automatic_metadata_filters(
+            filters,
+            soft_boosts,
+            protected_keys={
+                key
+                for key, value in agent_overrides.items()
+                if value is not None
+            },
+        )
+    if ctx.context.sources_filter is not None:
+        filters["sources"] = ctx.context.sources_filter
+        _relax_automatic_metadata_filters(
+            filters,
+            soft_boosts,
+            protected_keys={
+                key
+                for key, value in agent_overrides.items()
+                if value is not None
+            },
+        )
     await progress.start(
         "hybrid_search",
         RETRIEVE_STEPS["hybrid_search"]["title"],
@@ -99,6 +149,7 @@ async def _retrieve_impl(
         target_hint=analysis.target_hint,
         requested_objects=analysis.requested_objects,
         preferred_element_type=analysis.preferred_element_type,
+        soft_boosts=soft_boosts,
         top_k=effective_top_k,
         progress=progress,
     )
@@ -123,11 +174,40 @@ async def _retrieve_impl(
             "requested_top_k": top_k,
             "expanded_queries": analysis.expanded_queries,
             "rewritten_question": analysis.rewritten_question,
+            "filters": filters,
+            "soft_boosts": soft_boosts,
             "chunk_count": len(result.chunks),
             "groundedness": result.groundedness,
         }
     )
     return _format_retrieval_summary(result.groundedness, result.chunks)
+
+
+def _agent_override_filters(
+    *,
+    standard_family: str | None,
+    doc_type: str | None,
+    doc_version: str | list[str] | None,
+) -> dict[str, FilterValue | None]:
+    return {
+        "standard_family": standard_family,
+        "doc_type": doc_type,
+        "doc_version": doc_version,
+    }
+
+
+def _relax_automatic_metadata_filters(
+    filters: dict[str, FilterValue],
+    soft_boosts: dict[str, FilterValue],
+    *,
+    protected_keys: set[str],
+) -> None:
+    for key in ("standard_family", "doc_type", "doc_version"):
+        if key in protected_keys:
+            continue
+        value = filters.pop(key, None)
+        if value is not None:
+            soft_boosts.setdefault(key, value)
 
 
 def _clamp_top_k(top_k: int) -> int:

@@ -119,6 +119,7 @@ def _build_agent_deps(
     glossary: dict[str, str],
     conv: object,
     req: QueryRequest,
+    sources_filter: list[str] | None = None,
     tool_progress: ToolProgressCallback | None = None,
 ) -> QADeps:
     """Build request-scoped dependencies for agent tool execution."""
@@ -129,6 +130,7 @@ def _build_agent_deps(
         bundle=EvidenceBundle(),
         conversation_state=_conversation_state_for_agent(conv, req),
         domain_filter=req.domain,
+        sources_filter=sources_filter,
         tool_progress=tool_progress,
     )
 
@@ -140,6 +142,7 @@ async def _run_agent_dispatch(
     retriever: object,
     glossary: dict[str, str],
     conv_mgr: object,
+    sources_filter: list[str] | None = None,
 ) -> tuple[str, EvidenceBundle, object, QADeps]:
     """Run the QA agent and return its reply, evidence bundle, session, and deps."""
     conv = await _get_conversation_state(conv_mgr, conversation_id_from_request(req))
@@ -149,6 +152,7 @@ async def _run_agent_dispatch(
         glossary=glossary,
         conv=conv,
         req=req,
+        sources_filter=sources_filter,
     )
     agent = _get_or_build_agent(runtime_config)
     breaker = _get_agent_circuit_breaker(runtime_config)
@@ -235,6 +239,7 @@ async def dispatch_agent(
     retriever: object,
     glossary: dict[str, str],
     conv_mgr: object,
+    sources_filter: list[str] | None = None,
 ) -> AgentResult:
     """Run the agent for a query request."""
     agent_reply, bundle, conv, deps = await _run_agent_dispatch(
@@ -243,6 +248,7 @@ async def dispatch_agent(
         retriever=retriever,
         glossary=glossary,
         conv_mgr=conv_mgr,
+        sources_filter=sources_filter,
     )
     return AgentResult(agent_reply=agent_reply, bundle=bundle, conv=conv, deps=deps)
 
@@ -254,6 +260,7 @@ async def dispatch_agent_streamed(
     retriever: object,
     glossary: dict[str, str],
     conv_mgr: object,
+    sources_filter: list[str] | None = None,
     tool_progress: ToolProgressCallback | None = None,
 ) -> AsyncIterator[AgentProgress | AgentResult]:
     """Run the agent and yield progress events before the final result."""
@@ -264,6 +271,7 @@ async def dispatch_agent_streamed(
         glossary=glossary,
         conv=conv,
         req=req,
+        sources_filter=sources_filter,
         tool_progress=tool_progress,
     )
     agent = _get_or_build_agent(config)

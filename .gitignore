@@ -24,6 +24,8 @@ data/parsed/*
 data/pdfs/*
 !data/pdfs/.gitkeep
 logs/
+outputs/
+data/knowledge_bases.db*
 
 # Local agent/tooling state
 .agents/

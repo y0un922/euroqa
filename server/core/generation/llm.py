@@ -48,6 +48,8 @@ from shared.spot_check import record_spot_check
 
 logger = structlog.get_logger(__name__)
 
+_MAX_FINAL_EVIDENCE_CHUNKS = 25
+
 
 def _current_async_openai_factory():
     """Resolve package-level AsyncOpenAI so legacy patch paths still work."""
@@ -124,6 +126,86 @@ def _build_chat_messages(
     ]
 
 
+def _apply_final_evidence_budget(
+    chunks: list[Chunk],
+    parent_chunks: list[Chunk],
+    scores: list[float] | None = None,
+    *,
+    ref_chunks: list[Chunk] | None = None,
+    guide_chunks: list[Chunk] | None = None,
+    guide_example_chunks: list[Chunk] | None = None,
+    generation_mode: str | None = None,
+    question: str = "",
+    intent_label: str | None = None,
+    max_total: int = _MAX_FINAL_EVIDENCE_CHUNKS,
+) -> tuple[
+    list[Chunk],
+    list[float] | None,
+    list[Chunk],
+    list[Chunk],
+    list[Chunk],
+    list[Chunk],
+]:
+    """Apply one final evidence budget using the same order as prompt refs."""
+    prioritized = _build_prioritized_source_chunks(
+        chunks,
+        parent_chunks,
+        ref_chunks=ref_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
+        generation_mode=generation_mode,
+        question=question,
+        intent_label=intent_label,
+    )
+    allowed_ids = {chunk.chunk_id for chunk in prioritized[:max_total]}
+    if len(prioritized) <= max_total:
+        return (
+            chunks,
+            scores,
+            parent_chunks,
+            list(ref_chunks or []),
+            list(guide_chunks or []),
+            list(guide_example_chunks or []),
+        )
+
+    filtered_chunks: list[Chunk] = []
+    filtered_scores: list[float] | None = [] if scores is not None else None
+    for index, chunk in enumerate(chunks):
+        if chunk.chunk_id not in allowed_ids:
+            continue
+        filtered_chunks.append(chunk)
+        if filtered_scores is not None and scores is not None and index < len(scores):
+            filtered_scores.append(scores[index])
+
+    def _filter(chunk_list: list[Chunk] | None) -> list[Chunk]:
+        return [chunk for chunk in (chunk_list or []) if chunk.chunk_id in allowed_ids]
+
+    logger.info(
+        "generation_evidence_budget_applied",
+        max_total=max_total,
+        before=len(prioritized),
+        after=len(allowed_ids),
+        chunks_before=len(chunks),
+        chunks_after=len(filtered_chunks),
+        parent_chunks_before=len(parent_chunks),
+        parent_chunks_after=len(_filter(parent_chunks)),
+        ref_chunks_before=len(ref_chunks or []),
+        ref_chunks_after=len(_filter(ref_chunks)),
+        guide_chunks_before=len(guide_chunks or []),
+        guide_chunks_after=len(_filter(guide_chunks)),
+        guide_example_chunks_before=len(guide_example_chunks or []),
+        guide_example_chunks_after=len(_filter(guide_example_chunks)),
+    )
+    return (
+        filtered_chunks,
+        filtered_scores,
+        _filter(parent_chunks),
+        _filter(ref_chunks),
+        _filter(guide_chunks),
+        _filter(guide_example_chunks),
+    )
+
+
 def _extract_cached_prompt_tokens(usage: Any) -> int | None:
     """Extract provider-reported cached prompt tokens from usage payloads."""
     if usage is None:
@@ -174,6 +256,24 @@ async def generate_answer_stream(
     qt_normalized = _normalize_question_type(question_type)
     ctx_normalized = _normalize_engineering_context(engineering_context)
     generation_mode = decide_generation_mode(groundedness)
+    (
+        chunks,
+        scores,
+        parent_chunks,
+        ref_chunks,
+        guide_chunks,
+        guide_example_chunks,
+    ) = _apply_final_evidence_budget(
+        chunks,
+        parent_chunks,
+        scores,
+        ref_chunks=ref_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
+        generation_mode=generation_mode,
+        question=question,
+        intent_label=intent_label,
+    )
     prepare_started = time.perf_counter()
     prompt_started = time.perf_counter()
     prompt = build_prompt(
@@ -403,6 +503,25 @@ async def generate_answer(
     ref_chunks = _dedupe_chunks_by_id(ref_chunks)
     guide_chunks = _dedupe_chunks_by_id(guide_chunks)
     guide_example_chunks = _dedupe_chunks_by_id(guide_example_chunks)
+    generation_mode = decide_generation_mode(groundedness)
+    (
+        chunks,
+        scores,
+        parent_chunks,
+        ref_chunks,
+        guide_chunks,
+        guide_example_chunks,
+    ) = _apply_final_evidence_budget(
+        chunks,
+        parent_chunks,
+        scores,
+        ref_chunks=ref_chunks,
+        guide_chunks=guide_chunks,
+        guide_example_chunks=guide_example_chunks,
+        generation_mode=generation_mode,
+        question=question,
+        intent_label=intent_label,
+    )
     retrieval_context = _build_retrieval_context(
         chunks,
         parent_chunks,
@@ -416,7 +535,6 @@ async def generate_answer(
     )
     qt_normalized = _normalize_question_type(question_type)
     ctx_normalized = _normalize_engineering_context(engineering_context)
-    generation_mode = decide_generation_mode(groundedness)
     prompt = build_prompt(
         question,
         chunks,

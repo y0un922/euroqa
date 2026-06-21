@@ -250,9 +250,52 @@ def _build_source_filter_clauses(filters: dict | None) -> list[dict]:
         )
 
     if "sources" in filters:
-        filter_clauses.append({"terms": {"source": filters["sources"]}})
+        values = _string_values(filters["sources"])
+        if values:
+            filter_clauses.append({"terms": {"source": values}})
+
+    for field_name in ("doc_type", "standard_family", "doc_version"):
+        values = _string_values(filters.get(field_name))
+        if not values:
+            continue
+        if len(values) == 1:
+            filter_clauses.append({"term": {field_name: values[0]}})
+        else:
+            filter_clauses.append({"terms": {field_name: values}})
 
     return filter_clauses
+
+
+def _string_values(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, (list, tuple, set)):
+        values: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            stripped = str(item).strip()
+            if stripped:
+                values.append(stripped)
+        return list(dict.fromkeys(values))
+    stripped = str(value).strip()
+    return [stripped] if stripped else []
+
+
+def _escape_milvus_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _build_milvus_values_expr(field_name: str, values: list[str]) -> str | None:
+    if not values:
+        return None
+    if len(values) == 1:
+        return f'{field_name} == "{_escape_milvus_string(values[0])}"'
+    quoted = ", ".join(f'"{_escape_milvus_string(value)}"' for value in values)
+    return f"{field_name} in [{quoted}]"
 
 
 def _build_milvus_source_expr(source: str) -> str | None:
@@ -261,13 +304,37 @@ def _build_milvus_source_expr(source: str) -> str | None:
     if not aliases:
         return None
     if not code:
-        return f'source == "{source}"'
+        return _build_milvus_values_expr("source", [source])
     if not year:
         return None
     if len(aliases) == 1:
-        return f'source == "{aliases[0]}"'
-    quoted = ", ".join(f'"{alias}"' for alias in aliases)
-    return f"source in [{quoted}]"
+        return _build_milvus_values_expr("source", [aliases[0]])
+    return _build_milvus_values_expr("source", aliases)
+
+
+def _build_milvus_filter_expr(filters: dict | None) -> str | None:
+    filters = filters or {}
+    expr_parts: list[str] = []
+
+    if "source" in filters:
+        source_expr = _build_milvus_source_expr(str(filters["source"]))
+        if source_expr:
+            expr_parts.append(source_expr)
+
+    source_values = _string_values(filters.get("sources"))
+    source_values_expr = _build_milvus_values_expr("source", source_values)
+    if source_values_expr:
+        expr_parts.append(source_values_expr)
+
+    for field_name in ("doc_type", "standard_family", "doc_version"):
+        expr = _build_milvus_values_expr(
+            field_name,
+            _string_values(filters.get(field_name)),
+        )
+        if expr:
+            expr_parts.append(expr)
+
+    return " and ".join(expr_parts) if expr_parts else None
 
 
 def _source_matches_filter(source: str, expected: str) -> bool:
@@ -288,23 +355,66 @@ def _filter_results_by_source(
     results: list[dict],
     filters: dict | None,
 ) -> list[dict]:
-    """Apply source filters to result rows that were not filtered by backend expr."""
+    """Apply metadata filters to result rows that were not filtered by backend expr."""
 
     filters = filters or {}
     if "source" in filters:
-        return [
+        results = [
             result
             for result in results
-            if _source_matches_filter(str(result.get("source") or ""), filters["source"])
+            if _source_matches_filter(
+                str(result.get("source") or ""),
+                filters["source"],
+            )
         ]
     if "sources" in filters:
-        allowed = set(filters["sources"])
-        return [
+        allowed = set(_string_values(filters["sources"]))
+        results = [
             result
             for result in results
             if result.get("source") in allowed
         ]
+    for field_name in ("doc_type", "standard_family", "doc_version"):
+        expected = set(_string_values(filters.get(field_name)))
+        if not expected:
+            continue
+        results = [
+            result
+            for result in results
+            if str(result.get(field_name) or "") in expected
+        ]
     return results
+
+
+def _build_soft_boost_clauses(soft_boosts: dict | None) -> list[dict]:
+    boosts = soft_boosts or {}
+    clauses: list[dict] = []
+    boost_weights = {
+        "standard_family": 1.5,
+        "doc_type": 1.3,
+        "doc_version": 1.3,
+    }
+    for field_name, boost in boost_weights.items():
+        values = _string_values(boosts.get(field_name))
+        if not values:
+            continue
+        if len(values) == 1:
+            clauses.append(
+                {"term": {field_name: {"value": values[0], "boost": boost}}}
+            )
+        else:
+            clauses.append(
+                {
+                    "bool": {
+                        "should": [
+                            {"term": {field_name: {"value": value, "boost": boost}}}
+                            for value in values
+                        ],
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
+    return clauses
 
 
 def _lookup_aliases_for_object_id(object_id: str) -> tuple[str, list[str]]:

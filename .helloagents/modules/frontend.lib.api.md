@@ -8,6 +8,9 @@
 ## 行为规范
 
 - `buildChatQueryPayload()` 使用 `sessionId` 字段发送外部会话 ID，保持跨文档检索时不附带 `domain`
+- `buildChatQueryPayload()` 在选中知识库时附带 `kbIds`；未选中时不发送该字段，保持全库检索。
+- `fetchJson()` 需要识别后端 HTTP 200 + `{code,message}` 业务错误信封，`code>=400` 时抛出错误供 UI 展示。
+- 知识库管理封装包括 `listKnowledgeBases()`、`getKnowledgeBase()`、`createKnowledgeBase()`、`updateKnowledgeBase()`、`deleteKnowledgeBase()`、`addKnowledgeBaseDocuments()`、`removeKnowledgeBaseDocuments()` 和 `uploadKnowledgeBaseDocuments()`。
 - `queryStream()` 会在请求体中补充 `stream: true`，并把 `reasoning`、`chunk`、`progress`、`done` 事件分发给调用方
 - `getConversationSessions(userId)` 调用 `GET /api/v1/sessions?userId=...`，用于从后端 Redis 元数据恢复侧边栏历史会话摘要。
 - `getConversationSession(sessionId)` 调用 `GET /api/v1/sessions/{sessionId}`，用于点击历史会话后恢复完整消息。

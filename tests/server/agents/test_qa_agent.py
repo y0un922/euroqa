@@ -22,9 +22,10 @@ from server.agents.tools.retrieve import (
     _format_retrieval_summary,
     _retrieve_impl,
 )
+from server.agents.tools.lookup_clause import _lookup_clause_impl
 from server.config import ServerConfig
 from server.core.conversation import ConversationState
-from server.core.query_understanding import QueryAnalysis
+from server.core.query_understanding import QueryAnalysis, RetrievalIntent
 from server.core.retrieval import RetrievalResult
 from server.models.schemas import Chunk, ChunkMetadata, ElementType, QuestionType
 
@@ -37,6 +38,10 @@ class FakeRetriever:
     async def retrieve(self, queries: list[str], **kwargs) -> RetrievalResult:
         self.calls.append({"queries": queries, **kwargs})
         return self.result
+
+    async def lookup_clause(self, clause_ref: str):
+        self.calls.append({"clause_ref": clause_ref})
+        return list(self.result.ref_chunks or self.result.chunks)
 
 
 def _make_deps(
@@ -104,9 +109,11 @@ def test_qa_agent_instructions_forbid_json_actions():
 
 def test_build_qa_agent_does_not_configure_trace_processors():
     with patch("agents.set_trace_processors") as set_trace_processors:
-        build_qa_agent(ServerConfig())
+        agent = build_qa_agent(ServerConfig())
 
     set_trace_processors.assert_not_called()
+    tool_names = {getattr(tool, "name", "") for tool in agent.tools}
+    assert {"retrieve", "lookup_clause", "lookup_glossary"} <= tool_names
 
 
 @pytest.mark.asyncio
@@ -157,6 +164,43 @@ async def test_rag_eurocode_question():
 
 
 @pytest.mark.asyncio
+async def test_retrieve_tool_relaxes_auto_family_filter_when_domain_filter_exists():
+    retriever = FakeRetriever(
+        RetrievalResult(
+            chunks=[_make_chunk()],
+            parent_chunks=[],
+            scores=[0.8],
+            groundedness="partial",
+        )
+    )
+    deps = _make_deps(retriever=retriever)
+    deps.domain_filter = "EN 1990"
+    analysis = QueryAnalysis(
+        original_question="EN 1992 新版最小配筋怎么取？",
+        expanded_queries=["minimum reinforcement"],
+        filters={"standard_family": "EN 1992-1-1"},
+        question_type=QuestionType.PARAMETER,
+        intent_label="limit",
+        retrieval_intent=RetrievalIntent(
+            standard_family="EN 1992-1-1",
+            standard_family_confidence="high",
+            version_pref="new",
+        ),
+    )
+
+    with patch("server.agents.tools.retrieve.analyze_query", return_value=analysis):
+        await _retrieve_impl(
+            RunContextWrapper(deps),
+            "EN 1992 新版最小配筋怎么取？",
+        )
+
+    call = retriever.calls[0]
+    assert call["filters"] == {"source": "EN 1990"}
+    assert call["soft_boosts"]["standard_family"] == "EN 1992-1-1"
+    assert call["soft_boosts"]["doc_version"] == ["2022", "2023", "2024", "2025"]
+
+
+@pytest.mark.asyncio
 async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
     chunks = _make_chunks(12)
     parent_chunks = _make_chunks(8, prefix="parent")
@@ -199,6 +243,33 @@ async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
     assert deps.bundle.ref_chunks == ref_chunks[:2]
     assert deps.bundle.tool_trace[-1]["top_k"] == 5
     assert "检索到 5 个片段" in summary
+
+
+@pytest.mark.asyncio
+async def test_lookup_clause_tool_adds_ref_chunks_to_bundle():
+    ref_chunk = _make_chunk("clause-6-10")
+    retriever = FakeRetriever(
+        RetrievalResult(
+            chunks=[],
+            parent_chunks=[],
+            scores=[],
+            ref_chunks=[ref_chunk],
+        )
+    )
+    deps = _make_deps(retriever=retriever)
+
+    summary = await _lookup_clause_impl(
+        RunContextWrapper(deps),
+        "EN 1990, Expression (6.10)",
+    )
+
+    assert "精确找到 1 个条款片段" in summary
+    assert deps.bundle.ref_chunks == [ref_chunk]
+    assert deps.bundle.tool_trace[-1] == {
+        "tool": "lookup_clause",
+        "clause_ref": "EN 1990, Expression (6.10)",
+        "chunk_count": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -425,7 +496,9 @@ def test_qa_agent_instructions_require_retrieve_for_eurocode_questions():
     assert "retrieve 已返回 groundedness=grounded 的结果时，不要再次调用 retrieve" in (
         _QA_AGENT_INSTRUCTIONS
     )
-    assert "最多调用 retrieve 2 次" in _QA_AGENT_INSTRUCTIONS
-    assert "top_k 控制返回给回答生成的证据数量" in _QA_AGENT_INSTRUCTIONS
+    assert "lookup_clause(clause_ref)" in _QA_AGENT_INSTRUCTIONS
+    assert "错误 filter 比没有 filter 更糟" in _QA_AGENT_INSTRUCTIONS
+    assert "最多调用 retrieve 2 次" not in _QA_AGENT_INSTRUCTIONS
+    assert "top_k 允许范围 3-12" in _QA_AGENT_INSTRUCTIONS
     assert "简单定义或单个参数问题用 4-6" in _QA_AGENT_INSTRUCTIONS
     assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS

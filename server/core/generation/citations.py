@@ -72,7 +72,19 @@ def postprocess_citations(answer: str, num_sources: int) -> str:
             result_parts.append(_dedup_sentence(seg))
         else:
             result_parts.append(seg)  # 分隔符原样保留
-    return "".join(result_parts)
+    answer = "".join(result_parts)
+
+    used_refs = {
+        int(match.group(1)) for match in _CANONICAL_REF_RE.finditer(answer)
+    }
+    if num_sources > 0 and len(answer) > 500 and len(used_refs) <= 1:
+        logger.warning(
+            "citation_low_diversity answer_len=%d unique_refs=%d num_sources=%d",
+            len(answer),
+            len(used_refs),
+            num_sources,
+        )
+    return answer
 
 
 def _extract_json_text(raw: str) -> str:

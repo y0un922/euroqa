@@ -21,9 +21,18 @@ import type {
   ConversationSessionListResponse,
   ConversationSessionResponse,
   DocumentInfo,
+  DocumentIndexDeleteResult,
+  DocumentIndexInspection,
+  DocumentIndexRebuildResult,
   DocumentUploadResponse,
   DocumentUploadToMinioResponse,
   GlossaryEntry,
+  IndexOperationResponse,
+  IndexOverview,
+  KnowledgeBaseDeleteResult,
+  KnowledgeBaseDetail,
+  KnowledgeBaseInfo,
+  KnowledgeBaseUploadResult,
   LlmSettingsResponse,
   PipelineProgressEvent,
   QueryRequestPayload,
@@ -246,7 +255,16 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detail || `Request failed: ${response.status}`);
   }
 
-  return (await response.json()) as T;
+  const data = (await response.json()) as T & {
+    code?: number;
+    message?: string;
+    detail?: string;
+  };
+  if (typeof data?.code === "number" && data.code >= 400) {
+    throw new Error(data.message || data.detail || `Request failed: ${data.code}`);
+  }
+
+  return data as T;
 }
 
 export async function checkAuthRequired(): Promise<boolean> {
@@ -355,16 +373,19 @@ export async function translateSource(
 
 export function buildChatQueryPayload({
   question,
+  kbIds,
   sessionId,
   llm,
 }: {
   question: string;
+  kbIds?: string[];
   sessionId: string;
   llm?: QueryRequestPayload["llm"];
 }): QueryRequestPayload {
   return {
     question,
     sessionId,
+    ...(kbIds && kbIds.length > 0 ? { kbIds } : {}),
     ...(llm ? { llm } : {}),
   };
 }
@@ -376,6 +397,159 @@ export async function query(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function listKnowledgeBases(): Promise<KnowledgeBaseInfo[]> {
+  return fetchJson<KnowledgeBaseInfo[]>("/api/v1/knowledge-bases", {
+    method: "GET",
+  });
+}
+
+export async function getKnowledgeBase(
+  kbId: string,
+): Promise<KnowledgeBaseDetail> {
+  return fetchJson<KnowledgeBaseDetail>(
+    `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}`,
+    { method: "GET" },
+  );
+}
+
+export async function createKnowledgeBase(payload: {
+  name: string;
+  description?: string;
+}): Promise<KnowledgeBaseInfo> {
+  return fetchJson<KnowledgeBaseInfo>("/api/v1/knowledge-bases", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateKnowledgeBase(
+  kbId: string,
+  payload: { name?: string; description?: string },
+): Promise<KnowledgeBaseInfo> {
+  return fetchJson<KnowledgeBaseInfo>(
+    `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function deleteKnowledgeBase(
+  kbId: string,
+  deleteDocuments = false,
+): Promise<KnowledgeBaseDeleteResult> {
+  return fetchJson<KnowledgeBaseDeleteResult>(
+    `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}?delete_documents=${String(
+      deleteDocuments,
+    )}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getIndexOverview(): Promise<IndexOverview> {
+  const response = await fetchJson<IndexOperationResponse<IndexOverview>>(
+    "/api/v1/index-admin/overview",
+    { method: "GET" },
+  );
+  return response.data;
+}
+
+export async function inspectDocumentIndex(
+  docId: string,
+  sampleSize = 5,
+): Promise<DocumentIndexInspection> {
+  const response = await fetchJson<
+    IndexOperationResponse<DocumentIndexInspection>
+  >(
+    `/api/v1/index-admin/documents/${encodeURIComponent(
+      docId,
+    )}?sample_size=${sampleSize}`,
+    { method: "GET" },
+  );
+  return response.data;
+}
+
+export async function deleteDocumentIndex(
+  docId: string,
+): Promise<DocumentIndexDeleteResult> {
+  const response = await fetchJson<
+    IndexOperationResponse<DocumentIndexDeleteResult>
+  >(`/api/v1/index-admin/documents/${encodeURIComponent(docId)}`, {
+    method: "DELETE",
+  });
+  return response.data;
+}
+
+export async function rebuildDocumentIndex(
+  docId: string,
+  deleteFirst = true,
+): Promise<DocumentIndexRebuildResult> {
+  const response = await fetchJson<
+    IndexOperationResponse<DocumentIndexRebuildResult>
+  >(`/api/v1/index-admin/documents/${encodeURIComponent(docId)}/rebuild`, {
+    method: "POST",
+    body: JSON.stringify({ delete_first: deleteFirst }),
+  });
+  return response.data;
+}
+
+export async function addKnowledgeBaseDocuments(
+  kbId: string,
+  docIds: string[],
+): Promise<KnowledgeBaseDetail> {
+  return fetchJson<KnowledgeBaseDetail>(
+    `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/documents`,
+    {
+      method: "POST",
+      body: JSON.stringify({ docIds }),
+    },
+  );
+}
+
+export async function removeKnowledgeBaseDocuments(
+  kbId: string,
+  docIds: string[],
+): Promise<KnowledgeBaseDetail> {
+  return fetchJson<KnowledgeBaseDetail>(
+    `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/documents`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({ docIds }),
+    },
+  );
+}
+
+export async function uploadKnowledgeBaseDocuments(
+  kbId: string,
+  files: File[],
+  contextSummaryEnabled = true,
+): Promise<KnowledgeBaseUploadResult> {
+  const sentToken = getToken();
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file);
+  }
+  formData.append("contextSummaryEnabled", String(contextSummaryEnabled));
+
+  const response = await fetch(
+    buildApiUrl(`/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/upload`),
+    {
+      method: "POST",
+      headers: withAuthHeaders(),
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    handleAuthFailure(response, sentToken);
+    const detail = await response.text();
+    throw new Error(detail || `Upload failed: ${response.status}`);
+  }
+
+  return (await response.json()) as KnowledgeBaseUploadResult;
 }
 
 export async function getConversationSession(

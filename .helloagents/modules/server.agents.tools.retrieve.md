@@ -14,6 +14,7 @@
 - 正常检索返回 grounded Observation 时，必须包含“无需再次检索”类停止指令。
 - Top hits 摘要最多展示前三条，每条应包含 source、section 和 80 字符以内的 content preview；preview 需要将换行替换为空格。
 - `top_k` 仍由 `_clamp_top_k` 限制在 3-12，非法值回退到默认 8。
+- 当 `QADeps.sources_filter` 非空时，检索 filters 必须使用 `sources` 列表硬过滤，避免限定知识库查询越界到全库。
 
 ## 依赖关系
 

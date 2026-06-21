@@ -19,6 +19,8 @@
 - `/query/stream` 的 `done` 事件会额外补齐外部对接所需的 `code`、`confidence`、`questionType`、`answerMode`、`relatedRefs`、`title` 和来源字段 camelCase 别名；其中内部 `image` 来源类型对外输出为 `figure`。
 - `/query/stream` 的 `error` 事件必须输出 `{code, message}`，普通 HTTP 错误由全局异常处理器输出 `{code, message, detail}`。
 - 请求体兼容 `sessionId`，并将其视为接口文档定义的外部会话标识。
+- 请求体兼容 `kbIds`。未传 `kbIds` 时保持全库检索；传入有效知识库时会解析其文档 `doc_id` 为 source 列表并传给 agent/retrieve。
+- 空 `kbIds`、空知识库或无效知识库不得回退到全库检索；非流式接口返回 `confidence=none`、`degraded=true` 的空结果，流式接口对无效知识库输出 SSE error，对空知识库输出空结果 done 事件。
 
 ## 依赖关系
 
@@ -27,3 +29,4 @@
 - 依赖 `server.core.retrieval` 执行不对称双路召回
 - 依赖 `server.core.generation` 消费合成后的配置
 - 依赖 `server.core.conversation` 生成/复用会话 ID，并在 `sessionId` 场景下通过 Redis 保存问答历史
+- 依赖 `server.services.kb_database` 将 `kbIds` 解析为文档集合

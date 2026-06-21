@@ -52,6 +52,15 @@ def _resolve_context_summary_enabled(meta: dict, fallback: bool = True) -> bool:
     return fallback
 
 
+def _resolve_requested_doc_type(meta: dict) -> str | None:
+    """Resolve the optional document type override from parse options."""
+    value = meta.get("doc_type") or meta.get("docType")
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
 def _load_parse_options(output_dir: Path) -> dict:
     """Load per-document parse options written before the task was queued."""
     options_path = output_dir / "parse_options.json"
@@ -126,6 +135,7 @@ async def run_single_document(
 
     parse_options = _load_parse_options(output_dir)
     requested_file_name = _resolve_requested_file_name(parse_options)
+    requested_doc_type = _resolve_requested_doc_type(parse_options)
     requested_context_summary_enabled = _resolve_context_summary_enabled(
         parse_options,
         pipeline_config.context_summary_enabled,
@@ -166,7 +176,11 @@ async def run_single_document(
 
     # Stage 3: 分块
     await _emit(on_progress, "chunking", 0.50, "正在创建文档块")
-    chunks = create_chunks(tree, source_title=source_title)
+    chunks = create_chunks(
+        tree,
+        source_title=source_title,
+        doc_type=requested_doc_type,
+    )
 
     # Stage 3.5: LLM 摘要
     if context_summary_enabled:

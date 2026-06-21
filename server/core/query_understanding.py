@@ -20,6 +20,7 @@ from shared.llm_clients import get_async_openai_client
 from shared.reference_graph import classify_reference_label, normalize_reference_label
 from server.config import ServerConfig
 from server.models.schemas import (
+    DocType,
     EngineeringContext,
     GuideHint,
     QuestionType,
@@ -58,6 +59,11 @@ def sanitize_input(question: str) -> str:
 # ---------------------------------------------------------------------------
 _DG_SOURCE_RE = re.compile(r"DG\s*EN\s*(\d{4}(?:-\d+-\d+|-\d+)?)", re.IGNORECASE)
 _SOURCE_RE = re.compile(r"EN\s*(\d{4}(?:-\d+-\d+|-\d+)?)", re.IGNORECASE)
+_STANDARD_FAMILY_RE = re.compile(
+    r"EN\s*[-_ ]?(\d{4}(?:[-_ ]\d+){0,2})",
+    re.IGNORECASE,
+)
+_YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 _TABLE_RE = re.compile(r"表格?|table", re.IGNORECASE)
 _FORMULA_RE = re.compile(r"公式|formula|eq", re.IGNORECASE)
 _REQUESTED_TABLE_RE = re.compile(
@@ -144,6 +150,11 @@ _QUERY_EXPANSION_SYSTEM_PROMPT = (
     '- "need_example": true/false，只有当用户明显在问计算步骤、如何取值，或提供一个算例能显著帮助理解时才设为 true\n'
     '- "example_query": 一句简短英文检索短语，用于在 Designers\' Guide 中检索相关算例；没有明确算例需求时填 null\n'
     '- "example_kind": worked_example|procedure|commentary|null\n\n'
+    "检索路由意图（retrieval_intent）：\n"
+    '- "standard_family": 规范族，如 "EN 1992-1-1"；只能来自问题中明确标准号或非常稳定的上下文，不确定填 null\n'
+    '- "standard_family_confidence": high|medium|low|none\n'
+    '- "doc_type_intent": standard|guide|example|null；只有用户明确问规范正文、Designers\' Guide 或算例时填写\n'
+    '- "version_pref": new|current|both|unspecified；只有用户明确问新版/现行旧版/两者对比时填写，否则 unspecified\n\n'
     "要求：\n"
     "- 不要猜测问题中未提及的条款号或表格号\n"
     "- semantic/concepts/terms 只输出英文\n"
@@ -151,10 +162,14 @@ _QUERY_EXPANSION_SYSTEM_PROMPT = (
     "- 是否需要指南算例主要由 question_type 和问题意图共同决定，不要机械地对所有问题都要求算例\n"
     "- context 中未明确出现的信息必须保留为 null，不要臆测\n"
     "- target_hint 只能填问题中明确出现或可由目标对象稳定推出的信息，不确定时填 null\n"
+    "- retrieval_intent 的低置信字段用于检索加权，不要为了看起来完整而猜测\n"
     "- 严格按 JSON 格式输出：\n"
     '{"rewritten_question":"...","semantic":"...","concepts":"...","terms":"...",'
     '"question_type":"rule|parameter|calculation|mechanism",'
     '"guide_hint":{"need_example":false,"example_query":null,"example_kind":null},'
+    '"retrieval_intent":{"standard_family":null,'
+    '"standard_family_confidence":"none","doc_type_intent":null,'
+    '"version_pref":"unspecified"},'
     '"intent_label":"...",'
     '"target_hint":{"document":null,"clause":null,"object":null},'
     '"reason_short":"...",'
@@ -163,6 +178,19 @@ _QUERY_EXPANSION_SYSTEM_PROMPT = (
     '"concrete_class":null,"rebar_grade":null,'
     '"prestressed":null,"discontinuity_region":null}}'
 )
+
+
+FilterValue = str | list[str]
+
+
+@dataclass
+class RetrievalIntent:
+    """检索路由意图，先归一化再转成 hard filters 与 soft boosts。"""
+
+    standard_family: str | None = None
+    standard_family_confidence: str = "none"
+    doc_type_intent: str | None = None
+    version_pref: str = "unspecified"
 
 
 @dataclass
@@ -174,6 +202,7 @@ class ExpansionResult:
     engineering_context: EngineeringContext | None = None
     guide_hint: GuideHint | None = None
     routing: RoutingDecision | None = None
+    retrieval_intent: RetrievalIntent | None = None
     rewritten_question: str | None = None
 
 
@@ -183,7 +212,8 @@ class QueryAnalysis:
 
     original_question: str
     expanded_queries: list[str]
-    filters: dict[str, str]
+    filters: dict[str, FilterValue]
+    soft_boosts: dict[str, FilterValue] = field(default_factory=dict)
     matched_terms: dict[str, str] = field(default_factory=dict)
     requested_objects: list[str] = field(default_factory=list)
     question_type: QuestionType | None = None
@@ -193,6 +223,7 @@ class QueryAnalysis:
     target_hint: RoutingTargetHint | None = None
     reason_short: str | None = None
     preferred_element_type: str | None = None
+    retrieval_intent: RetrievalIntent | None = None
     rewritten_question: str | None = None
 
     @property
@@ -237,6 +268,109 @@ def extract_preferred_element_type(question: str) -> str | None:
     if _FORMULA_RE.search(question):
         return "formula"
     return None
+
+
+def build_filters_from_intent(
+    intent: RetrievalIntent | None,
+    base_filters: dict[str, FilterValue] | None = None,
+    agent_overrides: dict[str, FilterValue | None] | None = None,
+) -> tuple[dict[str, FilterValue], dict[str, FilterValue]]:
+    """Build retrieval hard filters and soft boosts from normalized intent.
+
+    Explicit agent overrides are always hard filters. Automatic query
+    understanding contributes BM25 boosts so recall is not lost.
+    """
+    hard_filters: dict[str, FilterValue] = dict(base_filters or {})
+    soft_boosts: dict[str, FilterValue] = {}
+
+    if intent is not None:
+        family = _normalize_standard_family(intent.standard_family)
+        if family:
+            soft_boosts["standard_family"] = family
+
+        doc_type = _normalize_doc_type_intent(intent.doc_type_intent)
+        if doc_type:
+            soft_boosts["doc_type"] = doc_type
+
+        versions = _normalize_version_pref(intent.version_pref)
+        if versions:
+            soft_boosts["doc_version"] = versions
+
+    for key, value in (agent_overrides or {}).items():
+        normalized = _normalize_override_value(key, value)
+        if normalized is None:
+            continue
+        hard_filters[key] = normalized
+        soft_boosts.pop(key, None)
+
+    return hard_filters, soft_boosts
+
+
+def _normalize_override_value(key: str, value: FilterValue | None) -> FilterValue | None:
+    if value is None:
+        return None
+    if key == "standard_family":
+        return _normalize_standard_family(str(value)) if isinstance(value, str) else None
+    if key == "doc_type":
+        raw = value[0] if isinstance(value, list) and value else value
+        return _normalize_doc_type_intent(str(raw)) if raw is not None else None
+    if key == "doc_version":
+        return _normalize_doc_versions(value)
+    return value
+
+
+def _normalize_version_pref(value: str | None) -> list[str]:
+    normalized = (value or "unspecified").strip().lower()
+    if normalized == "new":
+        return ["2022", "2023", "2024", "2025"]
+    if normalized == "current":
+        return ["2002", "2004", "2005"]
+    return []
+
+
+def _normalize_doc_versions(value: FilterValue) -> list[str] | None:
+    raw_values = value if isinstance(value, list) else [value]
+    years: list[str] = []
+    for raw in raw_values:
+        if raw is None:
+            continue
+        text = str(raw)
+        match = _YEAR_RE.search(text)
+        if match:
+            years.append(match.group(1))
+            continue
+        if text.strip().lower() in {"new", "current"}:
+            years.extend(_normalize_version_pref(text))
+    deduped = list(dict.fromkeys(years))
+    return deduped or None
+
+
+def _normalize_doc_type_intent(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower()
+    if not normalized or normalized in {"none", "null", "unspecified"}:
+        return None
+    try:
+        return DocType(normalized).value
+    except ValueError:
+        return None
+
+
+def _normalize_confidence(value: str | None) -> str:
+    normalized = (value or "none").strip().lower()
+    return normalized if normalized in {"high", "medium", "low", "none"} else "none"
+
+
+def _normalize_standard_family(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = _STANDARD_FAMILY_RE.search(value)
+    if not match:
+        return None
+    family = match.group(1).replace("_", "-").replace(" ", "-")
+    parts = [part for part in family.split("-") if part]
+    if len(parts) > 3:
+        parts = parts[:3]
+    return "EN " + "-".join(parts)
 
 
 def extract_requested_objects(
@@ -524,6 +658,7 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
 
     guide_hint = _parse_guide_hint(data.get("guide_hint"))
     routing = _parse_routing_decision(data)
+    retrieval_intent = _parse_retrieval_intent(data.get("retrieval_intent"))
 
     return ExpansionResult(
         queries=queries,
@@ -531,6 +666,7 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
         engineering_context=eng_context,
         guide_hint=guide_hint,
         routing=routing,
+        retrieval_intent=retrieval_intent,
         rewritten_question=rewritten_question,
     )
 
@@ -562,6 +698,50 @@ def _parse_guide_hint(payload: object) -> GuideHint | None:
         need_example=raw_need_example,
         example_query=example_query,
         example_kind=example_kind,
+    )
+
+
+def _parse_retrieval_intent(payload: object) -> RetrievalIntent | None:
+    if not isinstance(payload, dict):
+        return None
+
+    raw_family = payload.get("standard_family")
+    standard_family = (
+        _normalize_standard_family(raw_family)
+        if isinstance(raw_family, str)
+        else None
+    )
+
+    raw_doc_type = payload.get("doc_type_intent")
+    doc_type = (
+        _normalize_doc_type_intent(raw_doc_type)
+        if isinstance(raw_doc_type, str)
+        else None
+    )
+
+    raw_version_pref = payload.get("version_pref")
+    version_pref = (
+        raw_version_pref.strip().lower()
+        if isinstance(raw_version_pref, str)
+        else "unspecified"
+    )
+    if version_pref not in {"new", "current", "both", "unspecified"}:
+        version_pref = "unspecified"
+
+    confidence = _normalize_confidence(
+        payload.get("standard_family_confidence")
+        if isinstance(payload.get("standard_family_confidence"), str)
+        else None
+    )
+
+    if not standard_family and not doc_type and version_pref == "unspecified":
+        return None
+
+    return RetrievalIntent(
+        standard_family=standard_family,
+        standard_family_confidence=confidence if standard_family else "none",
+        doc_type_intent=doc_type,
+        version_pref=version_pref,
     )
 
 
@@ -620,6 +800,10 @@ async def analyze_query(
     filters = extract_filters(question)
     preferred_element_type = extract_preferred_element_type(question)
     expansion = await expand_queries(question, glossary, config, history)
+    filters, soft_boosts = build_filters_from_intent(
+        expansion.retrieval_intent,
+        base_filters=filters,
+    )
     matched_terms = {zh: en for zh, en in glossary.items() if zh in question}
     requested_objects = extract_requested_objects(
         question,
@@ -630,6 +814,7 @@ async def analyze_query(
         original_question=question,
         expanded_queries=expansion.queries,
         filters=filters,
+        soft_boosts=soft_boosts,
         matched_terms=matched_terms,
         requested_objects=requested_objects,
         question_type=expansion.question_type,
@@ -639,6 +824,7 @@ async def analyze_query(
         target_hint=expansion.routing.target_hint if expansion.routing else None,
         reason_short=expansion.routing.reason_short if expansion.routing else None,
         preferred_element_type=preferred_element_type,
+        retrieval_intent=expansion.retrieval_intent,
         rewritten_question=expansion.rewritten_question,
     )
 

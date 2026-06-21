@@ -8,7 +8,9 @@ import pytest
 from server.config import ServerConfig
 from server.core.query_understanding import (
     _call_llm,
+    RetrievalIntent,
     analyze_query,
+    build_filters_from_intent,
     expand_queries,
     extract_requested_objects,
     extract_filters,
@@ -258,6 +260,78 @@ class TestParseExpansionResult:
         assert result.routing.target_hint.document == "EN 1992-1-1"
         assert result.routing.target_hint.clause is None
         assert result.routing.target_hint.object == "basic assumptions"
+
+    def test_parses_retrieval_intent(self):
+        raw = json.dumps({
+            "semantic": "minimum reinforcement in beams",
+            "concepts": "concrete beams minimum reinforcement",
+            "terms": "Asmin",
+            "retrieval_intent": {
+                "standard_family": "EN1992-1-1",
+                "standard_family_confidence": "high",
+                "doc_type_intent": "standard",
+                "version_pref": "new",
+            },
+        })
+
+        result = _parse_expansion_result(raw)
+
+        assert result is not None
+        assert result.retrieval_intent is not None
+        assert result.retrieval_intent.standard_family == "EN 1992-1-1"
+        assert result.retrieval_intent.standard_family_confidence == "high"
+        assert result.retrieval_intent.doc_type_intent == "standard"
+        assert result.retrieval_intent.version_pref == "new"
+
+
+class TestBuildFiltersFromIntent:
+    def test_high_confidence_family_becomes_soft_boost_by_default(self):
+        filters, soft_boosts = build_filters_from_intent(
+            RetrievalIntent(
+                standard_family="EN1992-1-1",
+                standard_family_confidence="high",
+            )
+        )
+
+        assert filters == {}
+        assert soft_boosts == {"standard_family": "EN 1992-1-1"}
+
+    def test_source_filter_keeps_family_as_soft_boost(self):
+        filters, soft_boosts = build_filters_from_intent(
+            RetrievalIntent(
+                standard_family="EN1992-1-1",
+                standard_family_confidence="high",
+                doc_type_intent="standard",
+                version_pref="new",
+            ),
+            base_filters={"source": "EN 1992"},
+        )
+
+        assert filters == {"source": "EN 1992"}
+        assert soft_boosts["standard_family"] == "EN 1992-1-1"
+        assert soft_boosts["doc_type"] == "standard"
+        assert soft_boosts["doc_version"] == ["2022", "2023", "2024", "2025"]
+
+    def test_agent_overrides_are_hard_filters(self):
+        filters, soft_boosts = build_filters_from_intent(
+            RetrievalIntent(
+                standard_family="EN1992-1-1",
+                standard_family_confidence="low",
+                version_pref="current",
+            ),
+            agent_overrides={
+                "standard_family": "EN1990",
+                "doc_type": "guide",
+                "doc_version": "2023",
+            },
+        )
+
+        assert filters == {
+            "standard_family": "EN 1990",
+            "doc_type": "guide",
+            "doc_version": ["2023"],
+        }
+        assert soft_boosts == {}
 
     def test_backward_compatible_with_old_format(self):
         raw = json.dumps({

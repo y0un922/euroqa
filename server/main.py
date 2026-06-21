@@ -13,7 +13,7 @@ from server.api.debug_pipeline import router as debug_router
 from server.api.v1.auth import require_auth
 from server.api.v1.router import router as v1_router
 from server.config import ServerConfig
-from server.deps import get_config, get_retriever
+from server.deps import get_config, get_kb_database, get_retriever
 from server.logging_config import configure_logging
 from server.middleware.request_context import RequestContextMiddleware
 from shared.llm_clients import close_async_openai_clients
@@ -30,7 +30,9 @@ async def lifespan(app: FastAPI):
     set_trace_processors([StructlogTracingProcessor()])
 
     retriever = get_retriever()
+    kb_database = get_kb_database()
     try:
+        await kb_database.initialize()
         await retriever.initialize()
     except Exception:
         logger.error("retriever_initialize_failed", exc_info=True)
@@ -41,6 +43,7 @@ async def lifespan(app: FastAPI):
     yield
     await task_manager.stop()
     await retriever.close()
+    await kb_database.close()
     await close_async_openai_clients()
 
 

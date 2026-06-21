@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.34] - 2026-06-20
+
+### 新增
+- **[server.services.kb_database / server.api.v1.knowledge_bases / server.api.v1.query / frontend]**: 实现知识库管理功能，新增 SQLite 元数据存储与 `/api/v1/knowledge-bases` CRUD/文档绑定/批量上传/删除接口；问答请求支持 `kbIds`，空知识库和无效知识库会短路为限定范围空结果，不回退全库检索；前端新增知识库管理页、顶部视图切换和聊天输入区知识库选择器 — by Codex
+  - 类型: 标准流程（全自动执行）
+  - 文件: server/services/kb_database.py; server/api/v1/knowledge_bases.py; server/api/v1/query.py; server/agents/deps.py; server/agents/orchestrator.py; server/agents/tools/retrieve.py; server/models/schemas.py; server/deps.py; server/main.py; server/config.py; frontend/src/components/KnowledgeBasesPage.tsx; frontend/src/App.tsx; frontend/src/components/MainWorkspace.tsx; frontend/src/components/TopBar.tsx; frontend/src/hooks/useEuroQaDemo.ts; frontend/src/lib/api.ts; frontend/src/lib/types.ts; tests/server/test_kb_database.py; tests/server/test_kb_query_scope.py
+
 ## [0.1.33] - 2026-06-03
 
 ### 优化

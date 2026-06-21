@@ -2,6 +2,7 @@ import {
   Check,
   Copy,
   CornerDownLeft,
+  Database,
   FileText,
   LoaderCircle,
   RotateCcw,
@@ -42,7 +43,7 @@ import {
   copyMarkdownToClipboard,
   isChatTurnExportable
 } from "../lib/replyExport";
-import type { ChatTurn } from "../lib/types";
+import type { ChatTurn, KnowledgeBaseInfo } from "../lib/types";
 
 type MainWorkspaceProps = {
   activeReferenceId: string | null;
@@ -52,13 +53,16 @@ type MainWorkspaceProps = {
   draftQuestion: string;
   hotQuestions: string[];
   isSubmitting: boolean;
+  knowledgeBases?: KnowledgeBaseInfo[];
   messages: ChatTurn[];
   onDraftQuestionChange: (value: string) => void;
   onReferenceClick: (referenceId: string | null) => void;
   onRegenerateAnswer?: (messageId: string) => void;
   onSelectHotQuestion: (question: string) => void;
+  onSelectedKbIdsChange?: (kbIds: string[]) => void;
   onStop?: () => void;
   onSubmit: () => void;
+  selectedKbIds?: string[];
 };
 
 type MarkdownRenderBoundaryProps = {
@@ -180,13 +184,16 @@ export default function MainWorkspace({
   draftQuestion,
   hotQuestions,
   isSubmitting,
+  knowledgeBases = [],
   messages,
   onDraftQuestionChange,
   onReferenceClick,
   onRegenerateAnswer,
   onSelectHotQuestion,
+  onSelectedKbIdsChange = () => {},
   onStop,
-  onSubmit
+  onSubmit,
+  selectedKbIds = []
 }: MainWorkspaceProps) {
   const handleReferenceClick = useStableCallback(onReferenceClick);
   const handleSelectHotQuestion = useStableCallback(onSelectHotQuestion);
@@ -198,6 +205,7 @@ export default function MainWorkspace({
     onStop?.();
   });
   const handleSubmit = useStableCallback(onSubmit);
+  const handleSelectedKbIdsChange = useStableCallback(onSelectedKbIdsChange);
 
   return (
     <main className="relative flex h-full flex-1 flex-col overflow-hidden bg-white">
@@ -227,9 +235,12 @@ export default function MainWorkspace({
         bootError={bootError}
         draftQuestion={draftQuestion}
         isSubmitting={isSubmitting}
+        knowledgeBases={knowledgeBases}
         onDraftQuestionChange={handleDraftQuestionChange}
+        onSelectedKbIdsChange={handleSelectedKbIdsChange}
         onStop={handleStop}
         onSubmit={handleSubmit}
+        selectedKbIds={selectedKbIds}
       />
     </main>
   );
@@ -625,19 +636,36 @@ function QuestionComposer({
   bootError,
   draftQuestion,
   isSubmitting,
+  knowledgeBases = [],
   onDraftQuestionChange,
+  onSelectedKbIdsChange = () => {},
   onStop,
-  onSubmit
+  onSubmit,
+  selectedKbIds = []
 }: Pick<
   MainWorkspaceProps,
   | "bootError"
   | "draftQuestion"
   | "isSubmitting"
+  | "knowledgeBases"
   | "onDraftQuestionChange"
+  | "onSelectedKbIdsChange"
   | "onSubmit"
+  | "selectedKbIds"
 > & {
   onStop: () => void;
 }) {
+  const selectedSet = new Set(selectedKbIds);
+  const selectedCount = selectedKbIds.length;
+
+  function toggleKnowledgeBase(kbId: string) {
+    onSelectedKbIdsChange(
+      selectedSet.has(kbId)
+        ? selectedKbIds.filter((id) => id !== kbId)
+        : [...selectedKbIds, kbId]
+    );
+  }
+
   return (
     <div className="z-10 border-t border-stone-100 bg-white p-5 lg:p-6">
       <div className="mx-auto max-w-4xl">
@@ -661,11 +689,34 @@ function QuestionComposer({
               value={draftQuestion}
             />
             <div className="flex items-center justify-between border-t border-stone-100 bg-stone-50/60 px-3 py-2">
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-3">
                 <span className="flex items-center gap-1 text-xs text-stone-500">
                   <Search className="h-3.5 w-3.5" />
-                  混合检索
+                  {selectedCount > 0 ? `限定 ${selectedCount} 个知识库` : "全库混合检索"}
                 </span>
+                {knowledgeBases.length > 0 ? (
+                  <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+                    {knowledgeBases.map((kb) => {
+                      const active = selectedSet.has(kb.id);
+                      return (
+                        <button
+                          className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs transition ${
+                            active
+                              ? "border-cyan-300 bg-cyan-50 text-cyan-800"
+                              : "border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:text-stone-700"
+                          }`}
+                          key={kb.id}
+                          onClick={() => toggleKnowledgeBase(kb.id)}
+                          title={kb.description || kb.name}
+                          type="button"
+                        >
+                          <Database className="h-3 w-3" />
+                          <span className="max-w-32 truncate">{kb.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
               {isSubmitting ? (
                 <button

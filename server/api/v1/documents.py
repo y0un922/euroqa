@@ -29,6 +29,7 @@ from server.models.schemas import (
     DocumentStatusError,
     DocumentStatusItem,
     DocumentStatus,
+    DocType,
     DocumentUploadResponse,
     DocumentUploadToMinioResponse,
     DocumentProcessResponse,
@@ -404,13 +405,17 @@ def _persist_parse_options(request: DocumentParseRequest, config) -> None:
     """Persist parse options so the worker can read them later."""
     parsed_dir = Path(config.parsed_dir) / request.doc_id
     parsed_dir.mkdir(parents=True, exist_ok=True)
+    options = {
+        "context_summary_enabled": request.context_summary_enabled,
+        "file_name": request.file_name,
+        "minio_path": request.minio_path,
+    }
+    if request.doc_type is not None:
+        options["doc_type"] = request.doc_type.value
+
     (parsed_dir / "parse_options.json").write_text(
         json.dumps(
-            {
-                "context_summary_enabled": request.context_summary_enabled,
-                "file_name": request.file_name,
-                "minio_path": request.minio_path,
-            },
+            options,
             ensure_ascii=False,
             indent=2,
         ),
@@ -605,6 +610,8 @@ async def upload_document_to_minio(
         None,
         alias="context_summary_enabled",
     ),
+    doc_type: DocType | None = Form(None, alias="docType"),
+    doc_type_legacy: DocType | None = Form(None, alias="doc_type"),
     config=Depends(get_config),
 ) -> DocumentUploadToMinioResponse:
     """Upload a PDF through the backend proxy and trigger parsing."""
@@ -644,6 +651,7 @@ async def upload_document_to_minio(
             fileName=file.filename,
             minioPath=minio_path,
             contextSummaryEnabled=summary_enabled,
+            docType=doc_type or doc_type_legacy,
         ),
         config,
     )

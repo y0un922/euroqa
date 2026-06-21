@@ -99,6 +99,7 @@ class ServerConfig(BaseSettings):
     parsed_dir: str = "data/parsed"
     glossary_path: str = "data/glossary.json"
     pdf_dir: str = "data/pdfs"
+    kb_db_path: str = "data/knowledge_bases.db"
 
     @property
     def resolved_agent_llm_api_key(self) -> str:

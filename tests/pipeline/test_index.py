@@ -1,4 +1,5 @@
 """Tests for pipeline indexing."""
+
 from __future__ import annotations
 
 import pytest
@@ -85,7 +86,9 @@ async def test_index_to_milvus_uses_embedding_client(monkeypatch):
     client = _FakeEmbeddingClient()
 
     monkeypatch.setattr("pipeline.index._build_embedding_client", lambda config: client)
-    monkeypatch.setattr("pipeline.index._init_milvus_collection", lambda config: collection)
+    monkeypatch.setattr(
+        "pipeline.index._init_milvus_collection", lambda config: collection
+    )
 
     count = await index_to_milvus(
         [chunk],
@@ -106,7 +109,9 @@ async def test_index_to_milvus_uses_embedding_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_delete_document_from_milvus_loads_collection_before_delete(monkeypatch):
     collection = _FakeCollection()
-    monkeypatch.setattr("pipeline.index._init_milvus_collection", lambda config: collection)
+    monkeypatch.setattr(
+        "pipeline.index._init_milvus_collection", lambda config: collection
+    )
 
     count = await delete_document_from_milvus(
         'DG EN1990 "Guide"',
@@ -122,7 +127,9 @@ async def test_delete_document_from_milvus_loads_collection_before_delete(monkey
 @pytest.mark.asyncio
 async def test_delete_document_sources_from_milvus_deletes_sources_once(monkeypatch):
     collection = _FakeCollection()
-    monkeypatch.setattr("pipeline.index._init_milvus_collection", lambda config: collection)
+    monkeypatch.setattr(
+        "pipeline.index._init_milvus_collection", lambda config: collection
+    )
 
     count = await delete_document_sources_from_milvus(
         ['DG EN1990 "Guide"', "DG EN1990 Guide", 'DG EN1990 "Guide"'],
@@ -204,14 +211,24 @@ def test_ensure_collection_creates_canonical_schema_and_hnsw_index(monkeypatch):
             self.index_args = (field_name, index_params)
             calls["index_args"] = self.index_args
 
-    monkeypatch.setattr("shared.milvus_schema.utility.has_collection", lambda name: False)
+    monkeypatch.setattr(
+        "shared.milvus_schema.utility.has_collection", lambda name: False
+    )
     monkeypatch.setattr("shared.milvus_schema.Collection", _FakeCollection)
 
     collection = ensure_collection("chunks")
 
     assert calls["name"] == "chunks"
     field_names = [field.name for field in calls["schema"].fields]
-    assert field_names == ["chunk_id", "embedding", "source", "element_type"]
+    assert field_names == [
+        "chunk_id",
+        "embedding",
+        "source",
+        "element_type",
+        "doc_type",
+        "standard_family",
+        "doc_version",
+    ]
     assert calls["index_args"] == (
         "embedding",
         {
@@ -221,3 +238,37 @@ def test_ensure_collection_creates_canonical_schema_and_hnsw_index(monkeypatch):
         },
     )
     assert collection is not None
+
+
+def test_ensure_collection_rejects_incompatible_existing_schema(monkeypatch):
+    class _Field:
+        def __init__(self, name):
+            self.name = name
+
+    class _FakeCollection:
+        def __init__(self, name):
+            self.name = name
+            self.schema = type(
+                "Schema",
+                (),
+                {
+                    "fields": [
+                        _Field("chunk_id"),
+                        _Field("embedding"),
+                        _Field("source"),
+                        _Field("element_type"),
+                    ]
+                },
+            )()
+
+    monkeypatch.setattr(
+        "shared.milvus_schema.utility.has_collection", lambda name: True
+    )
+    monkeypatch.setattr("shared.milvus_schema.Collection", _FakeCollection)
+
+    with pytest.raises(RuntimeError, match="schema is incompatible") as exc_info:
+        ensure_collection("chunks")
+
+    message = str(exc_info.value)
+    assert "doc_type" in message
+    assert "Drop and rebuild" in message

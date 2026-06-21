@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 
 import structlog
 from fastapi import APIRouter, Depends
@@ -31,17 +32,20 @@ from server.api.v1._response import (
     _stream_direct_agent_events,
     _stream_rag_answer_events,
 )
+from server.api.v1.documents import _source_names_for_doc_id
 from server.deps import (
     get_config,
     get_conversation_manager,
     get_glossary,
+    get_kb_database,
     get_retriever,
 )
 from server.config import ServerConfig
-from server.core.query_request import uses_external_session
+from server.core.query_request import conversation_id_from_request, uses_external_session
 from server.errors import LLMUnavailableError, QAError, RetrievalUnavailableError
-from server.models.schemas import QueryRequest, QueryResponse
+from server.models.schemas import Confidence, QueryRequest, QueryResponse, RetrievalContext
 from server.agents.tool_progress import ToolSubStep
+from server.services.kb_database import KBDatabase
 from shared.spot_check import (
     SpotCheckRecorder,
     flush_current_recorder,
@@ -59,6 +63,17 @@ _TOOL_TITLES = {
 }
 
 
+@dataclass(frozen=True)
+class KBScope:
+    sources_filter: list[str] | None
+    message: str | None = None
+    is_error: bool = False
+
+    @property
+    def is_empty(self) -> bool:
+        return self.sources_filter == [] and not self.is_error
+
+
 def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerConfig:
     """Merge request-scoped LLM overrides with the default server config."""
     if req.llm is None:
@@ -72,6 +87,121 @@ def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerCo
     )
 
 
+async def _resolve_kb_scope(req: QueryRequest, kb_db: KBDatabase) -> KBScope:
+    """Resolve selected knowledge bases into concrete retrieval source filters."""
+    if req.kb_ids is None:
+        return KBScope(sources_filter=None)
+
+    kb_ids = list(dict.fromkeys(kb_id.strip() for kb_id in req.kb_ids if kb_id.strip()))
+    if not kb_ids:
+        return KBScope(
+            sources_filter=[],
+            message="未选择任何知识库，无法在限定范围内检索。",
+        )
+
+    doc_ids: list[str] = []
+    missing: list[str] = []
+    for kb_id in kb_ids:
+        kb = await kb_db.get_kb(kb_id)
+        if kb is None:
+            missing.append(kb_id)
+            continue
+        doc_ids.extend(await kb_db.get_kb_doc_ids(kb_id))
+
+    if missing:
+        return KBScope(
+            sources_filter=[],
+            message=f"知识库不存在或已被删除: {', '.join(missing)}",
+            is_error=True,
+        )
+
+    sources: list[str] = []
+    for doc_id in doc_ids:
+        sources.extend(_source_names_for_doc_id(doc_id))
+    sources = list(dict.fromkeys(sources))
+    if not sources:
+        return KBScope(
+            sources_filter=[],
+            message="所选知识库还没有可检索文档。",
+        )
+    return KBScope(sources_filter=sources)
+
+
+def _empty_kb_query_response(req: QueryRequest, message: str) -> QueryResponse:
+    """Build a stable empty-scope query response without invoking retrieval."""
+    return QueryResponse(
+        answer=message,
+        sources=[],
+        related_refs=[],
+        confidence=Confidence.NONE,
+        conversation_id=conversation_id_from_request(req) or "",
+        degraded=True,
+        retrieval_context=RetrievalContext(),
+        question_type=None,
+        engineering_context=None,
+        groundedness=None,
+    )
+
+
+def _empty_kb_done_payload(req: QueryRequest, message: str) -> dict[str, object]:
+    retrieval_context = {
+        "chunks": [],
+        "parent_chunks": [],
+        "guide_chunks": [],
+        "guide_example_chunks": [],
+        "ref_chunks": [],
+        "resolved_refs": [],
+        "unresolved_refs": [],
+    }
+    return {
+        "code": 200,
+        "answer": message,
+        "normalized_answer": message,
+        "sources": [],
+        "related_refs": [],
+        "relatedRefs": [],
+        "confidence": Confidence.NONE.value,
+        "conversation_id": conversation_id_from_request(req) or "",
+        "degraded": True,
+        "retrieval_context": retrieval_context,
+        "retrievalContext": retrieval_context,
+        "question_type": None,
+        "questionType": None,
+        "engineering_context": None,
+        "engineeringContext": None,
+        "groundedness": None,
+        "answerMode": "empty_kb",
+        "title": None,
+    }
+
+
+async def _empty_kb_stream_events(req: QueryRequest, message: str):
+    started_at = time.perf_counter()
+    yield _progress_sse_event(
+        stage="kb_scope",
+        status="completed",
+        title="限定知识库",
+        summary=message,
+        started_at=started_at,
+        facts={"source_count": 0},
+    )
+    yield {
+        "event": "chunk",
+        "data": json.dumps({"text": message, "done": False}, ensure_ascii=False),
+    }
+    yield {
+        "event": "done",
+        "data": json.dumps(
+            _empty_kb_done_payload(req, message),
+            ensure_ascii=False,
+        ),
+    }
+
+
+async def _kb_error_stream_events(message: str):
+    yield _error_sse_event(code=404, message=message)
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query(
     req: QueryRequest,
@@ -79,13 +209,21 @@ async def query(
     retriever=Depends(get_retriever),
     glossary=Depends(get_glossary),
     conv_mgr=Depends(get_conversation_manager),
+    kb_db: KBDatabase = Depends(get_kb_database),
 ) -> QueryResponse:
     runtime_config = _resolve_runtime_config(config, req)
+    kb_scope = await _resolve_kb_scope(req, kb_db)
+    if kb_scope.is_error or kb_scope.is_empty:
+        return _empty_kb_query_response(req, kb_scope.message or "所选知识库不可检索。")
+
     recorder = (
         SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
     )
     token = set_current_recorder(recorder)
     try:
+        dispatch_kwargs = {}
+        if kb_scope.sources_filter is not None:
+            dispatch_kwargs["sources_filter"] = kb_scope.sources_filter
         agent_result = await dispatch_agent(
             question=req.question,
             req=req,
@@ -93,6 +231,7 @@ async def query(
             retriever=retriever,
             glossary=glossary,
             conv_mgr=conv_mgr,
+            **dispatch_kwargs,
         )
         agent_reply = agent_result.agent_reply
         bundle = agent_result.bundle
@@ -156,9 +295,19 @@ async def query_stream(
     retriever=Depends(get_retriever),
     glossary=Depends(get_glossary),
     conv_mgr=Depends(get_conversation_manager),
+    kb_db: KBDatabase = Depends(get_kb_database),
 ):
     """SSE 流式问答端点，逐步返回 LLM 生成的回答片段。"""
     runtime_config = _resolve_runtime_config(config, req)
+    kb_scope = await _resolve_kb_scope(req, kb_db)
+    if kb_scope.is_error:
+        return EventSourceResponse(
+            _kb_error_stream_events(kb_scope.message or "知识库不存在或已被删除。")
+        )
+    if kb_scope.is_empty:
+        return EventSourceResponse(
+            _empty_kb_stream_events(req, kb_scope.message or "所选知识库不可检索。")
+        )
 
     async def event_generator():
         started_at = time.perf_counter()
@@ -198,6 +347,9 @@ async def query_stream(
                             tool_step_queue.put_nowait(step)
 
                 async def agent_items():
+                    dispatch_kwargs = {}
+                    if kb_scope.sources_filter is not None:
+                        dispatch_kwargs["sources_filter"] = kb_scope.sources_filter
                     async for agent_item in dispatch_agent_streamed(
                         question=req.question,
                         req=req,
@@ -206,6 +358,7 @@ async def query_stream(
                         glossary=glossary,
                         conv_mgr=conv_mgr,
                         tool_progress=QueueToolProgress(),
+                        **dispatch_kwargs,
                     ):
                         yield agent_item
 

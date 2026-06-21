@@ -6,6 +6,7 @@ from pipeline.chunk import validate_unique_chunk_ids
 from pipeline.structure import DocumentNode
 from pipeline.structure import ElementType as StructElementType
 from pipeline.structure import parse_markdown_to_tree
+from server.models.schemas import DocType
 from server.models.schemas import ElementType as ChunkElementType
 
 
@@ -42,6 +43,33 @@ class TestCreateChunks:
                    and any("Section" in p for p in c.metadata.section_path)]
         assert len(children) >= 2
         assert len(parents) >= 1
+
+    def test_infers_document_metadata_from_source_and_title(self):
+        md = "## 3.1 Concrete\n\nConcrete strength rules.\n"
+        tree = parse_markdown_to_tree(md, source="BSEN1992-1-1-2023")
+
+        chunks = create_chunks(
+            tree,
+            source_title="BSEN1992-1-1-2023 Concrete structures",
+        )
+
+        assert chunks
+        metadata = chunks[0].metadata
+        assert metadata.doc_type == DocType.STANDARD
+        assert metadata.standard_family == "EN 1992-1-1"
+        assert metadata.doc_version == "2023"
+
+    def test_doc_type_override_wins_over_filename_inference(self):
+        md = "## Example\n\nWorked design example.\n"
+        tree = parse_markdown_to_tree(md, source="DG_EN1992-1-1_2024")
+
+        chunks = create_chunks(
+            tree,
+            source_title="DG EN1992-1-1 guide",
+            doc_type="example",
+        )
+
+        assert chunks[0].metadata.doc_type == DocType.EXAMPLE
 
     def test_table_independent_chunk(self):
         md = (

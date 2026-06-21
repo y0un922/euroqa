@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from server.config import ServerConfig
+from server.core.generation.citations import postprocess_citations
 from server.core.generation import (
     _SOURCE_TRANSLATION_SYSTEM_PROMPT,
     _build_dynamic_guidance,
@@ -27,6 +28,30 @@ from server.core.generation import (
     parse_llm_response,
 )
 from server.models.schemas import Chunk, ChunkMetadata, Confidence, ElementType
+
+
+def _make_generation_chunk(
+    chunk_id: str,
+    content: str,
+    *,
+    source: str = "EN 1992-1-1_2004",
+    clause: str = "6.1",
+    section: str = "Section",
+) -> Chunk:
+    return Chunk(
+        chunk_id=chunk_id,
+        content=content,
+        embedding_text=content,
+        metadata=ChunkMetadata(
+            source=source,
+            source_title=source,
+            section_path=[section],
+            page_numbers=[1],
+            page_file_index=[0],
+            clause_ids=[clause],
+            element_type=ElementType.TEXT,
+        ),
+    )
 
 
 def _message_text(content):
@@ -356,6 +381,20 @@ class TestParseLlmResponse:
         result = parse_llm_response(raw)
         assert result.answer == raw
         assert result.confidence == Confidence.LOW
+
+
+class TestPostprocessCitations:
+    def test_warns_when_long_answer_uses_one_ref(self):
+        answer = "这是一个较长回答。" * 80 + "[Ref-1]"
+
+        with patch("server.core.generation.citations.logger.warning") as warning:
+            result = postprocess_citations(answer, 10)
+
+        assert result.endswith("[Ref-1]")
+        warning.assert_called_once()
+        assert warning.call_args.args[0] == (
+            "citation_low_diversity answer_len=%d unique_refs=%d num_sources=%d"
+        )
 
 
 class TestSourceTranslationFill:
@@ -1105,6 +1144,64 @@ class TestGenerateAnswer:
         assert [item["chunk_id"] for item in result.retrieval_context.guide_chunks] == [
             "guide-1"
         ]
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_applies_final_evidence_budget(self):
+        chunks = [
+            _make_generation_chunk(f"main-{index}", f"main evidence {index}")
+            for index in range(12)
+        ]
+        parent_chunks = [
+            _make_generation_chunk(f"parent-{index}", f"parent evidence {index}")
+            for index in range(12)
+        ]
+        ref_chunks = [
+            _make_generation_chunk(f"ref-{index}", f"ref evidence {index}")
+            for index in range(12)
+        ]
+        seen_user_prompts: list[str] = []
+        raw = json.dumps(
+            {
+                "answer": "根据条文应予规定。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_user_prompts.append(_message_text(kwargs["messages"][1]["content"]))
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))]
+                )
+
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            result = await generate_answer(
+                "受弯构件正截面承载力计算的一般步骤是什么？",
+                chunks,
+                parent_chunks,
+                scores=[1.0 - index * 0.01 for index in range(len(chunks))],
+                ref_chunks=ref_chunks,
+            )
+
+        assert len(result.sources) == 25
+        assert [source.original_text for source in result.sources[:3]] == [
+            "main evidence 0",
+            "main evidence 1",
+            "main evidence 2",
+        ]
+        assert "ref evidence 0" in seen_user_prompts[0]
+        assert "ref evidence 1" not in seen_user_prompts[0]
+        assert result.retrieval_context is not None
+        assert len(result.retrieval_context.chunks) == 12
+        assert len(result.retrieval_context.parent_chunks) == 12
+        assert len(result.retrieval_context.ref_chunks) == 1
 
     @pytest.mark.asyncio
     async def test_generate_answer_stream_dedupes_done_payload_context(

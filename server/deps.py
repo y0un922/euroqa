@@ -8,6 +8,7 @@ from pathlib import Path
 from server.config import ServerConfig
 from server.core.conversation import ConversationManager, RedisConversationManager
 from server.core.retrieval import HybridRetriever
+from server.services.kb_database import KBDatabase
 
 
 @lru_cache
@@ -26,6 +27,17 @@ def get_conversation_manager() -> ConversationManager:
 @lru_cache
 def get_retriever() -> HybridRetriever:
     return HybridRetriever(get_config())
+
+
+_kb_database: KBDatabase | None = None
+
+
+def get_kb_database() -> KBDatabase:
+    """Return the process-local knowledge-base metadata store."""
+    global _kb_database
+    if _kb_database is None:
+        _kb_database = KBDatabase(get_config().kb_db_path)
+    return _kb_database
 
 
 async def invalidate_retriever_cache() -> None:

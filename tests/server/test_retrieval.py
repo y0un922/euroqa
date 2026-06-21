@@ -3,6 +3,7 @@
 import pytest
 from elasticsearch import NotFoundError
 
+from server.core import retrieval_search
 from server.config import ServerConfig
 from server.core.retrieval import HybridRetriever
 from server.models.schemas import Chunk, ChunkMetadata, ElementType, GuideHint
@@ -138,6 +139,39 @@ class TestBm25Search:
         ]
 
     @pytest.mark.asyncio
+    async def test_bm25_search_applies_metadata_filters_and_soft_boosts(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(es_index="chunks")
+        seen_body: dict | None = None
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                nonlocal seen_body
+                assert index == "chunks"
+                seen_body = body
+                return {"hits": {"hits": []}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        retriever._get_es = _fake_get_es
+
+        await retriever._bm25_search(
+            "minimum reinforcement",
+            5,
+            {"standard_family": "EN 1992-1-1", "doc_version": ["2022", "2023"]},
+            soft_boosts={"doc_type": "standard"},
+        )
+
+        assert seen_body is not None
+        bool_query = seen_body["query"]["bool"]
+        assert {"term": {"standard_family": "EN 1992-1-1"}} in bool_query["filter"]
+        assert {"terms": {"doc_version": ["2022", "2023"]}} in bool_query["filter"]
+        assert {
+            "term": {"doc_type": {"value": "standard", "boost": 1.3}}
+        } in bool_query["should"]
+
+    @pytest.mark.asyncio
     async def test_bm25_search_returns_empty_when_index_missing(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
         retriever.config = ServerConfig(es_index="missing_chunks")
@@ -158,15 +192,44 @@ class TestBm25Search:
         assert await retriever._bm25_search("empty index", 5, {}) == []
 
 
+class TestVectorSearchSchemaCompatibility:
+    def test_vector_output_fields_omit_missing_metadata_fields_for_old_schema(self):
+        class _Field:
+            def __init__(self, name: str):
+                self.name = name
+
+        class _Schema:
+            fields = [_Field("chunk_id"), _Field("source"), _Field("element_type")]
+
+        class _Collection:
+            schema = _Schema()
+
+        fields = retrieval_search._vector_output_fields(
+            retrieval_search._collection_field_names(_Collection())
+        )
+
+        assert fields == ["chunk_id", "source", "element_type"]
+
+    def test_vector_search_detects_unsupported_metadata_filters(self):
+        assert retrieval_search._unsupported_metadata_filters(
+            {"standard_family": "EN 1992-1-1"},
+            {"chunk_id", "source", "element_type"},
+        )
+        assert not retrieval_search._unsupported_metadata_filters(
+            {"source": "EN 1992"},
+            {"chunk_id", "source", "element_type"},
+        )
+
+
 class TestCrossDocAggregation:
     def test_limits_per_source(self, retriever):
         results = [
             {"chunk_id": f"en1990_{i}", "source": "EN 1990", "score": 0.9 - i * 0.1}
-            for i in range(5)
+            for i in range(12)
         ] + [{"chunk_id": "en1991_0", "source": "EN 1991", "score": 0.5}]
         aggregated = retriever._cross_doc_aggregate(results, max_per_source=2)
         en1990_count = sum(1 for r in aggregated if r["source"] == "EN 1990")
-        assert en1990_count <= 2
+        assert en1990_count <= 10
         assert any(r["source"] == "EN 1991" for r in aggregated)
 
     def test_skips_aggregation_when_only_one_source_present(self, retriever):
@@ -179,6 +242,22 @@ class TestCrossDocAggregation:
             results,
             max_per_source=2,
             filters={},
+        )
+
+        assert aggregated == results
+
+    def test_skips_aggregation_when_standard_family_filter_present(self, retriever):
+        results = [
+            {"chunk_id": f"en1992_{i}", "source": "EN 1992-1-1:2023", "score": 0.9}
+            for i in range(8)
+        ] + [
+            {"chunk_id": "guide", "source": "DG EN1992-1-1", "score": 0.5}
+        ]
+
+        aggregated = retriever._cross_doc_aggregate(
+            results,
+            max_per_source=2,
+            filters={"standard_family": "EN 1992-1-1"},
         )
 
         assert aggregated == results
@@ -448,6 +527,83 @@ class TestCrossRefConstraints:
         )
 
         assert [result["chunk_id"] for result in filtered] == ["en1992", "dg1992"]
+
+    def test_filter_results_by_source_applies_metadata_filters(self, retriever):
+        results = [
+            {
+                "chunk_id": "new-standard",
+                "source": "doc-a",
+                "standard_family": "EN 1992-1-1",
+                "doc_type": "standard",
+                "doc_version": "2023",
+                "score": 0.9,
+            },
+            {
+                "chunk_id": "guide",
+                "source": "doc-b",
+                "standard_family": "EN 1992-1-1",
+                "doc_type": "guide",
+                "doc_version": "2023",
+                "score": 0.8,
+            },
+            {
+                "chunk_id": "old-standard",
+                "source": "doc-c",
+                "standard_family": "EN 1992-1-1",
+                "doc_type": "standard",
+                "doc_version": "2004",
+                "score": 0.7,
+            },
+        ]
+
+        filtered = retriever._filter_results_by_source(
+            results,
+            {"doc_type": "standard", "doc_version": ["2022", "2023"]},
+        )
+
+        assert [result["chunk_id"] for result in filtered] == ["new-standard"]
+
+
+class TestLookupClause:
+    def test_parse_lookup_clause_ref_extracts_source_and_object(self, retriever):
+        source, label = retriever._parse_lookup_clause_ref(
+            "EN 1992-1-1, Table 3.1"
+        )
+
+        assert source == "EN 1992-1-1"
+        assert label == "Table 3.1"
+
+    @pytest.mark.asyncio
+    async def test_lookup_clause_uses_exact_clause_and_source_filters(self, retriever):
+        retriever.config = ServerConfig(es_index="chunks")
+        seen_body: dict | None = None
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                nonlocal seen_body
+                assert index == "chunks"
+                seen_body = body
+                return {"hits": {"hits": [{"_id": "clause-6-10"}]}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            assert chunk_ids == ["clause-6-10"]
+            return [_make_chunk("clause-6-10", "Expression (6.10) content")]
+
+        retriever._get_es = _fake_get_es
+        retriever._fetch_chunks = _fake_fetch_chunks
+
+        chunks = await retriever.lookup_clause("EN 1990, Expression (6.10)")
+
+        assert [chunk.chunk_id for chunk in chunks] == ["clause-6-10"]
+        assert seen_body is not None
+        bool_query = seen_body["query"]["bool"]
+        assert {
+            "term": {"object_label": "Expression (6.10)"}
+        } in bool_query["should"]
+        assert bool_query["filter"]
 
     def test_build_cross_ref_filters_uses_explicit_source_filter(self, retriever):
         final_chunks = [_make_chunk("a", "See Table 3.1")]

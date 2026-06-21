@@ -26,6 +26,7 @@ export type LlmSettingsResponse = {
 export type QueryRequestPayload = {
   question: string;
   domain?: string;
+  kbIds?: string[];
   conversation_id?: string;
   sessionId?: string;
   stream?: boolean;
@@ -235,6 +236,120 @@ export type DocumentInfo = {
   total_pages: number;
   chunk_count: number;
   status?: DocumentStatus;
+};
+
+export type KnowledgeBaseInfo = {
+  id: string;
+  name: string;
+  description: string;
+  documentCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KBDocumentInfo = {
+  docId: string;
+  fileName: string;
+  status: DocumentStatus;
+  addedAt: string;
+};
+
+export type KnowledgeBaseDetail = KnowledgeBaseInfo & {
+  documents: KBDocumentInfo[];
+};
+
+export type KnowledgeBaseUploadResult = {
+  kb_id: string;
+  uploaded: Array<{
+    doc_id: string;
+    file_name: string;
+    minio_path: string;
+    status: string;
+    message: string;
+  }>;
+  errors: Array<{
+    doc_id?: string;
+    file_name?: string;
+    error: string;
+  }>;
+  knowledge_base: KnowledgeBaseDetail;
+};
+
+export type KnowledgeBaseDeleteResult = {
+  deleted: boolean;
+  delete_documents: boolean;
+  deleted_documents: unknown[];
+  kept_shared_doc_ids: string[];
+};
+
+export type IndexBackendStats = {
+  exists: boolean;
+  collection?: string;
+  index?: string;
+  fields?: string[];
+  entity_count?: number;
+  schema_ok?: boolean;
+  document_count?: number;
+  mapping_fields?: string[];
+  error?: string;
+};
+
+export type IndexSourceAggregate = {
+  source: string;
+  elasticsearch_count: number;
+};
+
+export type IndexOverview = {
+  milvus: IndexBackendStats;
+  elasticsearch: IndexBackendStats;
+  sources: IndexSourceAggregate[];
+};
+
+export type IndexSampleChunk = {
+  chunk_id: string;
+  source: string;
+  source_title?: string;
+  section_path: string[];
+  page_numbers: Array<number | string>;
+  clause_ids: string[];
+  element_type?: string;
+  content_preview: string;
+};
+
+export type DocumentIndexInspection = {
+  doc_id: string;
+  sources: string[];
+  milvus_count: number;
+  elasticsearch_count: number;
+  samples: IndexSampleChunk[];
+};
+
+export type DocumentIndexDeleteResult = {
+  doc_id: string;
+  sources: string[];
+  deleted: {
+    milvus: number;
+    elasticsearch: number;
+  };
+};
+
+export type DocumentIndexRebuildResult = {
+  doc_id: string;
+  chunks: number;
+  deleted: {
+    milvus: number;
+    elasticsearch: number;
+  };
+  indexed: {
+    milvus: number;
+    elasticsearch: number;
+  };
+};
+
+export type IndexOperationResponse<T> = {
+  code: number;
+  message: string;
+  data: T;
 };
 
 export type DocumentUploadResponse = {

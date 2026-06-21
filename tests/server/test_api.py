@@ -51,6 +51,7 @@ def _analysis_stub(
         rewritten_query=question,
         original_question=question,
         filters={},
+        soft_boosts={},
         matched_terms={},
         intent_label=intent_label,
         target_hint=target_hint,
@@ -109,6 +110,7 @@ async def _legacy_pipeline_dispatch_agent(
         target_hint=analysis.target_hint,
         requested_objects=analysis.requested_objects,
         preferred_element_type=analysis.preferred_element_type,
+        soft_boosts=analysis.soft_boosts,
     )
     bundle = EvidenceBundle()
     bundle.add_retrieval(result)
@@ -1209,6 +1211,7 @@ class TestQueryEndpoint:
                 ),
                 "requested_objects": ["6.1"],
                 "preferred_element_type": None,
+                "soft_boosts": {},
             }
         ]
 
@@ -2239,6 +2242,7 @@ class TestDocumentsEndpoint:
                     "docId": "EN_1992_1_1",
                     "fileName": "EN 1992-1-1.pdf",
                     "minioPath": str(source_pdf),
+                    "docType": "standard",
                 },
             )
 
@@ -2518,6 +2522,7 @@ class TestDocumentsEndpoint:
                     "docId": "EN_1992_1_1",
                     "fileName": "EN 1992-1-1.pdf",
                     "minioPath": str(source_pdf),
+                    "docType": "standard",
                 },
             )
 
@@ -2536,6 +2541,7 @@ class TestDocumentsEndpoint:
             )
         )
         assert parse_options["context_summary_enabled"] is True
+        assert parse_options["doc_type"] == "standard"
         assert parse_options["minio_path"] == str(source_pdf)
 
     def test_parse_document_contract_downloads_from_minio_path(
@@ -2706,7 +2712,7 @@ class TestDocumentsEndpoint:
         ):
             resp = client.post(
                 "/api/v1/documents/upload-to-minio",
-                data={"contextSummaryEnabled": "false"},
+                data={"contextSummaryEnabled": "false", "docType": "guide"},
                 files={
                     "file": (
                         "EN 1992-1-1.pdf",
@@ -2741,6 +2747,7 @@ class TestDocumentsEndpoint:
             )
         )
         assert parse_options["context_summary_enabled"] is False
+        assert parse_options["doc_type"] == "guide"
 
     def test_upload_to_minio_rejects_non_pdf(self, client):
         resp = client.post(

@@ -258,6 +258,7 @@ async def run_once(
         target_hint=analysis.target_hint,
         requested_objects=analysis.requested_objects,
         preferred_element_type=analysis.preferred_element_type,
+        soft_boosts=analysis.soft_boosts,
     )
     response = await generate_answer(
         question=question,

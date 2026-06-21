@@ -21,6 +21,16 @@ _DEFAULT_BM25_FIELDS = [
     "object_aliases.text^5",
 ]
 
+_VECTOR_OUTPUT_FIELDS = [
+    "chunk_id",
+    "source",
+    "element_type",
+    "doc_type",
+    "standard_family",
+    "doc_version",
+]
+_METADATA_FILTER_FIELDS = {"doc_type", "standard_family", "doc_version"}
+
 
 async def _vector_search(
     collection: object,
@@ -31,15 +41,15 @@ async def _vector_search(
     filters: dict,
 ) -> list[dict]:
     """使用 BGE-M3 编码查询，在 Milvus 中进行向量近似搜索。"""
+    field_names = _collection_field_names(collection)
+    if field_names is not None and _unsupported_metadata_filters(filters, field_names):
+        return []
+
     embedding = (await embedding_client.embed_texts([query]))[0]
 
     # 构造 Milvus 布尔过滤表达式（不含 element_type，已改为 boost）
-    expr_parts: list[str] = []
-    if "source" in filters:
-        source_expr = retrieval_helpers._build_milvus_source_expr(filters["source"])
-        if source_expr:
-            expr_parts.append(source_expr)
-    expr = " and ".join(expr_parts) if expr_parts else None
+    expr = retrieval_helpers._build_milvus_filter_expr(filters)
+    output_fields = _vector_output_fields(field_names)
 
     results = await asyncio.to_thread(
         collection.search,
@@ -48,18 +58,51 @@ async def _vector_search(
         param={"metric_type": "COSINE", "params": {"ef": 128}},
         limit=top_k,
         expr=expr,
-        output_fields=["chunk_id", "source", "element_type"],
+        output_fields=output_fields,
     )
 
     results = [
         {
             "chunk_id": hit.entity.get("chunk_id"),
             "source": hit.entity.get("source"),
+            "doc_type": hit.entity.get("doc_type"),
+            "standard_family": hit.entity.get("standard_family"),
+            "doc_version": hit.entity.get("doc_version"),
             "score": hit.score,
         }
         for hit in results[0]
     ]
     return retrieval_helpers._filter_results_by_source(results, filters)
+
+
+def _collection_field_names(collection: object) -> set[str] | None:
+    schema = getattr(collection, "schema", None)
+    fields = getattr(schema, "fields", None)
+    if fields is None:
+        return None
+    names = {
+        getattr(field, "name", "")
+        for field in fields
+        if getattr(field, "name", "")
+    }
+    return names or None
+
+
+def _unsupported_metadata_filters(filters: dict, field_names: set[str]) -> bool:
+    return any(
+        field_name in filters and field_name not in field_names
+        for field_name in _METADATA_FILTER_FIELDS
+    )
+
+
+def _vector_output_fields(field_names: set[str] | None) -> list[str]:
+    if field_names is None:
+        return list(_VECTOR_OUTPUT_FIELDS)
+    return [
+        field_name
+        for field_name in _VECTOR_OUTPUT_FIELDS
+        if field_name in field_names
+    ]
 
 
 async def _bm25_search(
@@ -70,6 +113,7 @@ async def _bm25_search(
     filters: dict,
     fields: list[str] | None = None,
     preferred_element_type: str | None = None,
+    soft_boosts: dict | None = None,
 ) -> list[dict]:
     """在 Elasticsearch 中使用 multi_match 进行 BM25 全文检索。"""
     search_fields = fields or _DEFAULT_BM25_FIELDS
@@ -91,6 +135,7 @@ async def _bm25_search(
         should_clauses.append(
             {"term": {"element_type": {"value": preferred_element_type, "boost": 2.0}}}
         )
+    should_clauses.extend(retrieval_helpers._build_soft_boost_clauses(soft_boosts))
 
     body = {
         "query": {

@@ -233,6 +233,10 @@ async def evaluate(
                     intent_label=analysis.intent_label,
                     target_hint=analysis.target_hint,
                     requested_objects=getattr(analysis, "requested_objects", []),
+                    preferred_element_type=getattr(
+                        analysis, "preferred_element_type", None
+                    ),
+                    soft_boosts=getattr(analysis, "soft_boosts", {}),
                 )
             except Exception as exc:
                 logger.warning("eval_question_failed", question_id=qid, exc_info=True)

@@ -274,6 +274,7 @@ export function useEuroQaDemo() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [hotQuestions, setHotQuestions] = useState<string[]>([]);
+  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
   const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
   const [draftQuestion, setDraftQuestion] = useState(
     initialSession.draftQuestion,
@@ -630,6 +631,7 @@ export function useEuroQaDemo() {
   ) {
     const requestPayload = buildChatQueryPayload({
       question: normalizedQuestion,
+      kbIds: selectedKbIds,
       sessionId,
       llm: toLlmRequestOverride(llmSettings),
     });
@@ -1045,8 +1047,10 @@ export function useEuroQaDemo() {
     sourceTranslationError,
     setSourceTranslationEnabled,
     sourceTranslationEnabled,
+    selectedKbIds,
     setActiveReferenceId,
     setDraftQuestion: setDraftQuestion as Dispatch<SetStateAction<string>>,
+    setSelectedKbIds: setSelectedKbIds as Dispatch<SetStateAction<string[]>>,
     refreshDocuments,
     stopStreaming,
     submitDraftQuestion,

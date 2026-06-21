@@ -95,6 +95,10 @@ _CROSS_REF_PRIORITY = {
     "en_std": 5,
     None: 6,
 }
+_LOOKUP_SOURCE_PREFIX_RE = re.compile(
+    r"\bEN\s*(\d{4}(?:-\d+-\d+|-\d+)?)\b",
+    re.IGNORECASE,
+)
 
 
 def _warn_search_failed(
@@ -244,6 +248,7 @@ class HybridRetriever:
         filters: dict,
         fields: list[str] | None = None,
         preferred_element_type: str | None = None,
+        soft_boosts: dict | None = None,
     ) -> list[dict]:
         return await retrieval_search._bm25_search(
             await self._get_es(),
@@ -253,6 +258,7 @@ class HybridRetriever:
             filters,
             fields=fields,
             preferred_element_type=preferred_element_type,
+            soft_boosts=soft_boosts,
         )
 
     # ------------------------------------------------------------------
@@ -391,6 +397,10 @@ class HybridRetriever:
     @classmethod
     def _build_milvus_source_expr(cls, source: str) -> str | None:
         return retrieval_helpers._build_milvus_source_expr(source)
+
+    @classmethod
+    def _build_milvus_filter_expr(cls, filters: dict | None) -> str | None:
+        return retrieval_helpers._build_milvus_filter_expr(filters)
 
     @classmethod
     def _source_matches_filter(cls, source: str, expected: str) -> bool:
@@ -1128,6 +1138,83 @@ class HybridRetriever:
         fetched = await self._fetch_chunks([chunk_id])
         return fetched[0] if fetched else None
 
+    async def lookup_clause(
+        self,
+        clause_ref: str,
+        filters: dict | None = None,
+    ) -> list[Chunk]:
+        """Look up a known clause/table/formula reference with exact metadata.
+
+        This is narrower than retrieve(): it only uses Elasticsearch keyword
+        fields and returns direct object/clause matches for an explicit ref.
+        """
+        normalized_ref = (clause_ref or "").strip()
+        if not normalized_ref:
+            return []
+
+        lookup_filters = {**(filters or {})}
+        source_filter, object_label = self._parse_lookup_clause_ref(normalized_ref)
+        if source_filter and "source" not in lookup_filters:
+            lookup_filters["source"] = source_filter
+
+        label_candidates = self._lookup_clause_label_candidates(object_label)
+        if not label_candidates:
+            return []
+
+        filter_clauses = self._build_source_filter_clauses(lookup_filters)
+        should_clauses = [
+            {"term": {"object_label": label}}
+            for label in label_candidates
+        ]
+        should_clauses.extend(
+            {"term": {"clause_ids": label}}
+            for label in label_candidates
+        )
+        body = {
+            "size": 5,
+            "query": {
+                "bool": {
+                    "filter": filter_clauses,
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
+                }
+            },
+        }
+        try:
+            es = await self._get_es()
+            resp = await es.search(index=self.config.es_index, body=body)
+        except Exception:
+            logger.warning("lookup_clause_failed", clause_ref=clause_ref, exc_info=True)
+            return []
+
+        hits = resp.get("hits", {}).get("hits", [])
+        chunk_ids = [hit["_id"] for hit in hits if hit.get("_id")]
+        return await self._fetch_chunks(chunk_ids)
+
+    @classmethod
+    def _parse_lookup_clause_ref(cls, clause_ref: str) -> tuple[str | None, str]:
+        source_match = _LOOKUP_SOURCE_PREFIX_RE.search(clause_ref)
+        source_filter = None
+        if source_match:
+            code, _ = cls._parse_source_reference(source_match.group(0))
+            source_filter = f"EN {code}" if code else source_match.group(0)
+            object_part = clause_ref[source_match.end():]
+        else:
+            object_part = clause_ref
+        object_part = object_part.strip(" ,;:-")
+        return source_filter, object_part or clause_ref.strip()
+
+    @classmethod
+    def _lookup_clause_label_candidates(cls, value: str) -> list[str]:
+        normalized = normalize_reference_label(value)
+        if not normalized:
+            return []
+        candidates = [normalized]
+        category = classify_reference_label(normalized)
+        if category == "clause":
+            candidates.extend([f"Clause {normalized}", f"Section {normalized}"])
+        return list(dict.fromkeys(candidates))
+
     async def _fetch_cross_ref_chunks(
         self,
         refs: set[str],
@@ -1369,6 +1456,7 @@ class HybridRetriever:
         target_hint: Any = None,
         requested_objects: list[str] | None = None,
         preferred_element_type: str | None = None,
+        soft_boosts: dict | None = None,
         prefetched_original_results: list[dict] | None = None,
         top_k: int | None = None,
         progress: ToolProgressEmitter | None = None,
@@ -1387,6 +1475,7 @@ class HybridRetriever:
 
         progress = progress or _NullEmitter()
         filters = filters or {}
+        soft_boosts = soft_boosts or {}
         requested_objects = [
             normalize_reference_label(label)
             for label in (requested_objects or [])
@@ -1457,6 +1546,7 @@ class HybridRetriever:
                         cfg.bm25_top_k,
                         filters,
                         preferred_element_type=preferred_element_type,
+                        soft_boosts=soft_boosts,
                     )
                 except Exception as exc:
                     _warn_search_failed(

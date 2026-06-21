@@ -55,6 +55,9 @@ async def index_to_milvus(chunks: list[Chunk], config: PipelineConfig) -> int:
         embeddings,
         [c.metadata.source for c in to_embed],
         [c.metadata.element_type.value for c in to_embed],
+        [c.metadata.doc_type.value for c in to_embed],
+        [c.metadata.standard_family for c in to_embed],
+        [c.metadata.doc_version for c in to_embed],
     ]
     collection.insert(data)
     collection.flush()

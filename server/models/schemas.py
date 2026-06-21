@@ -31,6 +31,12 @@ class ElementType(str, Enum):
     IMAGE = "image"
 
 
+class DocType(str, Enum):
+    STANDARD = "standard"
+    GUIDE = "guide"
+    EXAMPLE = "example"
+
+
 class Confidence(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
@@ -103,6 +109,9 @@ class ChunkMetadata(BaseModel):
     page_file_index: list[int]
     clause_ids: list[str]
     element_type: ElementType
+    doc_type: DocType = DocType.STANDARD
+    standard_family: str = ""
+    doc_version: str = ""
     cross_refs: list[str] = []
     parent_chunk_id: Optional[str] = None
     parent_text_chunk_id: Optional[str] = None
@@ -142,6 +151,7 @@ class QueryRequest(BaseModel):
 
     question: str = Field(..., max_length=500)
     domain: Optional[str] = None
+    kb_ids: list[str] | None = Field(default=None, alias="kbIds")
     conversation_id: Optional[str] = None
     session_id: Optional[str] = Field(default=None, alias="sessionId")
     stream: bool = False
@@ -272,6 +282,40 @@ class DocumentStatus(str, Enum):
     ERROR = "error"
 
 
+class KnowledgeBaseCreate(CamelModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+
+
+class KnowledgeBaseUpdate(CamelModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class KnowledgeBaseDocumentsUpdate(CamelModel):
+    doc_ids: list[str] = Field(default_factory=list)
+
+
+class KnowledgeBaseInfo(CamelModel):
+    id: str
+    name: str
+    description: str
+    document_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class KBDocumentInfo(CamelModel):
+    doc_id: str
+    file_name: str
+    status: DocumentStatus = DocumentStatus.READY
+    added_at: str
+
+
+class KnowledgeBaseDetail(KnowledgeBaseInfo):
+    documents: list[KBDocumentInfo] = Field(default_factory=list)
+
+
 class DocumentInfo(BaseModel):
     id: str
     name: str
@@ -305,6 +349,7 @@ class DocumentParseRequest(CamelModel):
     file_name: str
     minio_path: str
     context_summary_enabled: bool = True
+    doc_type: Optional[DocType] = None
 
 
 class DocumentParseResponse(CamelModel):

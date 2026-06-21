@@ -57,7 +57,12 @@ def _cross_doc_aggregate(
     """跨文档聚合：限制每个来源文档的最大 chunk 数量，确保结果多样性。"""
     filters = filters or {}
     unique_sources = {result.get("source", "") for result in results}
-    if "source" in filters or len(unique_sources) <= 1:
+    cap = _compute_per_source_cap(
+        unique_source_count=len(unique_sources),
+        default_cap=max_per_source,
+        filters=filters,
+    )
+    if cap is None:
         return results
 
     source_counts: dict[str, int] = {}
@@ -66,11 +71,27 @@ def _cross_doc_aggregate(
     for result in results:
         src = result.get("source", "")
         count = source_counts.get(src, 0)
-        if count < max_per_source:
+        if count < cap:
             aggregated.append(result)
             source_counts[src] = count + 1
 
     return aggregated
+
+
+def _compute_per_source_cap(
+    *,
+    unique_source_count: int,
+    default_cap: int,
+    filters: dict | None,
+) -> int | None:
+    filters = filters or {}
+    if unique_source_count <= 1 or filters.get("source") or filters.get("standard_family"):
+        return None
+    if unique_source_count <= 3:
+        return max(10, default_cap)
+    if unique_source_count <= 8:
+        return max(5, default_cap)
+    return min(3, default_cap)
 
 
 def _append_unique_results(

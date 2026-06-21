@@ -21,7 +21,7 @@ from shared.reference_graph import build_object_id
 from shared.reference_graph import classify_reference_label
 from shared.reference_graph import extract_clause_key
 from shared.reference_graph import normalize_reference_label
-from server.models.schemas import Chunk, ChunkMetadata
+from server.models.schemas import Chunk, ChunkMetadata, DocType
 from server.models.schemas import ElementType as ChunkElementType
 
 logger = structlog.get_logger()
@@ -54,6 +54,14 @@ _ELEMENT_TYPE_MAP: dict[StructElementType, ChunkElementType] = {
     StructElementType.IMAGE: ChunkElementType.IMAGE,
 }
 
+_YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+_STANDARD_FAMILY_RE = re.compile(
+    r"EN\s*[-_ ]?(\d{4}(?:[-_ ]\d+){0,2})",
+    re.IGNORECASE,
+)
+_GUIDE_MARKERS = ("DG", "DESIGNER", "DESIGNERS", "GUIDE", "COMMENTARY")
+_EXAMPLE_MARKERS = ("EXAMPLE", "WORKED_EXAMPLE", "WORKED-EXAMPLE", "WORKED EXAMPLE")
+
 
 # ---------------------------------------------------------------------------
 # 公共 API
@@ -73,7 +81,11 @@ class _ChunkBuildResult:
     split_text_chunks: list[Chunk] = field(default_factory=list)
 
 
-def create_chunks(tree: DocumentNode, source_title: str = "") -> list[Chunk]:
+def create_chunks(
+    tree: DocumentNode,
+    source_title: str = "",
+    doc_type: DocType | str | None = None,
+) -> list[Chunk]:
     """将文档树转换为混合分块列表。
 
     Parameters
@@ -82,17 +94,25 @@ def create_chunks(tree: DocumentNode, source_title: str = "") -> list[Chunk]:
         由 ``parse_markdown_to_tree`` 生成的文档根节点。
     source_title:
         文档标题，如 ``"Basis of structural design"``。
+    doc_type:
+        外部解析 API 传入的文档类型覆盖值；未传入时从文件名/标题推断。
 
     Returns
     -------
     list[Chunk]
         包含 parent 文本块、child 文本块和独立特殊元素块的列表。
     """
+    document_metadata = _infer_document_metadata(
+        source=tree.source,
+        source_title=source_title,
+        doc_type=doc_type,
+    )
     result = _walk_sections(
         tree,
         ancestor_path=[],
         node_identity=(),
         source_title=source_title,
+        document_metadata=document_metadata,
     )
     validate_unique_chunk_ids(result.chunks)
     return result.chunks
@@ -129,6 +149,7 @@ def _walk_sections(
     ancestor_path: list[str],
     node_identity: tuple[int, ...],
     source_title: str,
+    document_metadata: dict[str, object],
  ) -> _ChunkBuildResult:
     """深度优先遍历文档树，在合适的层级生成块。
 
@@ -164,6 +185,7 @@ def _walk_sections(
                 ancestor_path=current_path,
                 node_identity=node_identity + (index,),
                 source_title=source_title,
+                document_metadata=document_metadata,
             )
             chunks.extend(child_result.chunks)
             if child_result.representative_text_chunk is not None:
@@ -178,6 +200,7 @@ def _walk_sections(
                 node_identity,
                 source_title,
                 child_representatives,
+                document_metadata,
             )
             chunks.append(parent_chunk)
 
@@ -202,6 +225,7 @@ def _walk_sections(
                         source_title,
                         node,
                         parent_text_chunk_id,
+                        document_metadata,
                         same_type_index=same_type_index,
                     )
                 )
@@ -223,6 +247,7 @@ def _walk_sections(
         node_identity,
         source_title,
         special_nodes,
+        document_metadata,
     )
     if not text_chunks:
         return _ChunkBuildResult(chunks=[], split_text_chunks=[])
@@ -242,6 +267,7 @@ def _walk_sections(
                 source_title,
                 node,
                 representative.chunk_id,
+                document_metadata,
                 same_type_index=same_type_index,
             )
         )
@@ -264,12 +290,17 @@ def _build_child_text_chunks(
     node_identity: tuple[int, ...],
     source_title: str,
     special_children: list[DocumentNode],
+    document_metadata: dict[str, object] | None = None,
 ) -> list[Chunk]:
     """为叶 section 节点构建子文本块（必要时按 ``_recursive_split`` 切多片）。"""
     content = _insert_placeholders(node.content, special_children)
     if not content.strip():
         return []
 
+    document_metadata = document_metadata or _infer_document_metadata(
+        source=node.source,
+        source_title=source_title,
+    )
     pieces = _recursive_split(content)
     total = len(pieces)
     chunks: list[Chunk] = []
@@ -301,6 +332,7 @@ def _build_child_text_chunks(
                 page_file_index=node.page_file_index,
                 clause_ids=node.clause_ids,
                 element_type=ChunkElementType.TEXT,
+                **document_metadata,
                 cross_refs=node.cross_refs,
                 ref_labels=list(node.cross_refs),
                 ref_object_ids=_build_ref_object_ids(node.source, node.cross_refs),
@@ -319,6 +351,7 @@ def _build_parent_chunk(
     node_identity: tuple[int, ...],
     source_title: str,
     child_chunks: list[Chunk],
+    document_metadata: dict[str, object],
 ) -> Chunk:
     """为非叶 section 节点构建父文本块（拼接所有子文本内容）。"""
     # 拼接所有子块文本，用换行分隔
@@ -386,6 +419,7 @@ def _build_parent_chunk(
             page_file_index=all_page_file_indexes,
             clause_ids=all_clause_ids,
             element_type=ChunkElementType.TEXT,
+            **document_metadata,
             cross_refs=all_cross_refs,
             ref_labels=list(all_cross_refs),
             ref_object_ids=_build_ref_object_ids(node.source, all_cross_refs),
@@ -404,6 +438,7 @@ def _build_special_chunk(
     source_title: str,
     parent_section: DocumentNode,
     parent_text_chunk_id: str | None,
+    document_metadata: dict[str, object],
     same_type_index: int = 0,
 ) -> Chunk:
     """为表格/公式/图片构建独立块。"""
@@ -438,6 +473,7 @@ def _build_special_chunk(
             page_file_index=parent_section.page_file_index,
             clause_ids=_extract_special_clause_ids(special_node),
             element_type=element_type,
+            **document_metadata,
             cross_refs=special_node.cross_refs,
             ref_labels=list(special_node.cross_refs),
             ref_object_ids=_build_ref_object_ids(parent_section.source, special_node.cross_refs),
@@ -458,6 +494,71 @@ def _build_special_chunk(
 # ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
+
+def _infer_document_metadata(
+    source: str,
+    source_title: str,
+    doc_type: DocType | str | None = None,
+) -> dict[str, object]:
+    haystacks = [source_title, source]
+    inferred_type = _normalize_doc_type(doc_type) or _infer_doc_type(*haystacks)
+    return {
+        "doc_type": inferred_type,
+        "standard_family": _infer_standard_family(*haystacks),
+        "doc_version": _infer_doc_version(*haystacks),
+    }
+
+
+def _normalize_doc_type(value: DocType | str | None) -> DocType | None:
+    if value is None:
+        return None
+    if isinstance(value, DocType):
+        return value
+    normalized = str(value).strip().lower()
+    if not normalized:
+        return None
+    try:
+        return DocType(normalized)
+    except ValueError:
+        return None
+
+
+def _infer_doc_type(*values: str) -> DocType:
+    normalized_values = [_normalize_filename(value).upper() for value in values if value]
+    if any(
+        marker in value
+        for value in normalized_values
+        for marker in _EXAMPLE_MARKERS
+    ):
+        return DocType.EXAMPLE
+    if any(marker in value for value in normalized_values for marker in _GUIDE_MARKERS):
+        return DocType.GUIDE
+    return DocType.STANDARD
+
+
+def _infer_doc_version(*values: str) -> str:
+    for value in values:
+        match = _YEAR_RE.search(value or "")
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _infer_standard_family(*values: str) -> str:
+    for value in values:
+        match = _STANDARD_FAMILY_RE.search(value or "")
+        if not match:
+            continue
+        family = match.group(1).replace("_", "-").replace(" ", "-")
+        parts = [part for part in family.split("-") if part]
+        if len(parts) > 3:
+            parts = parts[:3]
+        return "EN " + "-".join(parts)
+    return ""
+
+
+def _normalize_filename(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", value or "")
 
 def _make_chunk_id(
     source: str,

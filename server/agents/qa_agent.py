@@ -13,6 +13,7 @@ from openai import AsyncOpenAI
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
+from server.agents.tools.lookup_clause import lookup_clause
 from server.agents.tools.lookup_glossary import lookup_glossary
 from server.agents.tools.retrieve import retrieve
 from server.config import ServerConfig
@@ -20,7 +21,8 @@ from server.config import ServerConfig
 _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x 系列）的专家问答助手。
 
 ## 工具
-- retrieve(query, top_k=8): 搜索规范知识库。传入检索查询，系统自动进行查询扩展和混合检索。top_k 控制返回给回答生成的证据数量，允许范围 3-12。
+- retrieve(query, top_k=8, standard_family=None, doc_type=None, doc_version=None): 搜索规范知识库。通常只传 query 和 top_k，系统会自动识别规范族、文档类型和版本偏好。只有在二次检索需要明确切换规范族、用户明确要求对比新旧版、或明确要求计算示例时，才传 optional 参数覆盖自动路由；不确定时不要传，错误 filter 比没有 filter 更糟。top_k 允许范围 3-12。
+- lookup_clause(clause_ref): 按条款号、表格号或公式号精确查找已知引用，例如 "EN 1990, 6.4.3.2(2)"、"EN 1992-1-1, Table 3.1"、"EN 1990, Expression (6.10)"。仅当当前证据出现明确交叉引用且现有证据未覆盖该引用时使用。
 - lookup_glossary(term): 查询术语表。传入术语，返回翻译和定义。
 
 ## 行为准则
@@ -28,10 +30,14 @@ _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x �
 - 用户寒暄、闲聊、或问与规范无关的问题时，直接自然语言回复，不调用工具。
 - 用户追问且当前对话历史已经足够回答时，可以直接回复。
 - 用户追问但需要新的规范证据、其他条文、表格、公式或参数时，再次调用 retrieve。
+- 当证据中出现跨规范或具体条款引用，而当前证据没有覆盖该条款/表格/公式时，可以调用 lookup_clause 精确追踪；如果只是泛化问题，优先 retrieve。
+- 对跨规范问题，第一次 retrieve 通常不传 standard_family；只有需要追踪另一个明确规范族时，第二次 retrieve 才传 standard_family 覆盖。
+- 用户明确要求对比新旧版时，可以分两次 retrieve，分别传 doc_version="new" 和 doc_version="current"。
+- 用户明确要求看计算示例或 worked example 时，可以传 doc_type="example"。
 - 问题过于模糊且无法形成有效检索查询时，直接礼貌反问，请用户补充规范号、构件类型、参数名称或设计场景。
 - retrieve 返回 0 条结果时，可以换查询角度重试 1 次；仍为 0 则直接告知暂未找到相关条文，并请用户补充信息。
 - retrieve 已返回 groundedness=grounded 的结果时，不要再次调用 retrieve。已有证据充足，直接简要说明找到了什么即可。
-- 对一个问题，最多调用 retrieve 2 次。不要为了"换角度多查"而反复检索。
+- 不要为了"换角度多查"而反复检索；依赖 groundedness 和工具返回结果判断是否继续。
 - 根据问题复杂度设置 top_k：简单定义或单个参数问题用 4-6；一般规范解释用 6-8；复杂综合总结、对比或多要点问题用 8-12。不要超过 12。
 - 调用 retrieve 时，query 必须是自包含的完整问题，不得包含代词或省略关键语境。如果用户当前问题包含代词（它、这个、该参数、上面的表格等）或省略了文档名/条款号，你必须在 query 中用明确的名词替代。例如：上文是关于保护层厚度的，用户问"它的限值是多少"，你应调用 retrieve("混凝土保护层厚度的限值")，而不是 retrieve("它的限值是多少")。
 
@@ -75,7 +81,7 @@ def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
     return Agent[QADeps](
         name="eurocode-qa",
         model=model,
-        tools=[retrieve, lookup_glossary],
+        tools=[retrieve, lookup_clause, lookup_glossary],
         model_settings=ModelSettings(temperature=0.1),
         instructions=_QA_AGENT_INSTRUCTIONS,
     )
@@ -264,6 +270,11 @@ def _tool_calling_summary(tool_name: str | None, arguments: str) -> str:
         if term:
             return f"正在查询术语：「{term[:50]}」..."
         return "正在查询术语表..."
+    if tool_name == "lookup_clause":
+        clause_ref = _argument_value(arguments, "clause_ref")
+        if clause_ref:
+            return f"正在精确查找条款：「{clause_ref[:50]}」..."
+        return "正在精确查找条款..."
     if tool_name:
         return f"正在调用 {tool_name}..."
     return "正在调用工具..."
@@ -279,6 +290,10 @@ def _tool_result_summary(tool_name: str | None, output: str) -> str:
         if first_line:
             return first_line[:120]
         return "术语查询完成。"
+    if tool_name == "lookup_clause":
+        if first_line:
+            return first_line[:120]
+        return "条款精确查找完成。"
     return "工具执行完成。"
 
 

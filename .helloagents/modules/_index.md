@@ -6,11 +6,13 @@
 - `server.api.v1.glossary`: 热门问题、术语查询和首页引导项
 - `server.api.v1.settings`: 前端 LLM 设置默认值接口
 - `server.api.v1.query`: 问答入口，请求级合成运行时 LLM 配置
+- `server.api.v1.knowledge_bases`: 知识库 CRUD、文档绑定、批量上传和安全删除接口
 - `server.api.v1.sessions`: 会话恢复与 Redis-backed 用户会话摘要列表
 - `server.api.v1.documents`: 文档解析、批量状态、批量删除与兼容处理端点
 - `server.api.v1.sources`: 来源翻译外部端点与兼容接口
 - `server.logging_config`: 后端 structlog 配置与 Asia/Shanghai 日志时间戳
 - `server.services.minio_storage`: MinIO 对象路径解析、PDF 上传与下载
+- `server.services.kb_database`: SQLite 知识库元数据存储与文档多对多关系
 - `server.agents.qa_agent`: OpenAI Agents SDK 问答 agent、对话历史压缩与工具事件流
 - `server.agents.tools.retrieve`: agent `retrieve` 工具、grounded 拦截与检索 Observation 摘要
 - `frontend.lib.auth`: 前端访问密码 token 的本地存储、过期判定与认证过期事件
