@@ -26,6 +26,7 @@ export type LlmSettingsResponse = {
 export type QueryRequestPayload = {
   question: string;
   domain?: string;
+  kbIds?: string[];
   conversation_id?: string;
   sessionId?: string;
   stream?: boolean;
@@ -235,6 +236,50 @@ export type DocumentInfo = {
   total_pages: number;
   chunk_count: number;
   status?: DocumentStatus;
+};
+
+export type KnowledgeBaseInfo = {
+  id: string;
+  name: string;
+  description: string;
+  documentCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type KBDocumentInfo = {
+  docId: string;
+  fileName: string;
+  status: DocumentStatus;
+  addedAt: string;
+};
+
+export type KnowledgeBaseDetail = KnowledgeBaseInfo & {
+  documents: KBDocumentInfo[];
+};
+
+export type KnowledgeBaseUploadResult = {
+  kb_id: string;
+  uploaded: Array<{
+    doc_id: string;
+    file_name: string;
+    minio_path: string;
+    status: string;
+    message: string;
+  }>;
+  errors: Array<{
+    doc_id?: string;
+    file_name?: string;
+    error: string;
+  }>;
+  knowledge_base: KnowledgeBaseDetail;
+};
+
+export type KnowledgeBaseDeleteResult = {
+  deleted: boolean;
+  delete_documents: boolean;
+  deleted_documents: unknown[];
+  kept_shared_doc_ids: string[];
 };
 
 export type DocumentUploadResponse = {

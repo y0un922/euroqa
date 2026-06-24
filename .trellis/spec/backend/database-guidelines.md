@@ -6,46 +6,36 @@
 
 ## Overview
 
-<!--
-Document your project's database conventions here.
-
-Questions to answer:
-- What ORM/query library do you use?
-- How are migrations managed?
-- What are the naming conventions for tables/columns?
-- How do you handle transactions?
--->
-
-(To be filled by the team)
+Knowledge-base management uses a small local SQLite metadata store at
+`ServerConfig.knowledge_base_db_path`. It stores logical KB groups and document
+membership only. Indexed retrieval data remains in Milvus and Elasticsearch.
 
 ---
 
 ## Query Patterns
 
-<!-- How should queries be written? Batch operations? -->
-
-(To be filled by the team)
+Keep KB query scoping as a source filter over existing indexed `source` values.
+Do not add KB-only fields to the Milvus schema unless the full indexing pipeline
+is intentionally migrated and rebuilt.
 
 ---
 
 ## Migrations
 
-<!-- How to create and run migrations -->
-
-(To be filled by the team)
+The KB SQLite schema is created idempotently during application startup. Schema
+changes should remain backward-compatible or include an explicit migration path.
 
 ---
 
 ## Naming Conventions
 
-<!-- Table names, column names, index names -->
-
-(To be filled by the team)
+Use snake_case table and column names. KB tables currently use
+`knowledge_bases` and `kb_documents`.
 
 ---
 
 ## Common Mistakes
 
-<!-- Database-related mistakes your team has made -->
-
-(To be filled by the team)
+Do not import document-type metadata or expanded Milvus fields when adding KB
+management to the 2026-06-13 baseline. That baseline expects the original
+Milvus schema: `chunk_id`, `embedding`, `source`, and `element_type`.

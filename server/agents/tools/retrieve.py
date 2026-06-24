@@ -84,6 +84,8 @@ async def _retrieve_impl(
     filters = dict(analysis.filters)
     if ctx.context.domain_filter:
         filters["source"] = ctx.context.domain_filter
+    if ctx.context.sources_filter:
+        filters["sources"] = ctx.context.sources_filter
     await progress.start(
         "hybrid_search",
         RETRIEVE_STEPS["hybrid_search"]["title"],

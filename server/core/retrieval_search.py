@@ -39,6 +39,10 @@ async def _vector_search(
         source_expr = retrieval_helpers._build_milvus_source_expr(filters["source"])
         if source_expr:
             expr_parts.append(source_expr)
+    if "sources" in filters:
+        sources_expr = retrieval_helpers._build_milvus_sources_expr(filters["sources"])
+        if sources_expr:
+            expr_parts.append(sources_expr)
     expr = " and ".join(expr_parts) if expr_parts else None
 
     results = await asyncio.to_thread(

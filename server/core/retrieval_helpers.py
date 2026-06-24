@@ -270,6 +270,20 @@ def _build_milvus_source_expr(source: str) -> str | None:
     return f"source in [{quoted}]"
 
 
+def _build_milvus_sources_expr(sources: list[str]) -> str | None:
+    deduped = []
+    seen = set()
+    for source in sources:
+        normalized = str(source or "").strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            deduped.append(normalized)
+    if not deduped:
+        return None
+    quoted = ", ".join(f'"{source}"' for source in deduped)
+    return f"source in [{quoted}]"
+
+
 def _source_matches_filter(source: str, expected: str) -> bool:
     """Return whether an indexed source satisfies a user-facing source filter."""
 

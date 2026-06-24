@@ -3,7 +3,16 @@
 from fastapi import APIRouter, Depends
 from fastapi.routing import APIRoute
 
-from server.api.v1 import auth, documents, glossary, query, sessions, settings, sources
+from server.api.v1 import (
+    auth,
+    documents,
+    glossary,
+    knowledge_bases,
+    query,
+    sessions,
+    settings,
+    sources,
+)
 from server.api.v1.auth import require_auth
 
 router = APIRouter(prefix="/api/v1")
@@ -55,6 +64,7 @@ _include_public_contract_routes(
     tags=["Documents"],
 )
 router.include_router(glossary.router, tags=["Glossary"], dependencies=protected)
+router.include_router(knowledge_bases.router, tags=["KnowledgeBases"], dependencies=protected)
 router.include_router(settings.router, tags=["Settings"], dependencies=protected)
 _include_public_contract_routes(
     sources.router,

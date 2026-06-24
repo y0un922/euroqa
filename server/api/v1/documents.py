@@ -475,6 +475,7 @@ async def _delete_one_document(doc_id: str, config) -> DocumentDeleteItem:
         shutil.rmtree(parsed_dir)
 
     pdf_path.unlink(missing_ok=True)
+    await _remove_document_from_kbs(doc_id)
     await invalidate_retriever_cache()
 
     return DocumentDeleteItem(
@@ -509,6 +510,7 @@ async def _delete_one_document_index(doc_id: str, config) -> DocumentDeleteItem:
         )
 
         await invalidate_retriever_cache()
+        await _remove_document_from_kbs(doc_id)
     except Exception:
         logger.exception("document_index_delete_failed", doc_id=doc_id)
         return DocumentDeleteItem(
@@ -528,6 +530,17 @@ async def _delete_one_document_index(doc_id: str, config) -> DocumentDeleteItem:
             elasticsearch=int(deleted.get("elasticsearch", 0) or 0),
         ),
     )
+
+
+async def _remove_document_from_kbs(doc_id: str) -> None:
+    try:
+        from server.deps import get_kb_database
+
+        await get_kb_database().remove_document_everywhere(doc_id)
+    except RuntimeError:
+        return
+    except Exception:
+        logger.warning("kb_document_cleanup_failed", doc_id=doc_id, exc_info=True)
 
 
 # -- 文档列表 --

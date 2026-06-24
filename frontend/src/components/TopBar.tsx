@@ -22,12 +22,14 @@ import LlmSettingsPanel from "./LlmSettingsPanel";
 type TopBarProps = {
   apiState: "loading" | "ready" | "degraded";
   conversationId: string | null;
+  currentView: "chat" | "knowledge-bases";
   documentCount: number;
   glossaryCount: number;
   llmApiKeyConfigured: boolean;
   llmDefaultSettings: LlmSettings;
   llmSettings: LlmSettings | null;
   messages: ChatTurn[];
+  onViewChange: (view: "chat" | "knowledge-bases") => void;
   onResetLlmSettings: () => void;
   onSaveLlmSettings: (settings: LlmSettings) => void;
 };
@@ -35,12 +37,14 @@ type TopBarProps = {
 export default memo(function TopBar({
   apiState,
   conversationId,
+  currentView,
   documentCount,
   glossaryCount,
   llmApiKeyConfigured,
   llmDefaultSettings,
   llmSettings,
   messages,
+  onViewChange,
   onResetLlmSettings,
   onSaveLlmSettings
 }: TopBarProps) {
@@ -100,6 +104,30 @@ export default memo(function TopBar({
           <Activity className="h-3 w-3" />
           <span>{statusLabel}</span>
         </div>
+        <nav className="flex items-center rounded-lg border border-stone-200 bg-stone-50 p-0.5">
+          <button
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              currentView === "chat"
+                ? "bg-white text-stone-900 shadow-sm"
+                : "text-stone-500 hover:text-stone-800"
+            }`}
+            onClick={() => onViewChange("chat")}
+            type="button"
+          >
+            问答
+          </button>
+          <button
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              currentView === "knowledge-bases"
+                ? "bg-white text-stone-900 shadow-sm"
+                : "text-stone-500 hover:text-stone-800"
+            }`}
+            onClick={() => onViewChange("knowledge-bases")}
+            type="button"
+          >
+            知识库
+          </button>
+        </nav>
       </div>
       <div className="relative flex items-center gap-5 text-sm text-stone-600">
         <div className="flex items-center gap-1.5">

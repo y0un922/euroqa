@@ -35,12 +35,14 @@ from server.deps import (
     get_config,
     get_conversation_manager,
     get_glossary,
+    get_kb_database,
     get_retriever,
 )
 from server.config import ServerConfig
 from server.core.query_request import uses_external_session
 from server.errors import LLMUnavailableError, QAError, RetrievalUnavailableError
 from server.models.schemas import QueryRequest, QueryResponse
+from server.services.kb_database import KBDatabase
 from server.agents.tool_progress import ToolSubStep
 from shared.spot_check import (
     SpotCheckRecorder,
@@ -72,6 +74,19 @@ def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerCo
     )
 
 
+async def _resolve_kb_sources(req: QueryRequest, kb_db: KBDatabase) -> list[str] | None:
+    """Resolve selected knowledge-base ids into indexed document source ids."""
+    kb_ids = [kb_id.strip() for kb_id in req.kb_ids if kb_id.strip()]
+    if not kb_ids:
+        return None
+    doc_ids = await kb_db.get_doc_ids_for_kbs(kb_ids)
+    return doc_ids or ["__kb_scope_no_documents__"]
+
+
+def _source_filter_kwargs(sources_filter: list[str] | None) -> dict[str, list[str]]:
+    return {"sources_filter": sources_filter} if sources_filter is not None else {}
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query(
     req: QueryRequest,
@@ -79,8 +94,10 @@ async def query(
     retriever=Depends(get_retriever),
     glossary=Depends(get_glossary),
     conv_mgr=Depends(get_conversation_manager),
+    kb_db: KBDatabase = Depends(get_kb_database),
 ) -> QueryResponse:
     runtime_config = _resolve_runtime_config(config, req)
+    sources_filter = await _resolve_kb_sources(req, kb_db)
     recorder = (
         SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
     )
@@ -93,6 +110,7 @@ async def query(
             retriever=retriever,
             glossary=glossary,
             conv_mgr=conv_mgr,
+            **_source_filter_kwargs(sources_filter),
         )
         agent_reply = agent_result.agent_reply
         bundle = agent_result.bundle
@@ -156,9 +174,11 @@ async def query_stream(
     retriever=Depends(get_retriever),
     glossary=Depends(get_glossary),
     conv_mgr=Depends(get_conversation_manager),
+    kb_db: KBDatabase = Depends(get_kb_database),
 ):
     """SSE 流式问答端点，逐步返回 LLM 生成的回答片段。"""
     runtime_config = _resolve_runtime_config(config, req)
+    sources_filter = await _resolve_kb_sources(req, kb_db)
 
     async def event_generator():
         started_at = time.perf_counter()
@@ -206,6 +226,7 @@ async def query_stream(
                         glossary=glossary,
                         conv_mgr=conv_mgr,
                         tool_progress=QueueToolProgress(),
+                        **_source_filter_kwargs(sources_filter),
                     ):
                         yield agent_item
 

@@ -22,4 +22,5 @@ class QADeps:
     bundle: EvidenceBundle
     conversation_state: ConversationState | None = None
     domain_filter: str | None = None
+    sources_filter: list[str] | None = None
     tool_progress: ToolProgressCallback | None = None

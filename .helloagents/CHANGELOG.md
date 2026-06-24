@@ -261,6 +261,13 @@
 
 ## [0.1.4] - 2026-03-27
 
+## [0.1.9] - 2026-06-24
+
+### 新功能
+- **[server.api.v1.knowledge_bases / frontend KnowledgeBasesPage]**: 在 2026-06-13 基线版本上新增知识库管理，支持创建知识库、绑定/移出已有文档、上传 PDF 到知识库、删除知识库，并在问答时通过 `kbIds` 限定检索到所选知识库文档；检索作用域复用现有 `source/sources` 过滤，不引入 `doc_type`、`standard_family`、`doc_version` 或 Milvus schema 迁移 — by Codex
+  - 类型: 简化流程实现（只加 KB 管理功能）
+  - 文件: server/api/v1/knowledge_bases.py; server/services/kb_database.py; server/api/v1/query.py; server/agents/tools/retrieve.py; frontend/src/components/KnowledgeBasesPage.tsx; frontend/src/components/MainWorkspace.tsx
+
 ### 新功能
 - **[server.core.generation / frontend query workspace]**: 新增流式 `reasoning` 事件和“深度思考”折叠面板，并把来源翻译升级为 Markdown 友好渲染 — by yangzhuo
   - 方案: [202603271755_thinking-panel-evidence-markdown](archive/2026-03/202603271755_thinking-panel-evidence-markdown/)

@@ -81,6 +81,7 @@ class ServerConfig(BaseSettings):
     max_conversation_rounds: int = 3
 
     redis_url: str = ""
+    knowledge_base_db_path: str = "data/knowledge_bases.db"
 
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"

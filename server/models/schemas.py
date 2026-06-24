@@ -142,6 +142,7 @@ class QueryRequest(BaseModel):
 
     question: str = Field(..., max_length=500)
     domain: Optional[str] = None
+    kb_ids: list[str] = Field(default_factory=list, alias="kbIds")
     conversation_id: Optional[str] = None
     session_id: Optional[str] = Field(default=None, alias="sessionId")
     stream: bool = False
@@ -321,6 +322,40 @@ class DocumentUploadToMinioResponse(CamelModel):
     minio_path: str
     status: str
     message: str
+
+
+class KnowledgeBaseCreate(CamelModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+
+
+class KnowledgeBaseUpdate(CamelModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class KnowledgeBaseDocumentsUpdate(CamelModel):
+    doc_ids: list[str] = Field(..., min_length=1, max_length=100)
+
+
+class KnowledgeBaseInfo(CamelModel):
+    id: str
+    name: str
+    description: str = ""
+    document_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class KBDocumentInfo(CamelModel):
+    doc_id: str
+    file_name: str
+    status: DocumentStatus
+    added_at: str
+
+
+class KnowledgeBaseDetail(KnowledgeBaseInfo):
+    documents: list[KBDocumentInfo] = Field(default_factory=list)
 
 
 class DocumentStatusBatchRequest(CamelModel):
