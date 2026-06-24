@@ -148,7 +148,7 @@ class Contextualizer:
         self, request: ContextualizeRequest
     ) -> ContextualizeResult:
         prompt = self._build_special_chunk_prompt(request)
-        raw = await self._call_llm(prompt, max_tokens=500)
+        raw = await self._call_llm(prompt, max_tokens=1000)
         try:
             payload = json.loads(raw)
             return ContextualizeResult(
