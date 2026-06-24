@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 
 import structlog
@@ -74,13 +75,93 @@ def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerCo
     )
 
 
-async def _resolve_kb_sources(req: QueryRequest, kb_db: KBDatabase) -> list[str] | None:
+def _source_aliases_for_doc_id(doc_id: str) -> list[str]:
+    aliases = [
+        doc_id,
+        doc_id.replace("_", " "),
+        doc_id.replace("-", " "),
+        doc_id.replace("_", " ").replace("-", " "),
+    ]
+    return list(dict.fromkeys(alias for alias in aliases if alias.strip()))
+
+
+def _normalize_source_lookup(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+async def _indexed_sources_by_doc_id(
+    doc_ids: list[str],
+    retriever: object,
+) -> list[str]:
+    if not doc_ids:
+        return []
+
+    alias_map: dict[str, set[str]] = {}
+    for doc_id in doc_ids:
+        for alias in _source_aliases_for_doc_id(doc_id):
+            alias_map.setdefault(_normalize_source_lookup(alias), set()).add(doc_id)
+
+    get_es = getattr(retriever, "_get_es", None)
+    config = getattr(retriever, "config", None)
+    if get_es is None or config is None:
+        return []
+
+    try:
+        es = await get_es()
+        resp = await es.search(
+            index=config.es_index,
+            body={
+                "size": 0,
+                "aggs": {"sources": {"terms": {"field": "source", "size": 2000}}},
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "kb_indexed_sources_lookup_failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        return []
+
+    matched: list[str] = []
+    seen: set[str] = set()
+    buckets = resp.get("aggregations", {}).get("sources", {}).get("buckets", [])
+    for bucket in buckets:
+        source = str(bucket.get("key") or "").strip()
+        if not source:
+            continue
+        if _normalize_source_lookup(source) not in alias_map or source in seen:
+            continue
+        seen.add(source)
+        matched.append(source)
+    return matched
+
+
+async def _resolve_kb_sources(
+    req: QueryRequest,
+    kb_db: KBDatabase,
+    retriever: object | None = None,
+) -> list[str] | None:
     """Resolve selected knowledge-base ids into indexed document source ids."""
     kb_ids = [kb_id.strip() for kb_id in req.kb_ids if kb_id.strip()]
     if not kb_ids:
         return None
     doc_ids = await kb_db.get_doc_ids_for_kbs(kb_ids)
-    return doc_ids or ["__kb_scope_no_documents__"]
+    if not doc_ids:
+        return ["__kb_scope_no_documents__"]
+
+    indexed_sources = (
+        await _indexed_sources_by_doc_id(doc_ids, retriever)
+        if retriever is not None
+        else []
+    )
+    if indexed_sources:
+        return indexed_sources
+
+    fallback_sources: list[str] = []
+    for doc_id in doc_ids:
+        fallback_sources.extend(_source_aliases_for_doc_id(doc_id))
+    return fallback_sources or ["__kb_scope_no_documents__"]
 
 
 def _source_filter_kwargs(sources_filter: list[str] | None) -> dict[str, list[str]]:
@@ -97,7 +178,7 @@ async def query(
     kb_db: KBDatabase = Depends(get_kb_database),
 ) -> QueryResponse:
     runtime_config = _resolve_runtime_config(config, req)
-    sources_filter = await _resolve_kb_sources(req, kb_db)
+    sources_filter = await _resolve_kb_sources(req, kb_db, retriever)
     recorder = (
         SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
     )
@@ -178,7 +259,7 @@ async def query_stream(
 ):
     """SSE 流式问答端点，逐步返回 LLM 生成的回答片段。"""
     runtime_config = _resolve_runtime_config(config, req)
-    sources_filter = await _resolve_kb_sources(req, kb_db)
+    sources_filter = await _resolve_kb_sources(req, kb_db, retriever)
 
     async def event_generator():
         started_at = time.perf_counter()

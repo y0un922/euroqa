@@ -7,20 +7,66 @@ from server.models.schemas import QueryRequest
 from server.services.kb_database import KBDatabase
 
 
+class _FakeRetriever:
+    def __init__(self, sources: list[str]) -> None:
+        self.config = type("Config", (), {"es_index": "chunks"})()
+        self._sources = sources
+
+    async def _get_es(self):
+        return self
+
+    async def search(self, index, body):
+        return {
+            "aggregations": {
+                "sources": {
+                    "buckets": [
+                        {"key": source, "doc_count": 1}
+                        for source in self._sources
+                    ]
+                }
+            }
+        }
+
+
 @pytest.mark.asyncio
-async def test_resolve_kb_sources_returns_selected_document_ids(tmp_path):
+async def test_resolve_kb_sources_uses_indexed_source_names(tmp_path):
     db = KBDatabase(str(tmp_path / "knowledge_bases.db"))
     await db.initialize()
     try:
         kb = await db.create_kb("Concrete")
-        await db.add_documents(kb["id"], [("EN 1992:2004", "EN 1992.pdf")])
+        await db.add_documents(kb["id"], [("EN1992-1-1_2004", "EN 1992.pdf")])
 
         sources = await _resolve_kb_sources(
             QueryRequest(question="材料分项系数是什么？", kbIds=[kb["id"]]),
             db,
+            _FakeRetriever(["EN1992-1-1 2004", "DG EN1990"]),
         )
 
-        assert sources == ["EN 1992:2004"]
+        assert sources == ["EN1992-1-1 2004"]
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_resolve_kb_sources_falls_back_to_doc_id_aliases(tmp_path):
+    db = KBDatabase(str(tmp_path / "knowledge_bases.db"))
+    await db.initialize()
+    try:
+        kb = await db.create_kb("Concrete")
+        await db.add_documents(kb["id"], [("EN1992-1-1_2004", "EN 1992.pdf")])
+
+        sources = await _resolve_kb_sources(
+            QueryRequest(question="材料分项系数是什么？", kbIds=[kb["id"]]),
+            db,
+            _FakeRetriever([]),
+        )
+
+        assert sources == [
+            "EN1992-1-1_2004",
+            "EN1992-1-1 2004",
+            "EN1992 1 1_2004",
+            "EN1992 1 1 2004",
+        ]
     finally:
         await db.close()
 
