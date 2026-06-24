@@ -6,6 +6,7 @@ import {
   LoaderCircle,
   Plus,
   RefreshCcw,
+  Save,
   Trash2,
   Upload,
   X
@@ -19,6 +20,7 @@ import {
   deleteKnowledgeBase,
   getKnowledgeBase,
   removeKnowledgeBaseDocuments,
+  updateKnowledgeBase,
   uploadKnowledgeBaseDocuments
 } from "../lib/api";
 import type {
@@ -68,6 +70,8 @@ export default memo(function KnowledgeBasesPage({
   });
   const [nameDraft, setNameDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [editNameDraft, setEditNameDraft] = useState("");
+  const [editDescriptionDraft, setEditDescriptionDraft] = useState("");
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [dangerDeleteDocs, setDangerDeleteDocs] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +95,8 @@ export default memo(function KnowledgeBasesPage({
       .then((nextDetail) => {
         if (cancelled) return;
         setDetail(nextDetail);
+        setEditNameDraft(nextDetail.name);
+        setEditDescriptionDraft(nextDetail.description);
         setOperation({ kind: "idle", message: "" });
       })
       .catch((error) => {
@@ -165,6 +171,29 @@ export default memo(function KnowledgeBasesPage({
       setOperation({
         kind: "error",
         message: error instanceof Error ? error.message : "绑定失败"
+      });
+    }
+  }
+
+  async function handleUpdateKnowledgeBase() {
+    if (!selectedKbId || !detail) return;
+    const name = editNameDraft.trim();
+    if (!name) {
+      setOperation({ kind: "error", message: "知识库名称不能为空" });
+      return;
+    }
+    setOperation({ kind: "loading", message: "正在保存知识库信息" });
+    try {
+      await updateKnowledgeBase(selectedKbId, {
+        name,
+        description: editDescriptionDraft.trim()
+      });
+      await Promise.all([onRefreshKnowledgeBases(), refreshDetail(selectedKbId)]);
+      setOperation({ kind: "success", message: "知识库信息已保存" });
+    } catch (error) {
+      setOperation({
+        kind: "error",
+        message: error instanceof Error ? error.message : "保存失败"
       });
     }
   }
@@ -451,6 +480,45 @@ export default memo(function KnowledgeBasesPage({
             <aside className="overflow-y-auto border-l border-stone-200 bg-white p-5">
               <section>
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-stone-900">
+                  <FolderOpen className="h-4 w-4" />
+                  知识库信息
+                </div>
+                <div className="space-y-2 rounded-lg border border-stone-200 p-3">
+                  <input
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none focus:border-cyan-500"
+                    onChange={(event) => setEditNameDraft(event.target.value)}
+                    placeholder="知识库名称"
+                    value={editNameDraft}
+                  />
+                  <textarea
+                    className="min-h-20 w-full resize-none rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none focus:border-cyan-500"
+                    onChange={(event) =>
+                      setEditDescriptionDraft(event.target.value)
+                    }
+                    placeholder="知识库描述"
+                    value={editDescriptionDraft}
+                  />
+                  <button
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-3 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                    disabled={
+                      operation.kind === "loading" ||
+                      !editNameDraft.trim() ||
+                      (editNameDraft.trim() === detail.name &&
+                        editDescriptionDraft.trim() === detail.description)
+                    }
+                    onClick={() => {
+                      void handleUpdateKnowledgeBase();
+                    }}
+                    type="button"
+                  >
+                    <Save className="h-4 w-4" />
+                    保存信息
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <div className="mb-3 mt-8 flex items-center gap-2 text-sm font-semibold text-stone-900">
                   <Link2 className="h-4 w-4" />
                   绑定已有文档
                 </div>
