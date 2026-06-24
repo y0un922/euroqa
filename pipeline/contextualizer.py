@@ -147,29 +147,7 @@ class Contextualizer:
     async def _contextualize_special_chunk(
         self, request: ContextualizeRequest
     ) -> ContextualizeResult:
-        image_alt = ""
-        if request.chunk_kind == "image" and request.chunk_alt:
-            image_alt = f"\nImage alt text: {request.chunk_alt}"
-        parent_section = (
-            f"Section containing the element:\n{request.parent_section_text}\n\n"
-            if request.parent_section_text
-            else ""
-        )
-
-        prompt = (
-            f"Document summary: {request.doc_summary}\n"
-            f"Section path: {' > '.join(request.section_path)}\n"
-            f"{parent_section}"
-            f"The element ({request.chunk_kind}) to situate:\n{request.chunk_content}"
-            f"{image_alt}\n\n"
-            "Respond with a JSON object exactly matching this schema:\n"
-            "{\n"
-            '  "context": "1-2 sentence context situating this element within the document",\n'
-            f'  "description": "natural-language description of what this {request.chunk_kind} expresses '
-            '(factors, formula meaning, figure subject, etc.)"\n'
-            "}\n"
-            "Output only the JSON, no preamble."
-        )
+        prompt = self._build_special_chunk_prompt(request)
         raw = await self._call_llm(prompt, max_tokens=500)
         try:
             payload = json.loads(raw)
@@ -184,6 +162,78 @@ class Contextualizer:
                 raw=raw[:200],
             )
             return ContextualizeResult(context_blurb=raw.strip(), semantic_description="")
+
+    def _build_special_chunk_prompt(self, request: ContextualizeRequest) -> str:
+        """Build the chunk-kind-specific prompt for special chunks."""
+        parent_section = (
+            f"Section containing the element:\n{request.parent_section_text}\n\n"
+            if request.parent_section_text
+            else ""
+        )
+        schema_templates = {
+            "table": (
+                '{\n'
+                '  "context": "1-2 sentence context situating this table within the document",\n'
+                '  "description": "natural-language description of what this table expresses, including '
+                'its structure, units, and key values"\n'
+                '}'
+            ),
+            "formula": (
+                '{\n'
+                '  "context": "1-2 sentence context situating this formula within the document",\n'
+                '  "description": "natural-language description of what this formula means and how to read it"\n'
+                '}'
+            ),
+            "image": (
+                '{\n'
+                '  "context": "1-2 sentence context situating this figure within the document",\n'
+                '  "description": "natural-language description of what this figure shows and why it matters"\n'
+                '}'
+            ),
+        }
+        if request.chunk_kind == "table":
+            return (
+                f"Document summary: {request.doc_summary}\n"
+                f"Section path: {' > '.join(request.section_path)}\n"
+                f"{parent_section}"
+                "The element (table) to situate:\n"
+                f"{request.chunk_content}\n\n"
+                "Focus on the table's topic, row/column meaning, units, and the values or parameters "
+                "a reader should use from this table.\n"
+                "Respond with a JSON object exactly matching this schema:\n"
+                f"{schema_templates['table']}\n"
+                "Output only the JSON, no preamble."
+            )
+        if request.chunk_kind == "formula":
+            return (
+                f"Document summary: {request.doc_summary}\n"
+                f"Section path: {' > '.join(request.section_path)}\n"
+                f"{parent_section}"
+                "The element (formula) to situate:\n"
+                f"{request.chunk_content}\n\n"
+                "Focus on the formula's purpose, symbol meanings, variables, assumptions, and when it applies.\n"
+                "Respond with a JSON object exactly matching this schema:\n"
+                f"{schema_templates['formula']}\n"
+                "Output only the JSON, no preamble."
+            )
+        if request.chunk_kind == "image":
+            image_alt = ""
+            if request.chunk_alt:
+                image_alt = f"\nImage alt text: {request.chunk_alt}"
+            return (
+                f"Document summary: {request.doc_summary}\n"
+                f"Section path: {' > '.join(request.section_path)}\n"
+                f"{parent_section}"
+                "The element (image) to situate:\n"
+                f"{request.chunk_content}"
+                f"{image_alt}\n\n"
+                "Focus on what the figure shows, what reader should infer from it, and the "
+                "engineering meaning of the illustration.\n"
+                "Respond with a JSON object exactly matching this schema:\n"
+                f"{schema_templates['image']}\n"
+                "Output only the JSON, no preamble."
+            )
+        raise ValueError(f"Unsupported chunk kind: {request.chunk_kind}")
 
     async def _call_llm(self, prompt: str, *, max_tokens: int) -> str:
         last_error: Exception | None = None

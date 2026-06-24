@@ -96,13 +96,16 @@ async def test_enrich_chunks_contextualizes_all_chunks_and_preserves_content(sta
 
     assert enriched is stage_chunks
     assert instance.generate_doc_summary.await_count == 1
-    assert instance.contextualize_chunk.await_count == len(stage_chunks)
-    assert len(progress_events) == len(stage_chunks)
+    assert instance.contextualize_chunk.await_count == 4
+    assert len(progress_events) == 4
     for chunk in enriched:
         assert chunk.content == original_content[chunk.chunk_id]
         if chunk.metadata.element_type == ElementType.TEXT:
-            assert chunk.embedding_text.startswith("[CTX] text context\n\n")
-            assert chunk.embedding_text.endswith(chunk.content)
+            if chunk.chunk_id == "parent-1":
+                assert chunk.embedding_text.startswith("[CTX] text context\n\n")
+                assert chunk.embedding_text.endswith(chunk.content)
+            else:
+                assert chunk.embedding_text == chunk.content
         else:
             kind = chunk.metadata.element_type.value
             assert chunk.embedding_text == f"[CTX] {kind} context\n\n[DESC] {kind} description"
@@ -111,7 +114,7 @@ async def test_enrich_chunks_contextualizes_all_chunks_and_preserves_content(sta
 @pytest.mark.asyncio
 async def test_enrich_chunks_single_chunk_failure_keeps_raw_embedding(stage_chunks, document_tree):
     async def fake_contextualize_chunk(request):
-        if request.chunk_content == "First text chunk.":
+        if request.chunk_content == "Parent section text.":
             raise RuntimeError("llm failed")
         return _result_for_kind(request.chunk_kind)
 
@@ -122,9 +125,9 @@ async def test_enrich_chunks_single_chunk_failure_keeps_raw_embedding(stage_chun
         with capture_logs() as logs:
             enriched = await enrich_chunks(stage_chunks, PipelineConfig(), tree=document_tree)
 
-    failed = next(chunk for chunk in enriched if chunk.chunk_id == "text-1")
-    assert failed.embedding_text == "First text chunk."
-    assert any(log["event"] == "contextualize_failed" and log["chunk_id"] == "text-1" for log in logs)
+    failed = next(chunk for chunk in enriched if chunk.chunk_id == "parent-1")
+    assert failed.embedding_text == "Parent section text."
+    assert any(log["event"] == "contextualize_failed" and log["chunk_id"] == "parent-1" for log in logs)
 
 
 @pytest.mark.asyncio
@@ -200,7 +203,7 @@ async def test_enrich_chunks_progress_callback_can_be_async(stage_chunks, docume
             progress_callback=async_progress,
         )
 
-    assert len(async_calls) == len(stage_chunks)
+    assert len(async_calls) == 4
 
 
 @pytest.mark.asyncio
@@ -216,7 +219,7 @@ async def test_enrich_chunks_reports_progress_as_each_chunk_finishes(
             await release_slow.wait()
         return _result_for_kind(request.chunk_kind)
 
-    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls:
+    with patch("pipeline.contextualize.Contextualizer") as contextualizer_cls, capture_logs() as logs:
         instance = contextualizer_cls.return_value
         instance.generate_doc_summary = AsyncMock(return_value="Document summary.")
         instance.contextualize_chunk = AsyncMock(side_effect=fake_contextualize_chunk)
@@ -234,13 +237,24 @@ async def test_enrich_chunks_reports_progress_as_each_chunk_finishes(
             await asyncio.sleep(0.01)
 
         assert progress_events
-        assert len(progress_events) < len(stage_chunks)
+        assert len(progress_events) == 4
         assert progress_events[0]["completed"] == 1
         release_slow.set()
         await task
 
-    assert len(progress_events) == len(stage_chunks)
-    assert progress_events[-1]["completed"] == len(stage_chunks)
+    assert len(progress_events) == 4
+    assert progress_events[-1]["completed"] == 4
+    assert any(
+        log["event"] == "contextualize_source_start"
+        and log["contextualize_total"] == 4
+        and log["skipped"] == 2
+        for log in logs
+    )
+    assert any(
+        log["event"] == "contextualize_chunk_progress"
+        and log["remaining"] == 3
+        for log in logs
+    )
 
 
 @pytest.mark.asyncio

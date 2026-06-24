@@ -231,6 +231,76 @@ async def test_contextualize_chunk_special_json(chunk_kind: str):
 
 
 @pytest.mark.asyncio
+async def test_contextualize_chunk_table_prompt_mentions_table_structure():
+    raw_json = '{"context": "Table context.", "description": "Table description."}'
+    create = AsyncMock(return_value=_chat_response(raw_json))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="Parent section text.",
+        chunk_content="| fck | 25 |",
+        chunk_kind="table",
+        section_path=["Section 3", "3.2 Concrete"],
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        await contextualizer.contextualize_chunk(request)
+
+    prompt = create.await_args.kwargs["messages"][0]["content"]
+    assert "row/column meaning" in prompt
+    assert "units" in prompt
+    assert "key values" in prompt
+
+
+@pytest.mark.asyncio
+async def test_contextualize_chunk_formula_prompt_mentions_symbol_meaning():
+    raw_json = '{"context": "Formula context.", "description": "Formula description."}'
+    create = AsyncMock(return_value=_chat_response(raw_json))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="Parent section text.",
+        chunk_content="f_cd = alpha_cc f_ck / gamma_c",
+        chunk_kind="formula",
+        section_path=["Section 3", "3.2 Concrete"],
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        await contextualizer.contextualize_chunk(request)
+
+    prompt = create.await_args.kwargs["messages"][0]["content"]
+    assert "symbol meanings" in prompt
+    assert "variables" in prompt
+    assert "when it applies" in prompt
+
+
+@pytest.mark.asyncio
+async def test_contextualize_chunk_image_prompt_mentions_figure_subject():
+    raw_json = '{"context": "Figure context.", "description": "Figure description."}'
+    create = AsyncMock(return_value=_chat_response(raw_json))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    request = ContextualizeRequest(
+        doc_summary="Document summary.",
+        parent_section_text="Parent section text.",
+        chunk_content="![Figure 3.3](images/figure-3-3.png)",
+        chunk_kind="image",
+        section_path=["Section 3", "3.2 Concrete"],
+        chunk_alt="Figure 3.3: Stress-strain relation",
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(PipelineConfig())
+        await contextualizer.contextualize_chunk(request)
+
+    prompt = create.await_args.kwargs["messages"][0]["content"]
+    assert "what the figure shows" in prompt
+    assert "engineering meaning" in prompt
+    assert "Image alt text: Figure 3.3: Stress-strain relation" in prompt
+
+
+@pytest.mark.asyncio
 async def test_contextualize_chunk_image_prompt_includes_alt_text():
     raw_json = (
         '{"context": "This figure appears in the concrete stress-strain section.", '

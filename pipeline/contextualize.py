@@ -45,6 +45,16 @@ async def enrich_chunks(
             source_title=source_title,
             doc_outline_text=outline_text,
         )
+        total_contextualize = sum(
+            1 for chunk in source_chunks if _should_contextualize_chunk(chunk)
+        )
+        logger.info(
+            "contextualize_source_start",
+            source=source,
+            total=len(source_chunks),
+            contextualize_total=total_contextualize,
+            skipped=len(source_chunks) - total_contextualize,
+        )
         await _contextualize_source_chunks(
             source_chunks,
             contextualizer,
@@ -66,11 +76,12 @@ async def _contextualize_source_chunks(
     semaphore = asyncio.Semaphore(max(1, config.contextualize_concurrency))
     chunk_lookup = {chunk.chunk_id: chunk for chunk in chunks}
     total = len(chunks)
-    completed = 0
 
     async def _one(chunk: Chunk) -> tuple[Chunk, ContextualizeResult | Exception]:
         async with semaphore:
             try:
+                if not _should_contextualize_chunk(chunk):
+                    return chunk, None
                 request = _build_request(chunk, chunk_lookup, doc_summary)
                 result = await contextualizer.contextualize_chunk(request)
                 return chunk, result
@@ -78,10 +89,14 @@ async def _contextualize_source_chunks(
                 return chunk, exc
 
     tasks = [asyncio.create_task(_one(chunk)) for chunk in chunks]
+    processed = 0
 
     for task in asyncio.as_completed(tasks):
         chunk, result = await task
-        completed += 1
+
+        if result is None:
+            continue
+        processed += 1
 
         if isinstance(result, Exception):
             logger.warning(
@@ -96,8 +111,9 @@ async def _contextualize_source_chunks(
 
         if progress_callback is not None:
             payload = {
-                "completed": completed,
+                "completed": processed,
                 "total": total,
+                "remaining": total - processed,
                 "chunk_id": chunk.chunk_id,
                 "element_type": chunk.metadata.element_type.value,
                 "section_path": chunk.metadata.section_path,
@@ -105,6 +121,15 @@ async def _contextualize_source_chunks(
             callback_result = progress_callback(payload)
             if isinstance(callback_result, Awaitable):
                 await callback_result
+
+        logger.info(
+            "contextualize_chunk_progress",
+            chunk_id=chunk.chunk_id,
+            completed=processed,
+            remaining=total - processed,
+            total=total,
+            element_type=chunk.metadata.element_type.value,
+        )
 
 
 def build_embedding_text(chunk: Chunk, result: ContextualizeResult) -> str:
@@ -162,3 +187,12 @@ def _build_outline_from_chunks(chunks: list[Chunk]) -> str:
         depth = max(0, len(path) - 1)
         lines.append(f"{'  ' * depth}{path[-1]}")
     return "\n".join(lines)
+
+
+def _should_contextualize_chunk(chunk: Chunk) -> bool:
+    """Return whether one chunk should receive LLM contextualization."""
+    if chunk.metadata.element_type != ElementType.TEXT:
+        return True
+    if chunk.metadata.parent_chunk_id is None:
+        return True
+    return False
