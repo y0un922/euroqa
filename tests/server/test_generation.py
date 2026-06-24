@@ -217,6 +217,11 @@ class TestAnswerPrompts:
         assert "该段应删除" in prompt
         assert "mechanical reinforcement ratio" in prompt
         assert "延续问题建议" in prompt
+        assert "甲方偏好较详细的回答" in prompt
+        assert "适用条件" in prompt
+        assert "边界/例外" in prompt
+        assert "不要只回答问题核心点" in prompt
+        assert "无证据支持的背景知识" in prompt
 
     def test_unknown_question_type_falls_back_to_rule(self):
         prompt = build_open_system_prompt(question_type=None)
@@ -269,6 +274,15 @@ class TestAnswerPrompts:
 
         assert "当前问题类型：parameter" in guidance
         assert "当前检索证据相关性较强" in guidance
+        assert "充分展开适用条件" in guidance
+        assert "工程操作步骤" in guidance
+
+    def test_partial_dynamic_guidance_expands_confirmed_content(self):
+        guidance = _build_dynamic_guidance("partial", "rule", None)
+
+        assert "当前检索证据只能支持部分回答" in guidance
+        assert "把可由证据确认的内容讲充分" in guidance
+        assert "可确认的条件、步骤和限制" in guidance
 
     def test_decide_generation_mode_prefers_groundedness(self):
         assert decide_generation_mode("grounded") == "grounded"

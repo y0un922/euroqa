@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.34] - 2026-06-24
+
+### 快速修改
+- **[server.core.generation / tests]**: 调整回答生成 prompt，使回答在证据允许范围内更充分展开，强调适用条件、依据解释、工程使用步骤、边界/例外和延续问题建议，同时保留 `[Ref-N]` 引用与不得编造的证据约束 — by Codex
+  - 类型: 快速修改（无方案包）
+  - 文件: server/core/generation/prompts.py; tests/server/test_generation.py
+
 ## [0.1.33] - 2026-06-03
 
 ### 优化
