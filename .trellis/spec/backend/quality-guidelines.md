@@ -215,6 +215,61 @@ ordered_citable = _build_prioritized_source_chunks(chunks, parent_chunks, ...)
 parts.append(_format_prompt_chunk_block(chunk, f"[Ref-{i}]"))
 ```
 
+### Scenario: Batched Chunk Fetch and Bounded Cross-Reference Concurrency
+
+#### 1. Scope / Trigger
+
+- Trigger: changes to retrieval code that hydrate ES chunks by `chunk_id` or that resolve cross references / supplemental references.
+- Reason: retrieval latency is sensitive to network round-trips; batching and bounded concurrency reduce tail latency without changing result order.
+
+#### 2. Signatures
+
+- Chunk fetch helper: `_fetch_chunks(chunk_ids: list[str]) -> list[Chunk]`.
+- Cross-reference helper: `_fetch_cross_ref_chunks(refs: set[str], existing_ids: set[str], filters: dict | None = None, max_refs: int = _MAX_CROSS_REFS) -> list[Chunk]`.
+
+#### 3. Contracts
+
+- Prefer `es.mget` for bulk chunk hydration instead of one `es.get` per chunk.
+- Preserve the caller's input order when returning hydrated chunks.
+- If bulk hydration fails, fall back to per-document fetch so retrieval still degrades gracefully.
+- Cross-reference resolution may run concurrently, but result selection must remain deterministic.
+- Do not let concurrency reorder the final emitted reference chunks or bypass duplicate suppression.
+
+#### 4. Validation & Error Matrix
+
+- `mget` succeeds and returns docs out of order -> returned chunks still match the input `chunk_ids` order.
+- Bulk fetch fails -> per-document fallback still returns available chunks.
+- Multiple cross-reference lookups resolve to the same chunk -> only one chunk is emitted.
+- One cross-reference lookup raises -> the remaining references still complete.
+
+#### 5. Good/Base/Bad Cases
+
+- Good: one `mget` call hydrates 20 chunks and the helper returns them in the same order requested.
+- Base: one or two chunk ids still use the same bulk path; no special-case branch is needed.
+- Bad: returning chunks in Elasticsearch response order instead of caller order.
+- Bad: spawning unbounded concurrent lookups for every reference in a large query.
+
+#### 6. Tests Required
+
+- Add a test that stubs `es.mget` and asserts the helper preserves input order.
+- Add a test that exercises concurrent cross-reference resolution and confirms deterministic output.
+- Keep existing retrieval characterization tests passing after the refactor.
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+
+```python
+for chunk_id in chunk_ids:
+    doc = await es.get(index=self.config.es_index, id=chunk_id)
+```
+
+##### Correct
+
+```python
+response = await es.mget(index=self.config.es_index, body={"ids": chunk_ids})
+```
+
 ### Scenario: Indexed Source Title Repair Script
 
 #### 1. Scope / Trigger

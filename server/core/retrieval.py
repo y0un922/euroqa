@@ -1153,7 +1153,6 @@ class HybridRetriever:
             return []
 
         filters = filters or {}
-        ref_chunks: list[Chunk] = []
         seen = set(existing_ids)
         filter_clauses = self._build_source_filter_clauses(filters)
 
@@ -1163,67 +1162,77 @@ class HybridRetriever:
         _EXPR_PREFIX = re.compile(r"^expression\b", re.IGNORECASE)
 
         ordered_refs = self._prioritize_cross_refs(refs)[:max_refs]
+        concurrency_limit = min(max_refs, 4)
+        semaphore = asyncio.Semaphore(concurrency_limit)
 
-        for ref in ordered_refs:
-            try:
-                category = self._categorize_cross_ref(ref)
+        async def process_one(ref: str) -> tuple[str, Chunk | None]:
+            async with semaphore:
+                try:
+                    category = self._categorize_cross_ref(ref)
 
-                # Change E: skip EN-std refs that aren't in the corpus
-                if category == "en_std" and not await self._en_std_ref_in_corpus(ref):
-                    continue
+                    # Change E: skip EN-std refs that aren't in the corpus
+                    if category == "en_std" and not await self._en_std_ref_in_corpus(ref):
+                        return ref, None
 
-                # Change C: deterministic object_label lookup first
-                chosen: Chunk | None = None
-                if category in ("table", "figure", "expression", "clause"):
-                    candidate = await self._exact_object_label_lookup(
-                        ref, category, filter_clauses
-                    )
-                    if candidate is not None and candidate.chunk_id not in seen:
-                        chosen = candidate
+                    # Change C: deterministic object_label lookup first
+                    chosen: Chunk | None = None
+                    if category in ("table", "figure", "expression", "clause"):
+                        candidate = await self._exact_object_label_lookup(
+                            ref, category, filter_clauses
+                        )
+                        if candidate is not None and candidate.chunk_id not in seen:
+                            chosen = candidate
 
-                # BM25 fallback (unchanged path)
-                if chosen is None:
-                    results = await self._bm25_search(ref, top_k=6, filters=filters)
-                    if not results:
-                        continue
-
-                    fetched_candidates: list[Chunk] = []
-                    for r in results:
-                        cid = r["chunk_id"]
-                        if cid in seen:
-                            continue
-                        fetched = await self._fetch_chunks([cid])
-                        if fetched:
-                            fetched_candidates.append(fetched[0])
-                        if len(fetched_candidates) >= 3:
-                            break
-
-                    if not fetched_candidates:
-                        continue
-
-                    preferred_types: set[str] = set()
-                    if _TABLE_PREFIX.match(ref):
-                        preferred_types = {"table"}
-                    elif _FIGURE_PREFIX.match(ref):
-                        preferred_types = {"image"}
-                    elif _EXPR_PREFIX.match(ref):
-                        preferred_types = {"formula"}
-
-                    if preferred_types:
-                        for c in fetched_candidates:
-                            if c.metadata.element_type in preferred_types:
-                                chosen = c
-                                break
+                    # BM25 fallback (unchanged path)
                     if chosen is None:
-                        chosen = fetched_candidates[0]
+                        results = await self._bm25_search(ref, top_k=6, filters=filters)
+                        if not results:
+                            return ref, None
 
-                if chosen is None or chosen.chunk_id in seen:
-                    continue
-                seen.add(chosen.chunk_id)
-                ref_chunks.append(chosen)
-            except Exception:
-                logger.warning("cross_ref_search_failed", ref=ref)
+                        fetched_candidates: list[Chunk] = []
+                        for r in results:
+                            cid = r["chunk_id"]
+                            if cid in seen:
+                                continue
+                            fetched = await self._fetch_chunks([cid])
+                            if fetched:
+                                fetched_candidates.append(fetched[0])
+                            if len(fetched_candidates) >= 3:
+                                break
 
+                        if not fetched_candidates:
+                            return ref, None
+
+                        preferred_types: set[str] = set()
+                        if _TABLE_PREFIX.match(ref):
+                            preferred_types = {"table"}
+                        elif _FIGURE_PREFIX.match(ref):
+                            preferred_types = {"image"}
+                        elif _EXPR_PREFIX.match(ref):
+                            preferred_types = {"formula"}
+
+                        if preferred_types:
+                            for c in fetched_candidates:
+                                if c.metadata.element_type in preferred_types:
+                                    chosen = c
+                                    break
+                        if chosen is None:
+                            chosen = fetched_candidates[0]
+
+                    if chosen is None or chosen.chunk_id in seen:
+                        return ref, None
+                    return ref, chosen
+                except Exception:
+                    logger.warning("cross_ref_search_failed", ref=ref)
+                    return ref, None
+
+        results = await asyncio.gather(*(process_one(ref) for ref in ordered_refs))
+        ref_chunks: list[Chunk] = []
+        for ref, chunk in results:
+            if chunk is None or chunk.chunk_id in seen:
+                continue
+            seen.add(chunk.chunk_id)
+            ref_chunks.append(chunk)
         return ref_chunks
 
     async def _fetch_object_chunks_by_object_ids(
@@ -1324,8 +1333,56 @@ class HybridRetriever:
             return []
 
         es = await self._get_es()
-        chunks: list[Chunk] = []
+        try:
+            response = await es.mget(
+                index=self.config.es_index,
+                body={"ids": chunk_ids},
+            )
+        except Exception:
+            logger.warning("chunk_fetch_batch_failed", chunk_count=len(chunk_ids))
+            return await self._fetch_chunks_fallback(chunk_ids, es)
 
+        docs = response.get("docs", [])
+        docs_by_id = {
+            str(doc.get("_id", "")): doc
+            for doc in docs
+            if doc.get("found") is True and doc.get("_id")
+        }
+        chunks: list[Chunk] = []
+        for cid in chunk_ids:
+            doc = docs_by_id.get(cid)
+            if doc is None:
+                logger.warning("chunk_fetch_failed", chunk_id=cid)
+                continue
+            try:
+                src = doc["_source"]
+                meta_fields = {
+                    k: src[k] for k in ChunkMetadata.model_fields if k in src
+                }
+                chunks.append(
+                    Chunk(
+                        chunk_id=cid,
+                        content=src.get("content", ""),
+                        embedding_text=src.get("embedding_text", ""),
+                        metadata=ChunkMetadata(**meta_fields),
+                    )
+                )
+            except Exception:
+                logger.warning("chunk_fetch_failed", chunk_id=cid)
+
+        return chunks
+
+    async def _fetch_chunks_fallback(
+        self,
+        chunk_ids: list[str],
+        es: Any | None = None,
+    ) -> list[Chunk]:
+        """Fallback to per-document fetch when batch retrieval fails."""
+        if not chunk_ids:
+            return []
+        if es is None:
+            es = await self._get_es()
+        chunks: list[Chunk] = []
         for cid in chunk_ids:
             try:
                 doc = await es.get(index=self.config.es_index, id=cid)
@@ -1343,7 +1400,6 @@ class HybridRetriever:
                 )
             except Exception:
                 logger.warning("chunk_fetch_failed", chunk_id=cid)
-
         return chunks
 
     async def _fetch_parent_chunks(self, chunks: list[Chunk]) -> list[Chunk]:

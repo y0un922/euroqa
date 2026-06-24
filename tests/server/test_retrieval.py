@@ -1,5 +1,7 @@
 """Test hybrid retrieval layer (mock external services)."""
 
+import asyncio
+
 import pytest
 from elasticsearch import NotFoundError
 
@@ -156,6 +158,125 @@ class TestBm25Search:
         retriever._get_es = _fake_get_es
 
         assert await retriever._bm25_search("empty index", 5, {}) == []
+
+
+class TestChunkFetch:
+    @pytest.mark.asyncio
+    async def test_fetch_chunks_uses_mget_and_preserves_input_order(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(es_index="chunks")
+        seen_body: dict | None = None
+
+        class _FakeEs:
+            async def mget(self, index: str, body: dict):
+                nonlocal seen_body
+                assert index == "chunks"
+                seen_body = body
+                return {
+                    "docs": [
+                        {
+                            "_id": "b",
+                            "found": True,
+                            "_source": {
+                                "content": "chunk b",
+                                "embedding_text": "chunk b",
+                                "source": "EN 1990:2002",
+                                "source_title": "Basis",
+                                "section_path": ["1"],
+                                "page_numbers": [1],
+                                "page_file_index": [1],
+                                "clause_ids": ["1"],
+                                "element_type": "text",
+                            },
+                        },
+                        {
+                            "_id": "a",
+                            "found": True,
+                            "_source": {
+                                "content": "chunk a",
+                                "embedding_text": "chunk a",
+                                "source": "EN 1991:2004",
+                                "source_title": "Basis",
+                                "section_path": ["1"],
+                                "page_numbers": [1],
+                                "page_file_index": [1],
+                                "clause_ids": ["1"],
+                                "element_type": "text",
+                            },
+                        },
+                    ]
+                }
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        retriever._get_es = _fake_get_es
+
+        chunks = await retriever._fetch_chunks(["a", "b"])
+
+        assert seen_body == {"ids": ["a", "b"]}
+        assert [chunk.chunk_id for chunk in chunks] == ["a", "b"]
+
+
+class TestCrossRefConcurrency:
+    @pytest.mark.asyncio
+    async def test_fetch_cross_ref_chunks_keeps_stable_order_under_concurrency(
+        self, retriever
+    ):
+        retriever.config = ServerConfig(es_index="chunks")
+        events: list[str] = []
+
+        def _fake_prioritize_cross_refs(refs: set[str]):
+            return ["table 3.1", "figure 2.1"]
+
+        async def _fake_exact_object_label_lookup(
+            ref: str,
+            category: str,
+            filter_clauses: list[dict],
+        ):
+            events.append(f"lookup:{ref}")
+            await asyncio.sleep(0)
+            if ref == "table 3.1":
+                return _make_chunk("table-3-1", "table", object_label=ref)
+            return None
+
+        async def _fake_bm25_search(
+            query: str,
+            top_k: int,
+            filters: dict,
+            fields: list[str] | None = None,
+            preferred_element_type: str | None = None,
+        ):
+            events.append(f"bm25:{query}")
+            await asyncio.sleep(0)
+            if query == "figure 2.1":
+                return [{"chunk_id": "figure-2-1", "score": 1.0}]
+            return []
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            events.append(f"fetch:{','.join(chunk_ids)}")
+            chunk_map = {
+                "figure-2-1": _make_chunk("figure-2-1", "figure", element_type=ElementType.IMAGE),
+            }
+            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
+
+        retriever._prioritize_cross_refs = _fake_prioritize_cross_refs
+        retriever._exact_object_label_lookup = _fake_exact_object_label_lookup
+        retriever._bm25_search = _fake_bm25_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        async def _fake_en_std_ref_in_corpus(ref: str):
+            return True
+
+        retriever._en_std_ref_in_corpus = _fake_en_std_ref_in_corpus
+
+        ref_chunks = await retriever._fetch_cross_ref_chunks(
+            {"figure 2.1", "table 3.1"},
+            existing_ids=set(),
+        )
+
+        assert [chunk.chunk_id for chunk in ref_chunks] == ["table-3-1", "figure-2-1"]
+        assert "lookup:table 3.1" in events
+        assert "bm25:figure 2.1" in events
 
 
 class TestCrossDocAggregation:
