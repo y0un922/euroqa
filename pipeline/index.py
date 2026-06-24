@@ -47,19 +47,28 @@ async def index_to_milvus(chunks: list[Chunk], config: PipelineConfig) -> int:
     if not to_embed:
         return 0
 
-    texts = [c.embedding_text for c in to_embed]
-    embeddings = await _build_embedding_client(config).embed_texts(texts)
+    embedding_client = _build_embedding_client(config)
+    batch_size = max(1, config.milvus_insert_batch_size)
+    indexed = 0
 
-    data = [
-        [c.chunk_id for c in to_embed],
-        embeddings,
-        [c.metadata.source for c in to_embed],
-        [c.metadata.element_type.value for c in to_embed],
-    ]
-    collection.insert(data)
+    for start in range(0, len(to_embed), batch_size):
+        batch = to_embed[start : start + batch_size]
+        texts = [c.embedding_text for c in batch]
+        embeddings = await embedding_client.embed_texts(texts)
+
+        data = [
+            [c.chunk_id for c in batch],
+            embeddings,
+            [c.metadata.source for c in batch],
+            [c.metadata.element_type.value for c in batch],
+        ]
+        collection.insert(data)
+        indexed += len(batch)
+        logger.info("milvus_index_batch_inserted", count=len(batch), indexed=indexed)
+
     collection.flush()
-    logger.info("milvus_indexed", count=len(to_embed))
-    return len(to_embed)
+    logger.info("milvus_indexed", count=indexed)
+    return indexed
 
 
 async def delete_document_from_milvus(

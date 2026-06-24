@@ -57,6 +57,7 @@ class PipelineConfig(BaseSettings):
     milvus_host: str = "localhost"
     milvus_port: int = 19530
     milvus_collection: str = "eurocode_chunks"
+    milvus_insert_batch_size: int = 1000
 
     es_url: str = "http://localhost:9200"
     es_index: str = "eurocode_chunks"

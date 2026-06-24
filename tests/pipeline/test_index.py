@@ -20,12 +20,14 @@ from shared.milvus_schema import ensure_collection
 class _FakeCollection:
     def __init__(self):
         self.inserted = None
+        self.insert_calls = []
         self.flushed = False
         self.loaded = False
         self.deleted_expr = None
 
     def insert(self, data):
         self.inserted = data
+        self.insert_calls.append(data)
 
     def load(self):
         self.loaded = True
@@ -44,7 +46,24 @@ class _FakeEmbeddingClient:
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         self.calls.append(texts)
-        return [[0.1, 0.2]]
+        return [[0.1, 0.2] for _ in texts]
+
+
+def _chunk(chunk_id: str, embedding_text: str = "Embedding text") -> Chunk:
+    return Chunk(
+        chunk_id=chunk_id,
+        content="Chunk content",
+        embedding_text=embedding_text,
+        metadata=ChunkMetadata(
+            source="EN 1990:2002",
+            source_title="Basis",
+            section_path=["2.3"],
+            page_numbers=[28],
+            page_file_index=[27],
+            clause_ids=["2.3(1)"],
+            element_type=ElementType.TEXT,
+        ),
+    )
 
 
 def test_es_mapping_keeps_keyword_fields_with_text_subfields_for_bm25():
@@ -67,20 +86,7 @@ def test_es_mapping_keeps_keyword_fields_with_text_subfields_for_bm25():
 
 @pytest.mark.asyncio
 async def test_index_to_milvus_uses_embedding_client(monkeypatch):
-    chunk = Chunk(
-        chunk_id="chunk-1",
-        content="Chunk content",
-        embedding_text="Embedding text",
-        metadata=ChunkMetadata(
-            source="EN 1990:2002",
-            source_title="Basis",
-            section_path=["2.3"],
-            page_numbers=[28],
-            page_file_index=[27],
-            clause_ids=["2.3(1)"],
-            element_type=ElementType.TEXT,
-        ),
-    )
+    chunk = _chunk("chunk-1")
     collection = _FakeCollection()
     client = _FakeEmbeddingClient()
 
@@ -100,6 +106,41 @@ async def test_index_to_milvus_uses_embedding_client(monkeypatch):
     assert client.calls == [["Embedding text"]]
     assert collection.inserted[0] == ["chunk-1"]
     assert collection.inserted[1] == [[0.1, 0.2]]
+    assert collection.flushed is True
+
+
+@pytest.mark.asyncio
+async def test_index_to_milvus_inserts_in_configured_batches(monkeypatch):
+    chunks = [
+        _chunk("chunk-1", "Embedding text 1"),
+        _chunk("chunk-2", "Embedding text 2"),
+        _chunk("chunk-3", "Embedding text 3"),
+    ]
+    collection = _FakeCollection()
+    client = _FakeEmbeddingClient()
+
+    monkeypatch.setattr("pipeline.index._build_embedding_client", lambda config: client)
+    monkeypatch.setattr("pipeline.index._init_milvus_collection", lambda config: collection)
+
+    count = await index_to_milvus(
+        chunks,
+        PipelineConfig(
+            embedding_provider="remote",
+            embedding_api_url="https://embed.example/v1/embeddings",
+            embedding_model="embed-model",
+            milvus_insert_batch_size=2,
+        ),
+    )
+
+    assert count == 3
+    assert client.calls == [
+        ["Embedding text 1", "Embedding text 2"],
+        ["Embedding text 3"],
+    ]
+    assert [call[0] for call in collection.insert_calls] == [
+        ["chunk-1", "chunk-2"],
+        ["chunk-3"],
+    ]
     assert collection.flushed is True
 
 
