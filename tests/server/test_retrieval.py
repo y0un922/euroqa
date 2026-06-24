@@ -663,6 +663,16 @@ class TestCrossRefConstraints:
             "en-1992-1-1#table:3.1"
         ]
 
+    def test_lookup_aliases_for_table_keeps_normative_suffix_and_legacy_key(
+        self, retriever
+    ):
+        object_type, aliases = retriever._lookup_aliases_for_object_id(
+            "en-1992-1-1#table:2.1N"
+        )
+
+        assert object_type == "table"
+        assert aliases == ["Table 2.1N", "Table 2.1"]
+
     @pytest.mark.asyncio
     async def test_fetch_object_chunks_by_object_ids_falls_back_to_alias_lookup_for_source_mismatch(
         self,
@@ -766,6 +776,17 @@ class TestCrossRefExtractionAndResolution:
         # Trailing-punct variants must not coexist with the canonical form.
         for bad in ("Figure 3.8)", "Figure 6.1.", "Table 4.7)"):
             assert bad not in refs
+
+    def test_extract_internal_refs_preserves_normative_table_suffix(self, retriever):
+        chunk = _make_chunk(
+            "ndp-table",
+            "Material partial factors are given in Table 2.1N and Table 4.3.",
+        )
+        refs = retriever._extract_internal_refs([chunk])
+
+        assert "Table 2.1N" in refs
+        assert "Table 2.1" not in refs
+        assert "Table 4.3" in refs
 
     def test_extract_internal_refs_keeps_uppercase_annex(self, retriever):
         chunk = _make_chunk("ok", "Refer to Annex A and Annex C2 for additional rules.")

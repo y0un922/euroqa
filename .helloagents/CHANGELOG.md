@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.35] - 2026-06-24
+
+### 修复
+- **[shared.reference_graph / server.core.query_understanding / server.core.retrieval / server.core.generation / tests]**: 强化表格引用回答质量，生成 prompt 明确要求引用 Table 作为依据时必须展开已检索到的表格正文，不能只写“见 Table xx”；引用解析与显式对象提取支持 `Table 2.1N` 等 Eurocode NDP 表号，并为带后缀表号补充旧数字 key alias，降低交叉引用补证漏表概率 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: shared/reference_graph.py; server/core/query_understanding.py; server/core/retrieval_helpers.py; server/core/generation/prompts.py; tests/server/test_generation.py; tests/server/test_query_understanding.py; tests/server/test_retrieval.py
+
 ## [0.1.34] - 2026-06-24
 
 ### 快速修改

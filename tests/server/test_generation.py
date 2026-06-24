@@ -222,6 +222,9 @@ class TestAnswerPrompts:
         assert "边界/例外" in prompt
         assert "不要只回答问题核心点" in prompt
         assert "无证据支持的背景知识" in prompt
+        assert "不得只写「见 Table xx」" in prompt
+        assert "必须把表格内容写入答案" in prompt
+        assert "当前证据只引用了 Table X，但未检索到表格正文" in prompt
 
     def test_unknown_question_type_falls_back_to_rule(self):
         prompt = build_open_system_prompt(question_type=None)

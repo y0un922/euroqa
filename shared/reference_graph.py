@@ -8,8 +8,9 @@ _EN_REF_RE = re.compile(r"\bEN\s+\d{4}(?:-\d+(?:-\d+)?)?\b", re.IGNORECASE)
 # false positives from phrases like "National Annex proposes …" where the
 # leading word matches case-insensitively but the suffix `p` is a regular word.
 _ANNEX_REF_RE = re.compile(r"\bAnnex\s+(?-i:[A-Z])\d*\b", re.IGNORECASE)
-_TABLE_REF_RE = re.compile(r"\bTable\s+[A-Z]?\d+(?:\.\d+)*\b", re.IGNORECASE)
-_FIGURE_REF_RE = re.compile(r"\bFigure\s+[A-Z]?\d+(?:\.\d+)*\b", re.IGNORECASE)
+_OBJECT_REF_KEY_PATTERN = r"[A-Z]?\d+(?:\.\d+)*(?:[A-Z])?(?:\([A-Z0-9]+\))?"
+_TABLE_REF_RE = re.compile(rf"\bTable\s+{_OBJECT_REF_KEY_PATTERN}\b", re.IGNORECASE)
+_FIGURE_REF_RE = re.compile(rf"\bFigure\s+{_OBJECT_REF_KEY_PATTERN}\b", re.IGNORECASE)
 _EXPR_REF_RE = re.compile(r"\bExpression\s*\(\s*\d+(?:\.\d+)*\s*\)", re.IGNORECASE)
 _CLAUSE_SIGNAL_RE = re.compile(
     r"\b(?:see|according\s+to|defined\s+in|given\s+in|follows\s+from|"
@@ -18,7 +19,7 @@ _CLAUSE_SIGNAL_RE = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_KEY_RE = re.compile(r"[A-Z]?\d+(?:\.\d+)+", re.IGNORECASE)
-_OBJECT_KEY_RE = re.compile(r"[A-Z]?\d+(?:\.\d+)*", re.IGNORECASE)
+_OBJECT_KEY_RE = re.compile(_OBJECT_REF_KEY_PATTERN, re.IGNORECASE)
 
 
 def extract_reference_labels(text: str) -> list[str]:

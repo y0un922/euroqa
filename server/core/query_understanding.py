@@ -61,11 +61,11 @@ _SOURCE_RE = re.compile(r"EN\s*(\d{4}(?:-\d+-\d+|-\d+)?)", re.IGNORECASE)
 _TABLE_RE = re.compile(r"表格?|table", re.IGNORECASE)
 _FORMULA_RE = re.compile(r"公式|formula|eq", re.IGNORECASE)
 _REQUESTED_TABLE_RE = re.compile(
-    r"(?:\btable\b|表格?|表)\s*([A-Z]?\d+(?:\.\d+)*)",
+    r"(?:\btable\b|表格?|表)\s*([A-Z]?\d+(?:\.\d+)*(?:[A-Z])?(?:\([A-Z0-9]+\))?)",
     re.IGNORECASE,
 )
 _REQUESTED_FIGURE_RE = re.compile(
-    r"(?:\bfigure\b|图)\s*([A-Z]?\d+(?:\.\d+)*)",
+    r"(?:\bfigure\b|图)\s*([A-Z]?\d+(?:\.\d+)*(?:[A-Z])?(?:\([A-Z0-9]+\))?)",
     re.IGNORECASE,
 )
 _REQUESTED_EXPR_RE = re.compile(

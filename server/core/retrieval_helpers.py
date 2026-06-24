@@ -327,9 +327,27 @@ def _lookup_aliases_for_object_id(object_id: str) -> tuple[str, list[str]]:
         return "", []
     object_type, key = suffix.split(":", 1)
     if object_type == "table":
-        return object_type, [f"Table {key}"]
+        aliases = [f"Table {key}"]
+        normalized_key = re.sub(
+            r"([A-Z])(?:\([A-Z0-9]+\))?$",
+            "",
+            key,
+            flags=re.IGNORECASE,
+        )
+        if normalized_key and normalized_key != key:
+            aliases.append(f"Table {normalized_key}")
+        return object_type, aliases
     if object_type == "figure":
-        return object_type, [f"Figure {key}"]
+        aliases = [f"Figure {key}"]
+        normalized_key = re.sub(
+            r"([A-Z])(?:\([A-Z0-9]+\))?$",
+            "",
+            key,
+            flags=re.IGNORECASE,
+        )
+        if normalized_key and normalized_key != key:
+            aliases.append(f"Figure {normalized_key}")
+        return object_type, aliases
     if object_type == "expression":
         return object_type, [f"Expression ({key})"]
     if object_type == "annex":

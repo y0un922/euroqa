@@ -66,6 +66,13 @@ class TestExtractRequestedObjects:
 
         assert requested == ["3.1.7", "Table 3.1"]
 
+    def test_extracts_normative_table_suffix_from_question(self):
+        requested = extract_requested_objects(
+            "请给出 EN 1992-1-1 Table 2.1N 中的材料分项系数"
+        )
+
+        assert "Table 2.1N" in requested
+
     def test_merges_target_hint_clause_and_object_labels(self):
         requested = extract_requested_objects(
             "欧标里这个值怎么定义？",
