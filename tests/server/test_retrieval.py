@@ -1841,6 +1841,40 @@ class TestRetrieveFallback:
             is False
         )
 
+    def test_material_coverage_rejects_unrelated_gamma_table(self, retriever):
+        targets = retriever._build_coverage_targets(
+            [
+                "EN 1992-1-1 material partial factors concrete reinforcement "
+                "gamma_C gamma_S Table 2.1N"
+            ],
+            "请比较混凝土结构持久短暂工况与偶然工况下材料分项系数。",
+        )
+        material_target = next(target for target in targets if target.name == "materials")
+        unrelated_table = _make_chunk(
+            "table-6-1",
+            "Table 6.1. Values of (0.18 / gamma_c)(100 rho_l f_ck)^(1/3).",
+            source="DG EN1992-1-1",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 6.1",
+        )
+
+        assert (
+            retriever._chunk_matches_coverage_target(unrelated_table, material_target)
+            is False
+        )
+
+    def test_expanded_table_query_does_not_create_generic_table_target(self, retriever):
+        targets = retriever._build_coverage_targets(
+            [
+                "EN 1992-1-1 material partial factors concrete reinforcement "
+                "gamma_C gamma_S Table 2.1N"
+            ],
+            "请比较混凝土结构持久短暂工况与偶然工况下材料分项系数。",
+        )
+
+        assert [target.name for target in targets] == ["materials"]
+
     @pytest.mark.asyncio
     async def test_retrieve_adds_coverage_supplement_for_missing_material_slot(self):
         retriever = HybridRetriever.__new__(HybridRetriever)

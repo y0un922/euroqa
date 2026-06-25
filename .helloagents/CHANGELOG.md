@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.38] - 2026-06-25
+
+### 修复
+- **[server.core.retrieval / tests]**: 根据同类复合分项系数问题 spot check 继续收紧 coverage target，材料分项系数槽位只接受 `Table 2.1N`、`Table 4.3` 或 `Partial factors for materials` 等材料分项系数表强信号；通用 `table` 槽位仅由用户原问题或显式目标触发，避免 query expansion 中的表号制造泛表格覆盖要求或被无关表格误判满足 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/core/retrieval.py; tests/server/test_retrieval.py
+
 ## [0.1.37] - 2026-06-25
 
 ### 修复

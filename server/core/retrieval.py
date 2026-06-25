@@ -825,6 +825,11 @@ class HybridRetriever:
             hint_text,
             requested_text,
         )
+        explicit_haystack = cls._normalize_coverage_text(
+            original_query,
+            hint_text,
+            requested_text,
+        )
         targets: list[_CoverageTarget] = []
 
         def add(target: _CoverageTarget) -> None:
@@ -901,14 +906,10 @@ class HybridRetriever:
                             "钢筋",
                         ),
                         (
-                            "gamma_c",
-                            "gamma_s",
-                            "γc",
-                            "γs",
+                            "partial factors for materials",
                             "table 2.1n",
                             "table 4.3",
                             "2.4.2.4",
-                            "分项系数",
                         ),
                     ),
                     optional_terms=("EN 1992-1-1", "2.4.2.4"),
@@ -941,7 +942,7 @@ class HybridRetriever:
                     preferred_element_type="formula",
                 )
             )
-        if re.search(r"\btable\b|表格|表 ", haystack):
+        if re.search(r"\btable\b|表格|表 ", explicit_haystack):
             add(
                 _CoverageTarget(
                     name="table",
