@@ -1821,6 +1821,26 @@ class TestRetrieveFallback:
 
         assert [target.name for target in missing] == ["materials"]
 
+    def test_material_coverage_requires_factor_specific_signal(self, retriever):
+        targets = retriever._build_coverage_targets(
+            [
+                "concrete structural design Eurocode partial factors for actions and materials"
+            ],
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+        material_target = next(target for target in targets if target.name == "materials")
+        background_chunk = _make_chunk(
+            "background-materials",
+            "The provisions of that code are applicable to all materials.",
+            source="DG EN1992-1-1",
+            section_path=["2.2", "General"],
+        )
+
+        assert (
+            retriever._chunk_matches_coverage_target(background_chunk, material_target)
+            is False
+        )
+
     @pytest.mark.asyncio
     async def test_retrieve_adds_coverage_supplement_for_missing_material_slot(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
@@ -1893,6 +1913,93 @@ class TestRetrieveFallback:
 
         assert seen_coverage_queries
         assert [chunk.chunk_id for chunk in result.chunks] == ["action"]
+        assert [chunk.chunk_id for chunk in result.ref_chunks] == ["material-table"]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_ignores_generic_material_mentions_and_still_supplements(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(rerank_top_n=2, bm25_top_k=2, vector_top_k=2)
+        seen_coverage_queries: list[str] = []
+
+        generic_material_chunk = _make_chunk(
+            "generic-material",
+            "The provisions of that code are applicable to all materials.",
+            source="DG EN1992-1-1",
+            section_path=["2.2", "General"],
+        )
+        action_chunk = _make_chunk(
+            "action",
+            "EN 1990 gives partial factors for actions and load combinations.",
+            source="EN 1990",
+        )
+        material_chunk = _make_chunk(
+            "material-table",
+            "Table 2.1N: Partial factors for materials. gamma_C 1.5 gamma_S 1.15.",
+            source="EN1992-1-1 2004",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 2.1N",
+            object_id="en1992-1-1-2004#table:2.1N",
+        )
+
+        async def _fake_vector_search(query: str, top_k: int, filters: dict):
+            return [
+                {"chunk_id": "generic-material", "source": "DG EN1992-1-1", "score": 0.95},
+                {"chunk_id": "action", "source": "EN 1990", "score": 0.9},
+            ]
+
+        async def _fake_bm25_search(
+            query: str,
+            top_k: int,
+            filters: dict,
+            **kwargs,
+        ):
+            if "material partial factors" in query:
+                seen_coverage_queries.append(query)
+                return [
+                    {
+                        "chunk_id": "material-table",
+                        "source": "EN1992-1-1 2004",
+                        "score": 8.0,
+                    }
+                ]
+            return []
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            chunk_map = {
+                "generic-material": generic_material_chunk,
+                "action": action_chunk,
+                "material-table": material_chunk,
+            }
+            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(generic_material_chunk, 0.93), (action_chunk, 0.91)]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        retriever._vector_search = _fake_vector_search
+        retriever._bm25_search = _fake_bm25_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+        retriever._retrieve_guide_chunks = AsyncMock(return_value=[])
+        retriever._retrieve_guide_example_chunks = AsyncMock(return_value=[])
+        retriever._fetch_cross_ref_chunks = AsyncMock(return_value=[])
+
+        result = await retriever.retrieve(
+            [
+                "concrete structural design Eurocode partial factors for actions and materials"
+            ],
+            original_query="请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+
+        assert seen_coverage_queries
+        assert [chunk.chunk_id for chunk in result.chunks] == [
+            "generic-material",
+            "action",
+        ]
         assert [chunk.chunk_id for chunk in result.ref_chunks] == ["material-table"]
 
 

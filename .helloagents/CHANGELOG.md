@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.37] - 2026-06-25
+
+### 修复
+- **[server.core.retrieval / tests]**: 收紧 coverage-aware retrieval 补检的覆盖判定，仅在分项系数类复合问题中启用 actions/materials 槽位，并要求材料槽位由表格类证据命中；避免目录页、背景句或泛化 `materials/partial factors` 文本误判为已覆盖，确保像“作用荷载和材料分项系数”这类问题能稳定补回 `Table 2.1N` 表格证据并在最终回答中展开材料分项系数数值 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/core/retrieval.py; tests/server/test_retrieval.py
+
 ## [0.1.36] - 2026-06-25
 
 ### 新增

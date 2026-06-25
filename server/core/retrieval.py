@@ -105,6 +105,7 @@ class _CoverageTarget:
     name: str
     query: str
     required_terms: tuple[str, ...]
+    required_term_groups: tuple[tuple[str, ...], ...] = ()
     optional_terms: tuple[str, ...] = ()
     preferred_element_type: str | None = None
 
@@ -843,7 +844,7 @@ class HybridRetriever:
                 haystack,
             )
         )
-        if has_action:
+        if has_partial_factor and has_action:
             add(
                 _CoverageTarget(
                     name="actions",
@@ -852,10 +853,22 @@ class HybridRetriever:
                         "Annex A1 load combinations"
                     ),
                     required_terms=("action", "load", "γg", "γq", "gamma_g", "gamma_q"),
+                    required_term_groups=(
+                        ("action", "load", "作用", "荷载"),
+                        (
+                            "partial factor",
+                            "gamma_g",
+                            "gamma_q",
+                            "γg",
+                            "γq",
+                            "annex a1",
+                            "combination",
+                        ),
+                    ),
                     optional_terms=("EN 1990", "Annex A1", "combination"),
                 )
             )
-        if has_material:
+        if has_partial_factor and has_material:
             add(
                 _CoverageTarget(
                     name="materials",
@@ -874,6 +887,29 @@ class HybridRetriever:
                         "gamma_s",
                         "Table 2.1N",
                         "Table 4.3",
+                    ),
+                    required_term_groups=(
+                        (
+                            "material",
+                            "materials",
+                            "concrete",
+                            "reinforcement",
+                            "rebar",
+                            "steel",
+                            "材料",
+                            "混凝土",
+                            "钢筋",
+                        ),
+                        (
+                            "gamma_c",
+                            "gamma_s",
+                            "γc",
+                            "γs",
+                            "table 2.1n",
+                            "table 4.3",
+                            "2.4.2.4",
+                            "分项系数",
+                        ),
                     ),
                     optional_terms=("EN 1992-1-1", "2.4.2.4"),
                     preferred_element_type="table" if has_partial_factor else None,
@@ -940,6 +976,11 @@ class HybridRetriever:
         target: _CoverageTarget,
     ) -> bool:
         meta = chunk.metadata
+        if (
+            target.preferred_element_type is not None
+            and meta.element_type.value != target.preferred_element_type
+        ):
+            return False
         haystack = cls._normalize_coverage_text(
             chunk.content,
             chunk.embedding_text,
@@ -952,7 +993,17 @@ class HybridRetriever:
             " ".join(meta.ref_labels),
         )
         required_terms = tuple(term.lower() for term in target.required_terms)
+        required_term_groups = tuple(
+            tuple(term.lower() for term in group if term)
+            for group in target.required_term_groups
+            if group
+        )
         optional_terms = tuple(term.lower() for term in target.optional_terms)
+        if required_term_groups:
+            return all(
+                any(term in haystack for term in group)
+                for group in required_term_groups
+            )
         if any(term and term in haystack for term in required_terms):
             return True
         return bool(optional_terms) and any(
