@@ -399,6 +399,7 @@ class TestExpandQueries:
     @pytest.mark.asyncio
     async def test_stabilizes_chinese_partial_factor_query_after_open_llm_routing(self):
         llm_response = json.dumps({
+            "rewritten_question": "混凝土结构设计中的荷载分项系数和土的分项系数取值",
             "semantic": "concrete design safety discussion",
             "concepts": "serviceability fatigue commentary",
             "terms": "psi crack width",
@@ -432,6 +433,9 @@ class TestExpandQueries:
         assert result.routing.intent_label == "limit"
         assert result.routing.target_hint.document == "EN 1990 and EN 1992-1-1"
         assert result.routing.target_hint.clause is None
+        assert result.rewritten_question == (
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。"
+        )
 
     @pytest.mark.asyncio
     async def test_stabilizes_english_partial_factor_query(self):

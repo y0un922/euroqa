@@ -854,23 +854,34 @@ class HybridRetriever:
                 _CoverageTarget(
                     name="actions",
                     query=(
-                        "EN 1990 partial factors for actions loads gamma_G gamma_Q "
-                        "Annex A1 load combinations"
+                        "EN 1990 Table A1.2 STR GEO design values of actions "
+                        "gamma_G gamma_Q 1.35 1.50 persistent transient"
                     ),
                     required_terms=("action", "load", "γg", "γq", "gamma_g", "gamma_q"),
                     required_term_groups=(
                         ("action", "load", "作用", "荷载"),
                         (
-                            "partial factor",
                             "gamma_g",
                             "gamma_q",
+                            "gammag",
+                            "gammaq",
                             "γg",
                             "γq",
+                            "γ_g",
+                            "γ_q",
                             "annex a1",
-                            "combination",
+                            "annex a",
+                            "table a1.2",
+                            "table 7.2",
+                            "design values of actions",
+                            "formula 6.10",
+                            "table a1",
+                            "1.35",
+                            "1.50",
                         ),
                     ),
                     optional_terms=("EN 1990", "Annex A1", "combination"),
+                    preferred_element_type="table",
                 )
             )
         if has_partial_factor and has_material:

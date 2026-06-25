@@ -370,7 +370,7 @@ def _stabilize_partial_factor_expansion(
             ),
             reason_short="asks for Eurocode partial factor values",
         ),
-        rewritten_question=expansion.rewritten_question,
+        rewritten_question=question,
     )
 
 

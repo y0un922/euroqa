@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.39] - 2026-06-25
+
+### 修复
+- **[server.core.query_understanding / server.core.retrieval / tests]**: 修复导出会话复现的复合分项系数回答漏证问题；稳定化后的混凝土 action/material 分项系数问题不再保留 LLM 将“材料”误改为“土”的 `rewritten_question`，并将 actions 覆盖判定改为需要 EN 1990 action factor 表格强证据，缺失时定向补回 `Table A1.2` 等作用分项系数表，避免回答仍提示需另查 EN 1990 Annex A — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/core/query_understanding.py; server/core/retrieval.py; tests/server/test_query_understanding.py; tests/server/test_retrieval.py
+
 ## [0.1.38] - 2026-06-25
 
 ### 修复

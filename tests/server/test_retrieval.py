@@ -1813,8 +1813,11 @@ class TestRetrieveFallback:
         )
         action_chunk = _make_chunk(
             "actions",
-            "EN 1990 gives partial factors for actions and load combinations.",
+            "Table A1.2(C): Design values of actions STR/GEO. gamma_G 1.35 and gamma_Q 1.50.",
             source="EN 1990",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table A1.2",
         )
 
         missing = retriever._missing_coverage_targets(targets, [action_chunk])
@@ -1840,6 +1843,39 @@ class TestRetrieveFallback:
             retriever._chunk_matches_coverage_target(background_chunk, material_target)
             is False
         )
+
+    def test_action_coverage_requires_factor_specific_signal(self, retriever):
+        targets = retriever._build_coverage_targets(
+            [
+                "concrete structural design Eurocode partial factors for actions and materials"
+            ],
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+        action_target = next(target for target in targets if target.name == "actions")
+        representative_values_chunk = _make_chunk(
+            "representative-actions",
+            "The representative value of an action F_rep should be its characteristic value F_k.",
+            source="BS-EN-1990-2023",
+            section_path=["6.1.2", "Representative values of actions"],
+        )
+        annex_chunk = _make_chunk(
+            "annex-actions",
+            "Table A1.2(C): Design values of actions STR/GEO. gamma_G 1.35 and gamma_Q 1.50.",
+            source="EN1990_2002",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table A1.2",
+            section_path=["Annex A1"],
+        )
+
+        assert (
+            retriever._chunk_matches_coverage_target(
+                representative_values_chunk,
+                action_target,
+            )
+            is False
+        )
+        assert retriever._chunk_matches_coverage_target(annex_chunk, action_target) is True
 
     def test_material_coverage_rejects_unrelated_gamma_table(self, retriever):
         targets = retriever._build_coverage_targets(
