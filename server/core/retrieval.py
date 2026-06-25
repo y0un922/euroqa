@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -95,6 +96,17 @@ _CROSS_REF_PRIORITY = {
     "en_std": 5,
     None: 6,
 }
+
+
+@dataclass(frozen=True)
+class _CoverageTarget:
+    """One semantic retrieval slot that should be represented in evidence."""
+
+    name: str
+    query: str
+    required_terms: tuple[str, ...]
+    optional_terms: tuple[str, ...] = ()
+    preferred_element_type: str | None = None
 
 
 def _warn_search_failed(
@@ -782,6 +794,237 @@ class HybridRetriever:
             if self._score_guide_example_chunk(chunk, normalized_hint) > 0
         ]
         return filtered_candidates[:3]
+
+    @staticmethod
+    def _normalize_coverage_text(*values: str | None) -> str:
+        """Normalize text for lightweight evidence coverage matching."""
+        return re.sub(r"\s+", " ", " ".join(value or "" for value in values)).lower()
+
+    @classmethod
+    def _build_coverage_targets(
+        cls,
+        queries: list[str],
+        original_query: str | None,
+        target_hint: Any = None,
+        requested_objects: list[str] | None = None,
+    ) -> list[_CoverageTarget]:
+        """Infer semantic slots that a compound answer should cover.
+
+        The targets are intentionally generic: they describe common evidence
+        buckets such as actions, materials, tables, formulae, design states,
+        and version comparisons. Retrieval then checks whether each bucket has
+        at least one concrete chunk and performs a focused补检 for missing ones.
+        """
+        normalized_hint = retrieval_helpers._normalize_target_hint(target_hint)
+        hint_text = " ".join(normalized_hint.values())
+        requested_text = " ".join(requested_objects or [])
+        haystack = cls._normalize_coverage_text(
+            original_query,
+            " ".join(queries),
+            hint_text,
+            requested_text,
+        )
+        targets: list[_CoverageTarget] = []
+
+        def add(target: _CoverageTarget) -> None:
+            if all(existing.name != target.name for existing in targets):
+                targets.append(target)
+
+        has_partial_factor = bool(
+            re.search(r"partial (?:safety )?factor|分项(?:安全)?系数|γ|gamma", haystack)
+        )
+        has_action = bool(
+            re.search(r"\bactions?\b|\bloads?\b|荷载|作用|γf|γg|γq|gamma[_ ]?[fgq]", haystack)
+        )
+        has_material = bool(
+            re.search(
+                r"\bmaterials?\b|concrete|reinforcement|rebar|steel|材料|混凝土|钢筋|"
+                r"γm|γc|γs|gamma[_ ]?[mcs]",
+                haystack,
+            )
+        )
+        if has_action:
+            add(
+                _CoverageTarget(
+                    name="actions",
+                    query=(
+                        "EN 1990 partial factors for actions loads gamma_G gamma_Q "
+                        "Annex A1 load combinations"
+                    ),
+                    required_terms=("action", "load", "γg", "γq", "gamma_g", "gamma_q"),
+                    optional_terms=("EN 1990", "Annex A1", "combination"),
+                )
+            )
+        if has_material:
+            add(
+                _CoverageTarget(
+                    name="materials",
+                    query=(
+                        "EN 1992-1-1 material partial factors concrete reinforcement "
+                        "gamma_C gamma_S Table 2.1N Table 4.3"
+                    ),
+                    required_terms=(
+                        "material",
+                        "concrete",
+                        "reinforcement",
+                        "steel",
+                        "γc",
+                        "γs",
+                        "gamma_c",
+                        "gamma_s",
+                        "Table 2.1N",
+                        "Table 4.3",
+                    ),
+                    optional_terms=("EN 1992-1-1", "2.4.2.4"),
+                    preferred_element_type="table" if has_partial_factor else None,
+                )
+            )
+
+        if re.search(r"\buls\b|ultimate limit|承载能力|极限状态", haystack):
+            add(
+                _CoverageTarget(
+                    name="uls",
+                    query="ultimate limit state ULS verification Eurocode design situation",
+                    required_terms=("uls", "ultimate limit", "承载能力", "极限状态"),
+                )
+            )
+        if re.search(r"\bsls\b|serviceability|正常使用", haystack):
+            add(
+                _CoverageTarget(
+                    name="sls",
+                    query="serviceability limit state SLS Eurocode verification",
+                    required_terms=("sls", "serviceability", "正常使用"),
+                )
+            )
+        if re.search(r"\bformula\b|expression|公式|计算式", haystack):
+            add(
+                _CoverageTarget(
+                    name="formula",
+                    query=f"{original_query or queries[0] if queries else ''} formula expression equation",
+                    required_terms=("formula", "expression", "equation", "公式"),
+                    preferred_element_type="formula",
+                )
+            )
+        if re.search(r"\btable\b|表格|表 ", haystack):
+            add(
+                _CoverageTarget(
+                    name="table",
+                    query=f"{original_query or queries[0] if queries else ''} table",
+                    required_terms=("table", "表"),
+                    preferred_element_type="table",
+                )
+            )
+        if "2004" in haystack:
+            add(
+                _CoverageTarget(
+                    name="version-2004",
+                    query=f"{original_query or queries[0] if queries else ''} 2004",
+                    required_terms=("2004",),
+                )
+            )
+        if "2023" in haystack:
+            add(
+                _CoverageTarget(
+                    name="version-2023",
+                    query=f"{original_query or queries[0] if queries else ''} 2023",
+                    required_terms=("2023",),
+                )
+            )
+
+        return targets
+
+    @classmethod
+    def _chunk_matches_coverage_target(
+        cls,
+        chunk: Chunk,
+        target: _CoverageTarget,
+    ) -> bool:
+        meta = chunk.metadata
+        haystack = cls._normalize_coverage_text(
+            chunk.content,
+            chunk.embedding_text,
+            meta.source,
+            meta.source_title,
+            " ".join(meta.section_path),
+            " ".join(meta.clause_ids),
+            meta.object_label,
+            meta.object_id,
+            " ".join(meta.ref_labels),
+        )
+        required_terms = tuple(term.lower() for term in target.required_terms)
+        optional_terms = tuple(term.lower() for term in target.optional_terms)
+        if any(term and term in haystack for term in required_terms):
+            return True
+        return bool(optional_terms) and any(
+            term and term in haystack for term in optional_terms
+        )
+
+    @classmethod
+    def _missing_coverage_targets(
+        cls,
+        targets: list[_CoverageTarget],
+        evidence_chunks: list[Chunk],
+    ) -> list[_CoverageTarget]:
+        return [
+            target
+            for target in targets
+            if not any(cls._chunk_matches_coverage_target(chunk, target) for chunk in evidence_chunks)
+        ]
+
+    async def _fetch_coverage_target_chunks(
+        self,
+        targets: list[_CoverageTarget],
+        existing_ids: set[str],
+        filters: dict,
+        max_per_target: int = 2,
+    ) -> list[Chunk]:
+        """Fetch focused supplemental chunks for uncovered semantic targets."""
+        if not targets:
+            return []
+
+        seen = set(existing_ids)
+        supplements: list[Chunk] = []
+        for target in targets:
+            try:
+                results = await self._bm25_search(
+                    target.query,
+                    top_k=8,
+                    filters=filters,
+                    preferred_element_type=target.preferred_element_type,
+                )
+            except Exception as exc:
+                _warn_search_failed(
+                    "coverage_bm25_search_failed",
+                    query=target.query,
+                    exc=exc,
+                    top_k=8,
+                    filters=filters,
+                )
+                continue
+
+            candidate_ids = [
+                result["chunk_id"]
+                for result in results
+                if result.get("chunk_id") and result["chunk_id"] not in seen
+            ][: max_per_target * 4]
+            for chunk in await self._fetch_chunks(candidate_ids):
+                if chunk.chunk_id in seen:
+                    continue
+                if not self._chunk_matches_coverage_target(chunk, target):
+                    continue
+                seen.add(chunk.chunk_id)
+                supplements.append(chunk)
+                if (
+                    sum(
+                        1
+                        for existing in supplements
+                        if self._chunk_matches_coverage_target(existing, target)
+                    )
+                    >= max_per_target
+                ):
+                    break
+
+        return supplements
 
     async def _run_metadata_probe(
         self,
@@ -1853,6 +2096,60 @@ class HybridRetriever:
                     "guide_count": len(guide_chunks),
                     "example_count": len(guide_example_chunks),
                 },
+            )
+
+        coverage_targets = self._build_coverage_targets(
+            queries,
+            original_query,
+            target_hint=target_hint,
+            requested_objects=requested_objects,
+        )
+        coverage_evidence = (
+            final_chunks
+            + parent_chunks
+            + ref_chunks
+            + guide_chunks
+            + guide_example_chunks
+        )
+        missing_coverage_targets = self._missing_coverage_targets(
+            coverage_targets,
+            coverage_evidence,
+        )
+        if missing_coverage_targets:
+            await progress.start("coverage_closure", "覆盖度补检")
+            coverage_chunks = await self._fetch_coverage_target_chunks(
+                missing_coverage_targets,
+                {chunk.chunk_id for chunk in coverage_evidence},
+                filters=self._build_cross_ref_filters(final_chunks, filters),
+            )
+            ref_chunks = self._append_unique_chunks(ref_chunks, coverage_chunks)
+            coverage_evidence.extend(coverage_chunks)
+            still_missing = self._missing_coverage_targets(
+                missing_coverage_targets,
+                coverage_evidence,
+            )
+            logger.info(
+                "coverage_supplemental",
+                targets=[target.name for target in coverage_targets],
+                missing=[target.name for target in missing_coverage_targets],
+                fetched=len(coverage_chunks),
+                still_missing=[target.name for target in still_missing],
+            )
+            await progress.complete(
+                "coverage_closure",
+                "覆盖度补检",
+                f"补齐 {len(missing_coverage_targets) - len(still_missing)} 个覆盖缺口",
+                metadata={
+                    "targets": [target.name for target in coverage_targets],
+                    "missing": [target.name for target in missing_coverage_targets],
+                    "fetched": len(coverage_chunks),
+                    "still_missing": [target.name for target in still_missing],
+                },
+            )
+        else:
+            logger.info(
+                "coverage_supplemental_skipped",
+                targets=[target.name for target in coverage_targets],
             )
 
         return RetrievalResult(

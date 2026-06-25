@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.36] - 2026-06-25
+
+### 新增
+- **[server.core.retrieval / tests]**: 引入 coverage-aware retrieval 补检机制，针对复合问题识别 actions、materials、ULS/SLS、table、formula、版本等语义覆盖槽位；检索完成后检查 `chunks/ref_chunks/guide_chunks` 是否覆盖每个槽位，缺失时按槽位 focused query 追加补检结果到 `ref_chunks`，降低复合问题只覆盖部分答案要素的概率 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/core/retrieval.py; tests/server/test_retrieval.py
+
 ## [0.1.35] - 2026-06-24
 
 ### 修复
