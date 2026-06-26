@@ -9,7 +9,7 @@ from server.models.schemas import Chunk
 from shared.reference_graph import build_object_id, classify_reference_label
 
 _SOURCE_DOC_RE = re.compile(
-    r"(?<![A-Za-z0-9])en\s*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)"
+    r"(?<![A-Za-z0-9])(?:[A-Za-z]{2,4}[\s_-]*)?en[\s_-]*([0-9]{4}(?:-[0-9]+(?:-[0-9]+)?)?)"
     r"(?:[\s:_-]*([0-9]{4}))?(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
@@ -194,7 +194,16 @@ def _parse_source_reference(value: str) -> tuple[str, str]:
     match = _SOURCE_DOC_RE.search(value or "")
     if not match:
         return "", ""
-    return match.group(1), match.group(2) or ""
+    code = match.group(1)
+    year = match.group(2) or ""
+    parts = code.rsplit("-", 1)
+    if not year and len(parts) == 2 and len(parts[1]) == 4:
+        return parts[0], parts[1]
+    return code, year
+
+
+def _normalize_source_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
 
 
 def _source_aliases(value: str) -> list[str]:
@@ -202,10 +211,25 @@ def _source_aliases(value: str) -> list[str]:
     if not candidate:
         return []
 
-    aliases: list[str] = [candidate]
+    aliases: list[str] = [
+        candidate,
+        candidate.replace("_", " "),
+        candidate.replace("-", " "),
+        candidate.replace("_", "-"),
+        candidate.replace("__", "  "),
+        candidate.replace("__", "  ").replace("_", " "),
+        candidate.replace("__", "  ").replace("_", " ").replace("-", " "),
+    ]
     code, year = _parse_source_reference(candidate)
     if not code:
-        return aliases
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for alias in aliases:
+            normalized = alias.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                deduped.append(normalized)
+        return deduped
 
     base_forms = [f"EN {code}", f"EN{code}"]
     if year:
@@ -250,7 +274,19 @@ def _build_source_filter_clauses(filters: dict | None) -> list[dict]:
         )
 
     if "sources" in filters:
-        filter_clauses.append({"terms": {"source": filters["sources"]}})
+        should_clauses: list[dict] = []
+        for source in filters["sources"]:
+            aliases = _source_aliases(str(source))
+            should_clauses.extend({"term": {"source": alias}} for alias in aliases)
+        if should_clauses:
+            filter_clauses.append(
+                {
+                    "bool": {
+                        "should": should_clauses,
+                        "minimum_should_match": 1,
+                    }
+                }
+            )
 
     return filter_clauses
 
@@ -274,10 +310,11 @@ def _build_milvus_sources_expr(sources: list[str]) -> str | None:
     deduped = []
     seen = set()
     for source in sources:
-        normalized = str(source or "").strip()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            deduped.append(normalized)
+        for alias in _source_aliases(str(source)):
+            normalized = alias.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                deduped.append(normalized)
     if not deduped:
         return None
     quoted = ", ".join(f'"{source}"' for source in deduped)
@@ -298,6 +335,16 @@ def _source_matches_filter(source: str, expected: str) -> bool:
     return False
 
 
+def _source_matches_any_filter(source: str, expected_sources: list[str]) -> bool:
+    normalized_source = _normalize_source_token(source)
+    return any(
+        normalized_source == _normalize_source_token(alias)
+        or _source_matches_filter(source, expected)
+        for expected in expected_sources
+        for alias in _source_aliases(expected)
+    )
+
+
 def _filter_results_by_source(
     results: list[dict],
     filters: dict | None,
@@ -312,11 +359,13 @@ def _filter_results_by_source(
             if _source_matches_filter(str(result.get("source") or ""), filters["source"])
         ]
     if "sources" in filters:
-        allowed = set(filters["sources"])
         return [
             result
             for result in results
-            if result.get("source") in allowed
+            if _source_matches_any_filter(
+                str(result.get("source") or ""),
+                [str(source) for source in filters["sources"]],
+            )
         ]
     return results
 

@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.40] - 2026-06-26
+
+### 修复
+- **[server.core.retrieval / server.core.retrieval_helpers / server.agents.tools.retrieve / server.api.v1.query / tests]**: 根治混合 KB 检索中 source 元数据命名不一致、国家前缀 source 解析失败、`object_label` 与 `object_aliases` 不一致、同表号不同语义误命中以及 EN1993 噪声 source 抢占混凝土问题证据的问题；KB source 解析、ES/Milvus source filter、Agent retrieve tool 和 coverage 补检现在共用归一化逻辑，并在用户 KB 范围内按问题意图精炼 source scope，避免复合问题只回答作用分项系数而漏掉材料分项系数表 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/agents/tools/retrieve.py; server/api/v1/query.py; server/core/retrieval.py; server/core/retrieval_helpers.py; tests/server/agents/test_qa_agent.py; tests/server/api/v1/test_kb_query_scope.py; tests/server/test_retrieval.py
+
 ## [0.1.39] - 2026-06-25
 
 ### 修复

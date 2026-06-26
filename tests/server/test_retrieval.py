@@ -559,6 +559,7 @@ class TestCrossRefConstraints:
         results = [
             {"chunk_id": "en1992", "source": "EN1992-1-1_2004", "score": 0.9},
             {"chunk_id": "dg1992", "source": "DG_EN1992-1-1__-1-2", "score": 0.8},
+            {"chunk_id": "dg1992-space", "source": "DG EN1992-1-1  -1-2", "score": 0.85},
             {"chunk_id": "dg1990", "source": "DG EN1990", "score": 0.7},
             {"chunk_id": "plain-number", "source": "Guide 1992 example", "score": 0.6},
             {"chunk_id": "en19920", "source": "EN19920", "score": 0.5},
@@ -569,7 +570,34 @@ class TestCrossRefConstraints:
             {"source": "EN 1992"},
         )
 
-        assert [result["chunk_id"] for result in filtered] == ["en1992", "dg1992"]
+        assert [result["chunk_id"] for result in filtered] == [
+            "en1992",
+            "dg1992",
+            "dg1992-space",
+        ]
+
+    def test_filter_results_by_sources_matches_alias_forms(self, retriever):
+        results = [
+            {"chunk_id": "dg1992-space", "source": "DG EN1992-1-1  -1-2", "score": 0.9},
+            {"chunk_id": "en1990", "source": "EN1990_2002", "score": 0.8},
+        ]
+
+        filtered = retriever._filter_results_by_source(
+            results,
+            {"sources": ["DG_EN1992-1-1__-1-2"]},
+        )
+
+        assert [result["chunk_id"] for result in filtered] == ["dg1992-space"]
+
+    def test_source_filter_matches_national_prefix_forms(self, retriever):
+        results = [
+            {"chunk_id": "bs1990", "source": "BS-EN-1990-2023", "score": 0.9},
+            {"chunk_id": "en1993", "source": "DG_EN1993-1-1__-1-3__-1-8", "score": 0.8},
+        ]
+
+        filtered = retriever._filter_results_by_source(results, {"source": "EN 1990"})
+
+        assert [result["chunk_id"] for result in filtered] == ["bs1990"]
 
     def test_build_cross_ref_filters_uses_explicit_source_filter(self, retriever):
         final_chunks = [_make_chunk("a", "See Table 3.1")]
@@ -901,9 +929,56 @@ class TestCrossRefExtractionAndResolution:
         assert len(seen_bodies) == 1
         body = seen_bodies[0]
         filter_clauses = body["query"]["bool"]["filter"]
-        assert {"term": {"object_label": "Expression (6.10)"}} in filter_clauses
+        label_clause = filter_clauses[0]["bool"]["should"]
+        assert {"term": {"object_label": "Expression (6.10)"}} in label_clause
         assert {"terms": {"element_type": ["formula"]}} in filter_clauses
         assert bm25_calls == []
+
+    @pytest.mark.asyncio
+    async def test_exact_object_lookup_uses_object_aliases_when_label_differs(
+        self,
+        retriever,
+    ):
+        retriever.config = ServerConfig(bm25_top_k=3, es_index="chunks")
+        seen_bodies: list[dict] = []
+
+        class _FakeEs:
+            async def search(self, index: str, body: dict):
+                assert index == "chunks"
+                seen_bodies.append(body)
+                return {"hits": {"hits": [{"_id": "table-2-1"}]}}
+
+        async def _fake_get_es():
+            return _FakeEs()
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            assert chunk_ids == ["table-2-1"]
+            return [
+                _make_chunk(
+                    "table-2-1",
+                    "Table 2.1N partial factors for materials.",
+                    element_type=ElementType.TABLE,
+                    object_type="table",
+                    object_label="Table 2.1",
+                )
+            ]
+
+        retriever._get_es = _fake_get_es
+        retriever._fetch_chunks = _fake_fetch_chunks
+
+        chunk = await retriever._exact_object_label_lookup(
+            "Table 2.1N",
+            "table",
+            [],
+        )
+
+        assert chunk is not None
+        assert chunk.chunk_id == "table-2-1"
+        filter_clauses = seen_bodies[0]["query"]["bool"]["filter"]
+        alias_clause = filter_clauses[0]["bool"]["should"][-1]
+        assert alias_clause == {
+            "terms": {"object_aliases": ["Table 2.1N", "Table 2.1"]}
+        }
 
     @pytest.mark.asyncio
     async def test_fetch_cross_ref_chunks_falls_back_to_bm25_on_miss(self, retriever):
@@ -982,7 +1057,8 @@ class TestCrossRefExtractionAndResolution:
 
         class _FakeEs:
             async def search(self, index: str, body: dict):
-                ref = body["query"]["bool"]["filter"][0]["term"]["object_label"]
+                label_clause = body["query"]["bool"]["filter"][0]["bool"]["should"]
+                ref = label_clause[0]["term"]["object_label"]
                 attempted.append(ref)
                 return {"hits": {"hits": []}}
 
@@ -1900,6 +1976,89 @@ class TestRetrieveFallback:
             is False
         )
 
+    def test_material_coverage_accepts_safety_factor_synonym_table(self, retriever):
+        targets = retriever._build_coverage_targets(
+            [
+                "EN 1992-1-1 material partial factors concrete reinforcement "
+                "gamma_C gamma_S"
+            ],
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+        material_target = next(target for target in targets if target.name == "materials")
+        guide_material_table = _make_chunk(
+            "table-2-6",
+            "Table 2.6. Partial safety factors for material properties. "
+            "Concrete gamma_C 1.5 and reinforcement gamma_S 1.15.",
+            source="DG EN1992-1-1",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 2.6",
+        )
+
+        assert (
+            retriever._chunk_matches_coverage_target(
+                guide_material_table,
+                material_target,
+            )
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_coverage_exact_lookup_filters_same_label_by_target_semantics(
+        self,
+    ):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(rerank_top_n=1, bm25_top_k=1, vector_top_k=1)
+        targets = retriever._build_coverage_targets(
+            [
+                "EN 1992-1-1 material partial factors concrete reinforcement "
+                "gamma_C gamma_S Table 4.3"
+            ],
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+        material_target = next(target for target in targets if target.name == "materials")
+        shrinkage_table = _make_chunk(
+            "table-4-3-shrinkage",
+            "Table 4.3. Values of epsilon_cd for drying shrinkage.",
+            source="DG EN1992-1-1",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 4.3",
+        )
+        material_factor_table = _make_chunk(
+            "table-4-3-material-factors",
+            "Table 4.3. Partial factors for materials: concrete gamma_C and reinforcing steel gamma_S.",
+            source="BSEN1992-1-1-2023",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 4.3",
+        )
+
+        async def _fake_exact_candidates(
+            ref: str,
+            category: str,
+            filter_clauses: list[dict],
+            *,
+            size: int = 1,
+        ):
+            assert category == "table"
+            if ref == "Table 2.1N":
+                return []
+            assert ref == "Table 4.3"
+            return [shrinkage_table, material_factor_table]
+
+        retriever._exact_object_label_candidates = _fake_exact_candidates
+        retriever._bm25_search = AsyncMock(return_value=[])
+        retriever._fetch_chunks = AsyncMock(return_value=[])
+
+        chunks = await retriever._fetch_coverage_target_chunks(
+            [material_target],
+            existing_ids=set(),
+            filters={},
+        )
+
+        assert [chunk.chunk_id for chunk in chunks] == ["table-4-3-material-factors"]
+
     def test_expanded_table_query_does_not_create_generic_table_target(self, retriever):
         targets = retriever._build_coverage_targets(
             [
@@ -1983,6 +2142,104 @@ class TestRetrieveFallback:
 
         assert seen_coverage_queries
         assert [chunk.chunk_id for chunk in result.chunks] == ["action"]
+        assert [chunk.chunk_id for chunk in result.ref_chunks] == ["material-table"]
+
+    @pytest.mark.asyncio
+    async def test_coverage_supplement_does_not_restrict_missing_slot_to_main_source(
+        self,
+    ):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(rerank_top_n=1, bm25_top_k=1, vector_top_k=1)
+        exact_lookup_filters: list[list[dict]] = []
+        bm25_filters: list[dict] = []
+
+        action_chunk = _make_chunk(
+            "action",
+            "Table A1.2(C): Design values of actions STR/GEO. gamma_G 1.35 and gamma_Q 1.50.",
+            source="EN 1990",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table A1.2",
+        )
+        material_chunk = _make_chunk(
+            "material-table",
+            "Table 2.1N: Partial factors for materials. gamma_C 1.5 gamma_S 1.15.",
+            source="EN1992-1-1 2004",
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label="Table 2.1N",
+            object_id="en1992-1-1-2004#table:2.1N",
+        )
+
+        async def _fake_vector_search(query: str, top_k: int, filters: dict):
+            return [{"chunk_id": "action", "source": "EN 1990", "score": 0.9}]
+
+        async def _fake_bm25_search(
+            query: str,
+            top_k: int,
+            filters: dict,
+            **kwargs,
+        ):
+            bm25_filters.append(filters)
+            if filters.get("source") == "EN 1990":
+                return []
+            if "Table 2.1N" in query:
+                return [
+                    {
+                        "chunk_id": "material-table",
+                        "source": "EN1992-1-1 2004",
+                        "score": 9.0,
+                    }
+                ]
+            return []
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            chunk_map = {
+                "action": action_chunk,
+                "material-table": material_chunk,
+            }
+            return [chunk_map[chunk_id] for chunk_id in chunk_ids]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(action_chunk, 0.91)]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        async def _fake_exact_candidates(
+            ref: str,
+            category: str,
+            filter_clauses: list[dict],
+            *,
+            size: int = 1,
+        ):
+            exact_lookup_filters.append(filter_clauses)
+            return []
+
+        retriever._vector_search = _fake_vector_search
+        retriever._bm25_search = _fake_bm25_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+        retriever._retrieve_guide_chunks = AsyncMock(return_value=[])
+        retriever._retrieve_guide_example_chunks = AsyncMock(return_value=[])
+        retriever._fetch_cross_ref_chunks = AsyncMock(return_value=[])
+        retriever._exact_object_label_candidates = _fake_exact_candidates
+
+        result = await retriever.retrieve(
+            [
+                "concrete structural design Eurocode partial factors for actions and materials"
+            ],
+            original_query="请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+
+        assert exact_lookup_filters
+        assert all(
+            {"term": {"source": "EN 1990"}} not in clauses
+            for clauses in exact_lookup_filters
+        )
+        assert bm25_filters
+        assert all(filters.get("source") != "EN 1990" for filters in bm25_filters)
         assert [chunk.chunk_id for chunk in result.ref_chunks] == ["material-table"]
 
     @pytest.mark.asyncio

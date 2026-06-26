@@ -20,6 +20,7 @@ from server.agents.qa_agent import (
 from server.agents.tools.retrieve import (
     _clamp_top_k,
     _format_retrieval_summary,
+    _refine_sources_filter_for_analysis,
     _retrieve_impl,
 )
 from server.config import ServerConfig
@@ -202,6 +203,39 @@ async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
 
 
 @pytest.mark.asyncio
+async def test_retrieve_tool_refines_mixed_kb_sources_before_retrieval():
+    retriever = FakeRetriever()
+    deps = _make_deps(retriever=retriever)
+    deps.sources_filter = [
+        "DG EN1992-1-1  -1-2",
+        "DG_EN1993-1-1__-1-3__-1-8",
+        "DG EN1990",
+        "BS-EN-1990-2023",
+    ]
+    analysis = QueryAnalysis(
+        original_question="请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        expanded_queries=[
+            "concrete structural design Eurocode partial factors for actions and materials"
+        ],
+        filters={},
+        question_type=QuestionType.PARAMETER,
+        intent_label="limit",
+    )
+
+    with patch("server.agents.tools.retrieve.analyze_query", return_value=analysis):
+        await _retrieve_impl(
+            RunContextWrapper(deps),
+            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        )
+
+    assert retriever.calls[0]["filters"]["sources"] == [
+        "DG EN1992-1-1  -1-2",
+        "DG EN1990",
+        "BS-EN-1990-2023",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_retrieve_tool_skips_when_bundle_is_already_grounded():
     bundle = EvidenceBundle(chunks=[_make_chunk()])
     bundle.groundedness = "grounded"
@@ -251,6 +285,44 @@ def test_format_retrieval_summary_includes_stop_instruction_and_previews():
 )
 def test_retrieve_tool_clamps_top_k(requested, expected):
     assert _clamp_top_k(requested) == expected
+
+
+def test_refine_sources_filter_keeps_query_relevant_sources_inside_kb_scope():
+    analysis = QueryAnalysis(
+        original_question="请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+        expanded_queries=[
+            "concrete structural design Eurocode partial factors for actions and materials"
+        ],
+        filters={},
+    )
+
+    refined = _refine_sources_filter_for_analysis(
+        [
+            "DG EN1992-1-1  -1-2",
+            "DG_EN1993-1-1__-1-3__-1-8",
+            "DG EN1990",
+            "BS-EN-1990-2023",
+        ],
+        analysis,
+        "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+    )
+
+    assert refined == [
+        "DG EN1992-1-1  -1-2",
+        "DG EN1990",
+        "BS-EN-1990-2023",
+    ]
+
+
+def test_refine_sources_filter_falls_back_when_no_source_intent_matches():
+    sources = ["Custom guide", "Uploaded notes"]
+    analysis = QueryAnalysis(
+        original_question="请总结适用条件。",
+        expanded_queries=["applicability conditions"],
+        filters={},
+    )
+
+    assert _refine_sources_filter_for_analysis(sources, analysis, "请总结适用条件。") is sources
 
 
 def test_compress_answer_for_agent_strips_citations_and_truncates():

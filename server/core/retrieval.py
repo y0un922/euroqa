@@ -108,6 +108,8 @@ class _CoverageTarget:
     required_term_groups: tuple[tuple[str, ...], ...] = ()
     optional_terms: tuple[str, ...] = ()
     preferred_element_type: str | None = None
+    exact_labels: tuple[str, ...] = ()
+    supplemental_queries: tuple[str, ...] = ()
 
 
 def _warn_search_failed(
@@ -873,15 +875,30 @@ class HybridRetriever:
                             "annex a",
                             "table a1.2",
                             "table 7.2",
+                            "8.3.3",
+                            "8.3.4",
+                            "a.1.6",
+                            "a.2.8",
+                            "partial factors on actions",
                             "design values of actions",
                             "formula 6.10",
+                            "formula 8.6",
+                            "formula 8.10",
                             "table a1",
                             "1.35",
                             "1.50",
                         ),
                     ),
                     optional_terms=("EN 1990", "Annex A1", "combination"),
-                    preferred_element_type="table",
+                    preferred_element_type=None,
+                    exact_labels=("Table A1.2", "Table 7.2"),
+                    supplemental_queries=(
+                        "Table A1.2 design values of actions STR GEO gamma_G gamma_Q",
+                        "EN 1990 Annex A1 Table A1.2 1.35 1.50",
+                        "EN 1990 2023 8.3.3 design values of actions gamma_G gamma_Q",
+                        "EN 1990 2023 8.3.4 combination of actions partial factors on actions",
+                        "A.2.8 partial factors ultimate limit states gamma_F actions",
+                    ),
                 )
             )
         if has_partial_factor and has_material:
@@ -918,13 +935,30 @@ class HybridRetriever:
                         ),
                         (
                             "partial factors for materials",
-                            "table 2.1n",
-                            "table 4.3",
+                            "partial factor for materials",
+                            "partial safety factors for material",
+                            "partial safety factor for material",
+                            "partial factors for material properties",
+                            "partial safety factors for material properties",
+                            "material partial factors",
+                            "material properties",
+                            "gamma_c",
+                            "gamma_s",
+                            "γc",
+                            "γs",
+                            "γ_c",
+                            "γ_s",
                             "2.4.2.4",
                         ),
                     ),
                     optional_terms=("EN 1992-1-1", "2.4.2.4"),
                     preferred_element_type="table" if has_partial_factor else None,
+                    exact_labels=("Table 2.1N", "Table 4.3"),
+                    supplemental_queries=(
+                        "Table 2.1N partial factors for materials gamma_C gamma_S",
+                        "Table 4.3 partial factors for materials gamma_C gamma_S",
+                        "EN 1992-1-1 2.4.2.4 partial factors for materials",
+                    ),
                 )
             )
 
@@ -1048,43 +1082,66 @@ class HybridRetriever:
         seen = set(existing_ids)
         supplements: list[Chunk] = []
         for target in targets:
-            try:
-                results = await self._bm25_search(
-                    target.query,
-                    top_k=8,
-                    filters=filters,
-                    preferred_element_type=target.preferred_element_type,
+            fetched_for_target = 0
+            filter_clauses = self._build_source_filter_clauses(filters)
+            for label in target.exact_labels:
+                exact_candidates = await self._exact_object_label_candidates(
+                    label,
+                    target.preferred_element_type or "table",
+                    filter_clauses,
+                    size=max_per_target * 4,
                 )
-            except Exception as exc:
-                _warn_search_failed(
-                    "coverage_bm25_search_failed",
-                    query=target.query,
-                    exc=exc,
-                    top_k=8,
-                    filters=filters,
-                )
+                matching_candidates = [
+                    chunk
+                    for chunk in exact_candidates
+                    if chunk.chunk_id not in seen
+                    and self._chunk_matches_coverage_target(chunk, target)
+                ]
+                if not matching_candidates:
+                    continue
+                chunk = matching_candidates[0]
+                seen.add(chunk.chunk_id)
+                supplements.append(chunk)
+                fetched_for_target += 1
+                if fetched_for_target >= max_per_target:
+                    break
+            if fetched_for_target >= max_per_target:
                 continue
 
-            candidate_ids = [
-                result["chunk_id"]
-                for result in results
-                if result.get("chunk_id") and result["chunk_id"] not in seen
-            ][: max_per_target * 4]
-            for chunk in await self._fetch_chunks(candidate_ids):
+            candidate_ids: list[str] = []
+            for query in (target.query, *target.supplemental_queries):
+                try:
+                    results = await self._bm25_search(
+                        query,
+                        top_k=12,
+                        filters=filters,
+                        preferred_element_type=target.preferred_element_type,
+                    )
+                except Exception as exc:
+                    _warn_search_failed(
+                        "coverage_bm25_search_failed",
+                        query=query,
+                        exc=exc,
+                        top_k=12,
+                        filters=filters,
+                    )
+                    continue
+                for result in results:
+                    chunk_id = result.get("chunk_id")
+                    if chunk_id and chunk_id not in seen and chunk_id not in candidate_ids:
+                        candidate_ids.append(chunk_id)
+                if len(candidate_ids) >= max_per_target * 8:
+                    break
+
+            for chunk in await self._fetch_chunks(candidate_ids[: max_per_target * 8]):
                 if chunk.chunk_id in seen:
                     continue
                 if not self._chunk_matches_coverage_target(chunk, target):
                     continue
                 seen.add(chunk.chunk_id)
                 supplements.append(chunk)
-                if (
-                    sum(
-                        1
-                        for existing in supplements
-                        if self._chunk_matches_coverage_target(existing, target)
-                    )
-                    >= max_per_target
-                ):
+                fetched_for_target += 1
+                if fetched_for_target >= max_per_target:
                     break
 
         return supplements
@@ -1408,12 +1465,46 @@ class HybridRetriever:
         appropriate. Falls back to `None` (caller will use BM25) on miss
         or any internal error so the BM25 path remains the safety net.
         """
+        candidates = await self._exact_object_label_candidates(
+            ref,
+            category,
+            filter_clauses,
+            size=1,
+        )
+        return candidates[0] if candidates else None
+
+    async def _exact_object_label_candidates(
+        self,
+        ref: str,
+        category: str,
+        filter_clauses: list[dict],
+        *,
+        size: int = 1,
+    ) -> list[Chunk]:
+        """Return deterministic label/alias lookup candidates in ES rank order."""
         try:
             es = await self._get_es()
         except Exception:
             logger.warning("cross_ref_exact_lookup_es_unavailable", ref=ref)
-            return None
-        filters: list[dict] = [{"term": {"object_label": ref}}, *filter_clauses]
+            return []
+        label_aliases = self._object_label_lookup_aliases(ref, category)
+        filters: list[dict] = [
+            {
+                "bool": {
+                    "should": [
+                        {"term": {"object_label": alias}}
+                        for alias in dict.fromkeys(
+                            alias for alias in label_aliases if alias.strip()
+                        )
+                    ]
+                    + [
+                        {"terms": {"object_aliases": list(dict.fromkeys(label_aliases))}}
+                    ],
+                    "minimum_should_match": 1,
+                }
+            },
+            *filter_clauses,
+        ]
         if category in ("table", "figure", "expression"):
             element_types = {
                 "table": ["table"],
@@ -1421,18 +1512,28 @@ class HybridRetriever:
                 "expression": ["formula"],
             }[category]
             filters.append({"terms": {"element_type": element_types}})
-        body = {"size": 1, "query": {"bool": {"filter": filters}}}
+        body = {"size": max(1, size), "query": {"bool": {"filter": filters}}}
         try:
             resp = await es.search(index=self.config.es_index, body=body)
         except Exception:
             logger.warning("cross_ref_exact_lookup_failed", ref=ref)
-            return None
+            return []
         hits = resp.get("hits", {}).get("hits", [])
         if not hits:
-            return None
-        chunk_id = hits[0]["_id"]
-        fetched = await self._fetch_chunks([chunk_id])
-        return fetched[0] if fetched else None
+            return []
+        chunk_ids = [hit["_id"] for hit in hits if hit.get("_id")]
+        return await self._fetch_chunks(chunk_ids)
+
+    @classmethod
+    def _object_label_lookup_aliases(cls, ref: str, category: str) -> list[str]:
+        ref = (ref or "").strip()
+        if not ref:
+            return []
+        key = ref.split(" ", 1)[-1].strip() if " " in ref else ref
+        _object_type, aliases = cls._lookup_aliases_for_object_id(
+            f"tmp#{category}:{key}"
+        )
+        return list(dict.fromkeys(alias for alias in (ref, *aliases) if alias.strip()))
 
     async def _fetch_cross_ref_chunks(
         self,
@@ -2183,7 +2284,7 @@ class HybridRetriever:
             coverage_chunks = await self._fetch_coverage_target_chunks(
                 missing_coverage_targets,
                 {chunk.chunk_id for chunk in coverage_evidence},
-                filters=self._build_cross_ref_filters(final_chunks, filters),
+                filters=filters,
             )
             ref_chunks = self._append_unique_chunks(ref_chunks, coverage_chunks)
             coverage_evidence.extend(coverage_chunks)

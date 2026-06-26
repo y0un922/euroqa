@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import time
 
 import structlog
@@ -41,6 +40,7 @@ from server.deps import (
 )
 from server.config import ServerConfig
 from server.core.query_request import uses_external_session
+from server.core import retrieval_helpers
 from server.errors import LLMUnavailableError, QAError, RetrievalUnavailableError
 from server.models.schemas import QueryRequest, QueryResponse
 from server.services.kb_database import KBDatabase
@@ -76,17 +76,11 @@ def _resolve_runtime_config(config: ServerConfig, req: QueryRequest) -> ServerCo
 
 
 def _source_aliases_for_doc_id(doc_id: str) -> list[str]:
-    aliases = [
-        doc_id,
-        doc_id.replace("_", " "),
-        doc_id.replace("-", " "),
-        doc_id.replace("_", " ").replace("-", " "),
-    ]
-    return list(dict.fromkeys(alias for alias in aliases if alias.strip()))
+    return retrieval_helpers._source_aliases(doc_id)
 
 
 def _normalize_source_lookup(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return retrieval_helpers._normalize_source_token(value)
 
 
 async def _indexed_sources_by_doc_id(
