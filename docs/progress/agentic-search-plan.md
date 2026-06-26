@@ -518,6 +518,8 @@ Implementation status: partially completed in this iteration.
 - Slot searches currently run serially to keep progress reporting simple; parallel fan-out remains an optimization.
 - Slot retrieval caps per-slot `top_k` to keep combined context bounded.
 - Implicit all-reference closure is disabled by default; value-oriented slots infer relevant Table/Expression labels from retrieved evidence and call `lookup_object` only for those objects.
+- Value-oriented slots must contain actual numeric evidence or table/formula object evidence. A chunk that only says "see Table/Annex/National Annex" is treated as incomplete and triggers the slot retry query.
+- Heuristic retry queries for action/load and material factor slots now target the likely value-bearing objects (`EN 1990 Annex A1 Table A1.2` for `gamma_G/gamma_Q`, and `EN 1992 Table 2.1N/Table 4.3` for `gamma_C/gamma_S`) instead of repeating the broad user question.
 - Slot results are recorded in `tool_trace`; `EvidenceBundle.slot_results` is deferred to Phase 4.
 
 ### Phase 4: Answer Generation and Groundedness Update

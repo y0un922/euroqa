@@ -31,6 +31,14 @@ _VALUE_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _OBJECT_REF_RE = re.compile(r"^(Table|Expression)\b", re.IGNORECASE)
+_NUMERIC_VALUE_RE = re.compile(r"(?<!\d)(?:0\.\d+|1(?:\.\d+)?|[2-9](?:\.\d+)?)(?!\d)")
+_REFERENCE_NUMBER_RE = re.compile(
+    r"\b(?:Table|Figure)\s+[A-Z]?\d+(?:\.\d+)*(?:[A-Z])?(?:\([A-Z0-9]+\))?"
+    r"|\bExpression\s*\(\s*\d+(?:\.\d+)*\s*\)"
+    r"|\bEN\s+\d{4}(?:-\d+(?:-\d+)?)?\b"
+    r"|\b(?:Clause|Section|Annex)\s+[A-Z]?\d+(?:\.\d+)*\b",
+    re.IGNORECASE,
+)
 
 
 @function_tool
@@ -226,6 +234,8 @@ async def _retrieve_agentic_impl(
                 }
             )
         status = _evaluate_slot(slot, result)
+        if status != "missing" and _value_slot_lacks_values(slot, result):
+            status = "missing"
         if status == "missing" and slot.retry_query:
             retry_slot = slot.model_copy(
                 update={
@@ -241,6 +251,10 @@ async def _retrieve_agentic_impl(
                 progress=progress,
             )
             retry_status = _evaluate_slot(slot, retry_result)
+            if retry_status != "missing" and _value_slot_lacks_values(
+                retry_slot, retry_result
+            ):
+                retry_status = "missing"
             if _slot_status_rank(retry_status) > _slot_status_rank(status):
                 status = retry_status
                 result = retry_result
@@ -454,6 +468,23 @@ def _infer_required_object_labels(slot: EvidenceSlot, result: RetrievalResult) -
 def _is_value_slot(slot: EvidenceSlot) -> bool:
     text = " ".join([slot.description, slot.query, *slot.search_queries])
     return bool(_VALUE_QUERY_RE.search(text))
+
+
+def _value_slot_lacks_values(slot: EvidenceSlot, result: RetrievalResult) -> bool:
+    if not _is_value_slot(slot):
+        return False
+    evidence_text = "\n".join(
+        chunk.content for chunk in [*result.chunks, *result.ref_chunks]
+    )
+    if not evidence_text.strip():
+        return True
+    if any(
+        chunk.metadata.element_type in ("table", "formula")
+        for chunk in [*result.chunks, *result.ref_chunks]
+    ):
+        return False
+    text_without_reference_numbers = _REFERENCE_NUMBER_RE.sub(" ", evidence_text)
+    return _NUMERIC_VALUE_RE.search(text_without_reference_numbers) is None
 
 
 def _merge_chunks(existing: list[Chunk], incoming: list[Chunk]) -> list[Chunk]:

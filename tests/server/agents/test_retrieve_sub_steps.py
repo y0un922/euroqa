@@ -27,17 +27,18 @@ class _ProgressCollector:
 class _FakeRetriever:
     def __init__(
         self,
-        result: RetrievalResult,
+        result: RetrievalResult | list[RetrievalResult],
         object_chunks: dict[str, list[Chunk]] | None = None,
     ) -> None:
-        self.result = result
+        self.results = result if isinstance(result, list) else [result]
         self.object_chunks = object_chunks or {}
         self.calls: list[dict] = []
         self.lookup_calls: list[dict] = []
 
     async def retrieve(self, queries: list[str], **kwargs) -> RetrievalResult:
         self.calls.append({"queries": queries, **kwargs})
-        return self.result
+        index = min(len(self.calls) - 1, len(self.results) - 1)
+        return self.results[index]
 
     async def lookup_object(self, label: str, filters=None, top_k: int = 3):
         self.lookup_calls.append(
@@ -315,3 +316,97 @@ async def test_retrieve_agentic_fetches_required_table_for_value_slot(monkeypatc
         }
     ]
     assert [chunk.chunk_id for chunk in deps.bundle.ref_chunks] == ["table-2-1n"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_agentic_retries_value_slot_without_numeric_evidence(
+    monkeypatch,
+):
+    empty_value_chunk = _make_chunk().model_copy(
+        update={
+            "chunk_id": "actions-empty",
+            "content": (
+                "ULS action factors should be obtained from Table A1.2(B) "
+                "of EN 1990 and the National Annex."
+            ),
+            "metadata": _make_chunk().metadata.model_copy(
+                update={"source": "EN 1990", "ref_labels": []}
+            ),
+        }
+    )
+    table_chunk = _make_table_chunk("Table A1.2(B)").model_copy(
+        update={
+            "chunk_id": "table-a1-2b",
+            "content": "Table A1.2(B): gamma_G,sup = 1.35 and gamma_Q = 1.5 for STR/GEO persistent and transient situations.",
+            "metadata": _make_table_chunk("Table A1.2(B)").metadata.model_copy(
+                update={"source": "EN 1990", "object_label": "Table A1.2(B)"}
+            ),
+        }
+    )
+    retriever = _FakeRetriever(
+        [
+            RetrievalResult(
+                chunks=[empty_value_chunk],
+                parent_chunks=[],
+                scores=[0.8],
+                groundedness="partial",
+            ),
+            RetrievalResult(
+                chunks=[table_chunk],
+                parent_chunks=[],
+                scores=[0.9],
+                groundedness="grounded",
+            ),
+        ]
+    )
+    deps = QADeps(
+        config=ServerConfig(agentic_search_enabled=True),
+        retriever=retriever,
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=None,
+        tool_progress=_ProgressCollector().on_tool_sub_step,
+    )
+    analysis = QueryAnalysis(
+        original_question="请给出作用荷载分项系数的取值。",
+        expanded_queries=["action load partial factor values"],
+        filters={},
+        question_type=QuestionType.PARAMETER,
+        intent_label="limit",
+    )
+    plan = EvidencePlan(
+        strategy="single",
+        slots=[
+            EvidenceSlot(
+                id="actions",
+                description="Action partial factor values",
+                query="action partial factors",
+                search_queries=["EN 1990 action partial factors"],
+                source_hints=["EN 1990"],
+                retry_query="EN 1990 Annex A1 Table A1.2 gamma_G gamma_Q values",
+            ),
+        ],
+    )
+
+    async def _fake_analyze_query(question, glossary, config, history):
+        return analysis
+
+    async def _fake_plan_evidence(question, query_analysis, inventory, config):
+        return plan
+
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.analyze_query",
+        _fake_analyze_query,
+    )
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.plan_evidence",
+        _fake_plan_evidence,
+    )
+
+    await _retrieve_agentic_impl(RunContextWrapper(deps), "请给出作用荷载分项系数的取值。")
+
+    assert len(retriever.calls) == 2
+    assert retriever.calls[1]["queries"] == [
+        "EN 1990 Annex A1 Table A1.2 gamma_G gamma_Q values"
+    ]
+    assert deps.bundle.chunks[-1].chunk_id == "table-a1-2b"
