@@ -419,13 +419,22 @@ async def test_run_qa_agent_streamed_yields_tool_progress():
     assert events[-1] == ("已检索到相关规范证据。", deps.bundle)
 
 
-def test_qa_agent_instructions_require_retrieve_for_eurocode_questions():
-    """Prompt-hardening: Eurocode questions should use retrieve."""
-    assert "必须调用 retrieve" in _QA_AGENT_INSTRUCTIONS
-    assert "retrieve 已返回 groundedness=grounded 的结果时，不要再次调用 retrieve" in (
+def test_qa_agent_exposes_only_agentic_retrieval_tool():
+    agent = build_qa_agent(ServerConfig())
+    tool_names = {getattr(tool, "name", "") for tool in agent.tools}
+
+    assert "retrieve_agentic" in tool_names
+    assert "retrieve" not in tool_names
+
+
+def test_qa_agent_instructions_require_agentic_retrieve_for_eurocode_questions():
+    """Prompt-hardening: Eurocode questions should use the unified tool."""
+    assert "- retrieve(query" not in _QA_AGENT_INSTRUCTIONS
+    assert "必须调用 retrieve_agentic" in _QA_AGENT_INSTRUCTIONS
+    assert "retrieve_agentic 已返回 groundedness=grounded" in _QA_AGENT_INSTRUCTIONS
+    assert "最多调用 retrieve_agentic 2 次" in _QA_AGENT_INSTRUCTIONS
+    assert "top_k 控制每个证据槽返回给回答生成的候选证据数量" in (
         _QA_AGENT_INSTRUCTIONS
     )
-    assert "最多调用 retrieve 2 次" in _QA_AGENT_INSTRUCTIONS
-    assert "top_k 控制返回给回答生成的证据数量" in _QA_AGENT_INSTRUCTIONS
     assert "简单定义或单个参数问题用 4-6" in _QA_AGENT_INSTRUCTIONS
     assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS
