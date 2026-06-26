@@ -1922,9 +1922,12 @@ class HybridRetriever:
             max_refs=_MAX_CROSS_REFS,
         )
         if ref_chunks:
+            missing_sample = sorted(missing_refs)[:30]
             logger.info(
                 "cross_ref_supplemental",
-                missing=sorted(missing_refs),
+                missing_sample=missing_sample,
+                missing_count=len(missing_refs),
+                missing_truncated=len(missing_refs) > len(missing_sample),
                 fetched=len(ref_chunks),
                 duration_ms=round(cross_ref_duration_ms, 2),
             )

@@ -33,6 +33,36 @@ async def test_heuristic_planner_splits_compound_question_when_llm_fails(monkeyp
     assert all(slot.normalized_queries() for slot in plan.slots)
 
 
+@pytest.mark.asyncio
+async def test_heuristic_planner_uses_original_when_rewrite_loses_compound_cues(
+    monkeypatch,
+):
+    async def _raise(*_args, **_kwargs):
+        raise RuntimeError("planner unavailable")
+
+    monkeypatch.setattr("server.core.evidence_planner._call_planner_llm", _raise)
+    question = "请给出混凝土结构设计中相关作用荷载和材料的分项系数。"
+    analysis = QueryAnalysis(
+        original_question=question,
+        rewritten_question="请给出混凝土结构设计中的相关分项系数。",
+        expanded_queries=["concrete design partial factors"],
+        filters={},
+        question_type=QuestionType.PARAMETER,
+    )
+
+    plan = await plan_evidence(
+        question,
+        analysis,
+        [SourceInventoryItem(source="EN 1992-1-1", title="Eurocode 2")],
+        ServerConfig(agentic_search_enabled=True, agentic_search_max_slots=4),
+    )
+
+    assert plan.strategy == "slot"
+    assert len(plan.slots) == 2
+    assert "作用荷载" in plan.slots[0].query
+    assert "材料" in plan.slots[1].query
+
+
 def test_agentic_planner_model_config_falls_back_to_agent_model():
     cfg = ServerConfig(
         llm_model="main-model",

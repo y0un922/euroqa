@@ -47,6 +47,7 @@ class ServerConfig(BaseSettings):
 
     agentic_search_enabled: bool = True
     agentic_search_max_slots: int = 4
+    agentic_search_planner_timeout_seconds: float = 8.0
     agentic_search_planner_api_key: str = ""
     agentic_search_planner_base_url: str = ""
     agentic_search_planner_model: str = ""

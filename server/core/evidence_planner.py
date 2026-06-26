@@ -11,7 +11,6 @@ import structlog
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from shared.llm_clients import get_async_openai_client
 from shared.reference_graph import normalize_reference_label
 from server.config import ServerConfig
 from server.core.query_understanding import QueryAnalysis
@@ -152,11 +151,12 @@ async def _call_planner_llm(
         ),
         "source_inventory": [item.model_dump() for item in source_inventory[:50]],
     }
-    client = await get_async_openai_client(
+    timeout_seconds = max(1.0, config.agentic_search_planner_timeout_seconds)
+    client = AsyncOpenAI(
         api_key=config.resolved_agentic_search_planner_api_key,
         base_url=config.resolved_agentic_search_planner_base_url,
-        timeout=httpx.Timeout(timeout=20.0, connect=5.0),
-        client_factory=AsyncOpenAI,
+        timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
+        max_retries=0,
     )
     response = await client.chat.completions.create(
         model=config.resolved_agentic_search_planner_model,
@@ -221,7 +221,7 @@ def _heuristic_plan(
     config: ServerConfig,
 ) -> EvidencePlan:
     del source_inventory
-    normalized_question = analysis.rewritten_question or question
+    normalized_question = _planning_question(question, analysis.rewritten_question)
     explicit_objects = _normalize_object_labels(
         [*analysis.requested_objects, *_OBJECT_RE.findall(normalized_question)]
     )
@@ -282,6 +282,19 @@ def _looks_compound(
     if target_object and _COMPOUND_SPLIT_RE.search(target_object):
         return True
     return bool(_COMPOUND_SPLIT_RE.search(question))
+
+
+def _planning_question(question: str, rewritten_question: str | None) -> str:
+    """Prefer rewritten text unless it loses compound cues from the user text."""
+    original = question.strip()
+    rewritten = (rewritten_question or "").strip()
+    if not rewritten:
+        return original
+    original_compound = bool(_COMPOUND_SPLIT_RE.search(original))
+    rewritten_compound = bool(_COMPOUND_SPLIT_RE.search(rewritten))
+    if original_compound and not rewritten_compound:
+        return original
+    return rewritten
 
 
 def _split_compound_terms(question: str) -> list[str]:

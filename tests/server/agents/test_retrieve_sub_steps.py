@@ -203,6 +203,8 @@ async def test_retrieve_agentic_runs_slot_plan_through_existing_retriever(monkey
     assert len(retriever.calls) == 2
     assert retriever.calls[0]["filters"] == {"source": "EN 1990"}
     assert retriever.calls[1]["filters"] == {"source": "EN 1992-1-1"}
+    assert retriever.calls[0]["top_k"] == 6
+    assert retriever.calls[1]["top_k"] == 6
     assert "Table 2.1N" in retriever.calls[1]["requested_objects"]
     assert deps.bundle.chunk_count == 2
     assert deps.bundle.tool_trace[-1]["tool"] == "retrieve_agentic"

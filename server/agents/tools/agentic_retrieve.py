@@ -22,6 +22,7 @@ from server.core.retrieval import RetrievalResult
 from server.models.schemas import Chunk, RoutingTargetHint
 
 _DEFAULT_TOP_K = 8
+_MAX_SLOT_TOP_K = 6
 
 
 @function_tool
@@ -137,7 +138,7 @@ async def _retrieve_agentic_impl(
             f"(groundedness=grounded, {ctx.context.bundle.chunk_count} 个片段)。"
         )
 
-    effective_top_k = _clamp_top_k(top_k)
+    effective_top_k = min(_clamp_top_k(top_k), _MAX_SLOT_TOP_K)
     progress = ToolProgressEmitter("retrieve_agentic", ctx.context.tool_progress)
     history = (
         ctx.context.conversation_state.history

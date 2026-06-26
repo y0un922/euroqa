@@ -466,6 +466,11 @@ Acceptance:
 
 Implementation status: completed in this iteration. `EvidenceSlot`, `EvidencePlan`, configurable planner model fallback, LLM JSON validation, and heuristic fallback are implemented in `server/core/evidence_planner.py`.
 
+Follow-up hardening:
+
+- Planner calls use a short dedicated timeout and disable SDK retries, so planner failure does not consume most of the request budget.
+- Heuristic fallback compares the original question and rewritten question; if rewriting removes compound cues, fallback planning uses the original user question.
+
 ### Phase 3: Helper Tools and Constrained Orchestrator
 
 File areas:
@@ -511,6 +516,7 @@ Implementation status: partially completed in this iteration.
 - Implemented constrained slot orchestration over the existing `HybridRetriever.retrieve(...)` pipeline.
 - Implemented rule-based slot status and planner-provided retry query support.
 - Slot searches currently run serially to keep progress reporting simple; parallel fan-out remains an optimization.
+- Slot retrieval caps per-slot `top_k` to keep combined context bounded.
 - Slot results are recorded in `tool_trace`; `EvidenceBundle.slot_results` is deferred to Phase 4.
 
 ### Phase 4: Answer Generation and Groundedness Update
@@ -570,6 +576,7 @@ Only pursue these if Phase 5 shows the approach works but rule-based verificatio
 ```text
 AGENTIC_SEARCH_ENABLED=true
 AGENTIC_SEARCH_MAX_SLOTS=4
+AGENTIC_SEARCH_PLANNER_TIMEOUT_SECONDS=8
 AGENTIC_SEARCH_PLANNER_MODEL=
 AGENTIC_SEARCH_PLANNER_BASE_URL=
 AGENTIC_SEARCH_PLANNER_API_KEY=
