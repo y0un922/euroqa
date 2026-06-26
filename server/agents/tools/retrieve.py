@@ -4,7 +4,6 @@ from agents import RunContextWrapper, function_tool
 
 from server.agents.deps import QADeps
 from server.agents.tool_progress import RETRIEVE_STEPS, ToolProgressEmitter
-from server.core import retrieval_helpers
 from server.core.query_understanding import analyze_query
 from server.core.retrieval import RetrievalResult
 
@@ -86,11 +85,7 @@ async def _retrieve_impl(
     if ctx.context.domain_filter:
         filters["source"] = ctx.context.domain_filter
     if ctx.context.sources_filter:
-        filters["sources"] = _refine_sources_filter_for_analysis(
-            ctx.context.sources_filter,
-            analysis,
-            effective_original,
-        )
+        filters["sources"] = ctx.context.sources_filter
     await progress.start(
         "hybrid_search",
         RETRIEVE_STEPS["hybrid_search"]["title"],
@@ -143,86 +138,6 @@ def _clamp_top_k(top_k: int) -> int:
     except (TypeError, ValueError):
         value = _DEFAULT_TOP_K
     return min(max(value, _MIN_TOP_K), _MAX_TOP_K)
-
-
-def _source_codes_from_text(text: str) -> set[str]:
-    codes: set[str] = set()
-    normalized = (text or "").lower()
-    for source_ref in (
-        "1990",
-        "1991",
-        "1992",
-        "1992-1-1",
-        "1993",
-        "1994",
-        "1995",
-        "1996",
-        "1997",
-        "1998",
-        "1999",
-    ):
-        if source_ref in normalized:
-            codes.add(source_ref)
-    if any(term in normalized for term in ("concrete", "混凝土", "ec2", "eurocode 2")):
-        codes.add("1992")
-    if any(term in normalized for term in ("steel", "钢结构", "ec3", "eurocode 3")):
-        codes.add("1993")
-    if any(
-        term in normalized
-        for term in (
-            "action",
-            "actions",
-            "load",
-            "loads",
-            "作用",
-            "荷载",
-            "combination",
-            "组合",
-        )
-    ):
-        codes.add("1990")
-    return codes
-
-
-def _source_matches_code(source: str, code: str) -> bool:
-    source_code, _year = retrieval_helpers._parse_source_reference(source)
-    if not source_code:
-        return False
-    return source_code == code or source_code.startswith(f"{code}-")
-
-
-def _refine_sources_filter_for_analysis(
-    sources_filter: list[str] | None,
-    analysis,
-    query: str,
-) -> list[str] | None:
-    """Keep selected KB scope, but narrow mixed KBs to query-implied sources."""
-    if not sources_filter:
-        return sources_filter
-
-    target_hint = getattr(analysis, "target_hint", None)
-    document = getattr(target_hint, "document", "") if target_hint else ""
-    haystack = " ".join(
-        value
-        for value in (
-            query,
-            getattr(analysis, "original_question", ""),
-            getattr(analysis, "rewritten_question", "") or "",
-            " ".join(getattr(analysis, "expanded_queries", []) or []),
-            document or "",
-        )
-        if value
-    )
-    target_codes = _source_codes_from_text(haystack)
-    if not target_codes:
-        return sources_filter
-
-    refined = [
-        source
-        for source in sources_filter
-        if any(_source_matches_code(source, code) for code in target_codes)
-    ]
-    return refined or sources_filter
 
 
 def _limit_retrieval_result(result: RetrievalResult, top_k: int) -> RetrievalResult:
