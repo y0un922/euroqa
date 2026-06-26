@@ -1881,22 +1881,29 @@ class HybridRetriever:
         # 交叉引用补充检索：提取 chunk 中提到的 Table/Figure/Expression，
         # 过滤已覆盖的，针对缺失的做定向 BM25 检索
         all_existing = final_chunks + parent_chunks + deterministic_ref_chunks
-        all_refs = self._extract_internal_refs(final_chunks)
-        for chunk in final_chunks:
-            all_refs.update(chunk.metadata.ref_labels)
-        covered = self._refs_covered_by_chunks(all_refs, all_existing)
-        missing_refs = all_refs - covered
+        all_refs: set[str] = set()
+        missing_refs: set[str] = set()
         cross_ref_filters = self._build_cross_ref_filters(final_chunks, filters)
-        if missing_refs and not cross_ref_progress_started:
-            cross_ref_progress_started = True
-            await progress.start("cross_ref_closure", "交叉引用补齐")
-        elif not missing_refs and not cross_ref_progress_started:
+        if self.config.retrieval_auto_cross_ref_closure:
+            all_refs = self._extract_internal_refs(final_chunks)
+            for chunk in final_chunks:
+                all_refs.update(chunk.metadata.ref_labels)
+            covered = self._refs_covered_by_chunks(all_refs, all_existing)
+            missing_refs = all_refs - covered
+            if missing_refs and not cross_ref_progress_started:
+                cross_ref_progress_started = True
+                await progress.start("cross_ref_closure", "交叉引用补齐")
+        if not missing_refs and not cross_ref_progress_started:
             await progress.skip("cross_ref_closure", "交叉引用补齐", "无需补齐")
         cross_ref_started = time.perf_counter()
-        fallback_ref_chunks = await self._fetch_cross_ref_chunks(
-            missing_refs,
-            existing_ids,
-            filters=cross_ref_filters,
+        fallback_ref_chunks = (
+            await self._fetch_cross_ref_chunks(
+                missing_refs,
+                existing_ids,
+                filters=cross_ref_filters,
+            )
+            if missing_refs
+            else []
         )
         cross_ref_duration_ms = (time.perf_counter() - cross_ref_started) * 1000
         ref_chunks = deterministic_ref_chunks + fallback_ref_chunks

@@ -25,13 +25,25 @@ class _ProgressCollector:
 
 
 class _FakeRetriever:
-    def __init__(self, result: RetrievalResult) -> None:
+    def __init__(
+        self,
+        result: RetrievalResult,
+        object_chunks: dict[str, list[Chunk]] | None = None,
+    ) -> None:
         self.result = result
+        self.object_chunks = object_chunks or {}
         self.calls: list[dict] = []
+        self.lookup_calls: list[dict] = []
 
     async def retrieve(self, queries: list[str], **kwargs) -> RetrievalResult:
         self.calls.append({"queries": queries, **kwargs})
         return self.result
+
+    async def lookup_object(self, label: str, filters=None, top_k: int = 3):
+        self.lookup_calls.append(
+            {"label": label, "filters": filters or {}, "top_k": top_k}
+        )
+        return self.object_chunks.get(label, [])[:top_k]
 
     async def list_sources(self, filters=None):
         return [
@@ -61,6 +73,26 @@ def _make_chunk() -> Chunk:
             page_file_index=[39],
             clause_ids=["4.4"],
             element_type=ElementType.TEXT,
+        ),
+    )
+
+
+def _make_table_chunk(label: str = "Table 2.1N") -> Chunk:
+    return Chunk(
+        chunk_id="table-2-1n",
+        content="Table 2.1N Partial factors: concrete gamma_C = 1.5; steel gamma_S = 1.15.",
+        embedding_text="Table 2.1N partial factors concrete steel",
+        metadata=ChunkMetadata(
+            source="EN 1992-1-1",
+            source_title="Eurocode 2",
+            section_path=[label],
+            page_numbers=[35],
+            page_file_index=[34],
+            clause_ids=[label],
+            element_type=ElementType.TABLE,
+            object_type="table",
+            object_label=label,
+            object_id="en-1992-1-1#table:2.1N",
         ),
     )
 
@@ -208,3 +240,78 @@ async def test_retrieve_agentic_runs_slot_plan_through_existing_retriever(monkey
     assert "Table 2.1N" in retriever.calls[1]["requested_objects"]
     assert deps.bundle.chunk_count == 2
     assert deps.bundle.tool_trace[-1]["tool"] == "retrieve_agentic"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_agentic_fetches_required_table_for_value_slot(monkeypatch):
+    text_chunk = _make_chunk().model_copy(
+        update={
+            "content": "Material partial factors are given in Table 2.1N.",
+            "metadata": _make_chunk().metadata.model_copy(
+                update={"ref_labels": ["Table 2.1N"], "source": "EN 1992-1-1"}
+            ),
+        }
+    )
+    table_chunk = _make_table_chunk()
+    retriever = _FakeRetriever(
+        RetrievalResult(
+            chunks=[text_chunk],
+            parent_chunks=[],
+            scores=[0.8],
+            groundedness="partial",
+        ),
+        object_chunks={"Table 2.1N": [table_chunk]},
+    )
+    deps = QADeps(
+        config=ServerConfig(agentic_search_enabled=True),
+        retriever=retriever,
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=None,
+        tool_progress=_ProgressCollector().on_tool_sub_step,
+    )
+    analysis = QueryAnalysis(
+        original_question="请给出材料分项系数的取值。",
+        expanded_queries=["material partial factor values"],
+        filters={},
+        question_type=QuestionType.PARAMETER,
+        intent_label="limit",
+    )
+    plan = EvidencePlan(
+        strategy="single",
+        slots=[
+            EvidenceSlot(
+                id="materials",
+                description="Material partial factor values",
+                query="material partial factor values",
+                search_queries=["EN 1992 material partial factors values"],
+                source_hints=["EN 1992-1-1"],
+            ),
+        ],
+    )
+
+    async def _fake_analyze_query(question, glossary, config, history):
+        return analysis
+
+    async def _fake_plan_evidence(question, query_analysis, inventory, config):
+        return plan
+
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.analyze_query",
+        _fake_analyze_query,
+    )
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.plan_evidence",
+        _fake_plan_evidence,
+    )
+
+    await _retrieve_agentic_impl(RunContextWrapper(deps), "请给出材料分项系数的取值。")
+
+    assert retriever.lookup_calls == [
+        {
+            "label": "Table 2.1N",
+            "filters": {"source": "EN 1992-1-1"},
+            "top_k": 1,
+        }
+    ]
+    assert [chunk.chunk_id for chunk in deps.bundle.ref_chunks] == ["table-2-1n"]

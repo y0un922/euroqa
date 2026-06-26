@@ -66,7 +66,7 @@ The current `retrieve(query)` tool has these limitations:
 
 ### Preserve the HybridRetriever Pipeline
 
-The existing `HybridRetriever.retrieve()` is not a simple search wrapper. It is a tightly-coupled pipeline that runs vector + BM25 in parallel, fuses via RRF, reranks, expands parent chunks, and resolves cross-references. Splitting this into separate `search_keyword` / `search_semantic` tools would:
+The existing `HybridRetriever.retrieve()` is not a simple search wrapper. It is a tightly-coupled pipeline that runs vector + BM25 in parallel, fuses via RRF, reranks, expands parent chunks, and resolves explicitly requested cross-references. Splitting this into separate `search_keyword` / `search_semantic` tools would:
 
 - Lose RRF fusion quality (fusion requires seeing both result sets simultaneously).
 - Require reimplementing rerank and post-processing logic in each tool.
@@ -517,6 +517,7 @@ Implementation status: partially completed in this iteration.
 - Implemented rule-based slot status and planner-provided retry query support.
 - Slot searches currently run serially to keep progress reporting simple; parallel fan-out remains an optimization.
 - Slot retrieval caps per-slot `top_k` to keep combined context bounded.
+- Implicit all-reference closure is disabled by default; value-oriented slots infer relevant Table/Expression labels from retrieved evidence and call `lookup_object` only for those objects.
 - Slot results are recorded in `tool_trace`; `EvidenceBundle.slot_results` is deferred to Phase 4.
 
 ### Phase 4: Answer Generation and Groundedness Update
@@ -580,6 +581,7 @@ AGENTIC_SEARCH_PLANNER_TIMEOUT_SECONDS=8
 AGENTIC_SEARCH_PLANNER_MODEL=
 AGENTIC_SEARCH_PLANNER_BASE_URL=
 AGENTIC_SEARCH_PLANNER_API_KEY=
+RETRIEVAL_AUTO_CROSS_REF_CLOSURE=false
 AGENTIC_SEARCH_VERIFIER_MODEL=
 AGENTIC_SEARCH_VERIFIER_BASE_URL=
 AGENTIC_SEARCH_VERIFIER_API_KEY=

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 
 from agents import RunContextWrapper, function_tool
 
+from shared.reference_graph import extract_reference_labels
 from server.agents.deps import QADeps
 from server.agents.tool_progress import RETRIEVE_STEPS, ToolProgressEmitter
 from server.agents.tools.retrieve import (
@@ -23,6 +25,12 @@ from server.models.schemas import Chunk, RoutingTargetHint
 
 _DEFAULT_TOP_K = 8
 _MAX_SLOT_TOP_K = 6
+_MAX_INFERRED_OBJECTS_PER_SLOT = 3
+_VALUE_QUERY_RE = re.compile(
+    r"取值|数值|系数|限值|参数|value|values?|factor|factors?|limit|limits?",
+    re.IGNORECASE,
+)
+_OBJECT_REF_RE = re.compile(r"^(Table|Expression)\b", re.IGNORECASE)
 
 
 @function_tool
@@ -202,6 +210,21 @@ async def _retrieve_agentic_impl(
             top_k=effective_top_k,
             progress=progress,
         )
+        inferred_objects = _infer_required_object_labels(slot, result)
+        if inferred_objects:
+            result = await _lookup_slot_objects(
+                ctx,
+                slot=slot,
+                result=result,
+                labels=inferred_objects,
+            )
+            slot = slot.model_copy(
+                update={
+                    "object_labels": list(
+                        dict.fromkeys([*slot.object_labels, *inferred_objects])
+                    )
+                }
+            )
         status = _evaluate_slot(slot, result)
         if status == "missing" and slot.retry_query:
             retry_slot = slot.model_copy(
@@ -346,6 +369,102 @@ def _evaluate_slot(slot: EvidenceSlot, result: RetrievalResult) -> str:
     if result.groundedness == "grounded":
         return "satisfied"
     return "partial"
+
+
+async def _lookup_slot_objects(
+    ctx: RunContextWrapper[QADeps],
+    *,
+    slot: EvidenceSlot,
+    result: RetrievalResult,
+    labels: list[str],
+) -> RetrievalResult:
+    lookup = getattr(ctx.context.retriever, "lookup_object", None)
+    if lookup is None:
+        return result
+
+    filters = _base_filters(ctx)
+    if slot.source_hints:
+        if len(slot.source_hints) == 1:
+            filters["source"] = slot.source_hints[0]
+        else:
+            filters["sources"] = slot.source_hints
+
+    object_chunks: list[Chunk] = []
+    for label in labels[:_MAX_INFERRED_OBJECTS_PER_SLOT]:
+        chunks = await lookup(label, filters=filters, top_k=1)
+        object_chunks.extend(chunks)
+    if not object_chunks:
+        return result
+
+    supplemental = RetrievalResult(
+        chunks=[],
+        parent_chunks=[],
+        scores=[],
+        ref_chunks=object_chunks,
+        groundedness=result.groundedness,
+        resolved_refs=list(dict.fromkeys([*result.resolved_refs, *labels])),
+        unresolved_refs=[
+            label for label in result.unresolved_refs if label not in set(labels)
+        ],
+    )
+    ctx.context.bundle.add_retrieval(supplemental)
+    return RetrievalResult(
+        chunks=result.chunks,
+        parent_chunks=result.parent_chunks,
+        scores=result.scores,
+        guide_chunks=result.guide_chunks,
+        guide_example_chunks=result.guide_example_chunks,
+        ref_chunks=_merge_chunks(result.ref_chunks, object_chunks),
+        groundedness=result.groundedness,
+        resolved_refs=list(dict.fromkeys([*result.resolved_refs, *labels])),
+        unresolved_refs=[
+            label for label in result.unresolved_refs if label not in set(labels)
+        ],
+    )
+
+
+def _infer_required_object_labels(slot: EvidenceSlot, result: RetrievalResult) -> list[str]:
+    if slot.object_labels or not _is_value_slot(slot):
+        return []
+    existing = {
+        chunk.metadata.object_label
+        for chunk in [*result.chunks, *result.ref_chunks]
+        if chunk.metadata.object_label
+    }
+    labels: list[str] = []
+    seen: set[str] = set()
+    for chunk in result.chunks:
+        candidates = [*chunk.metadata.ref_labels, *extract_reference_labels(chunk.content)]
+        for label in candidates:
+            normalized = label.strip()
+            if (
+                not normalized
+                or normalized in existing
+                or normalized in seen
+                or not _OBJECT_REF_RE.match(normalized)
+            ):
+                continue
+            seen.add(normalized)
+            labels.append(normalized)
+            if len(labels) >= _MAX_INFERRED_OBJECTS_PER_SLOT:
+                return labels
+    return labels
+
+
+def _is_value_slot(slot: EvidenceSlot) -> bool:
+    text = " ".join([slot.description, slot.query, *slot.search_queries])
+    return bool(_VALUE_QUERY_RE.search(text))
+
+
+def _merge_chunks(existing: list[Chunk], incoming: list[Chunk]) -> list[Chunk]:
+    seen = {chunk.chunk_id for chunk in existing}
+    merged = list(existing)
+    for chunk in incoming:
+        if chunk.chunk_id in seen:
+            continue
+        seen.add(chunk.chunk_id)
+        merged.append(chunk)
+    return merged
 
 
 def _slot_status_rank(status: str) -> int:

@@ -1,7 +1,6 @@
 """Test hybrid retrieval layer (mock external services)."""
 
 import asyncio
-from unittest.mock import AsyncMock
 
 import pytest
 from elasticsearch import NotFoundError
@@ -1739,7 +1738,10 @@ class TestRetrieveFallback:
     @pytest.mark.asyncio
     async def test_retrieve_falls_back_to_unreranked_chunks_when_rerank_fails(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=1)
+        retriever.config = ServerConfig(
+            rerank_top_n=1,
+            retrieval_auto_cross_ref_closure=True,
+        )
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
             return [{"chunk_id": "a", "source": "EN 1990", "score": 0.7}]
@@ -1826,7 +1828,10 @@ class TestRetrieveFallback:
     @pytest.mark.asyncio
     async def test_retrieve_constrains_cross_ref_search_to_final_chunk_sources(self):
         retriever = HybridRetriever.__new__(HybridRetriever)
-        retriever.config = ServerConfig(rerank_top_n=1)
+        retriever.config = ServerConfig(
+            rerank_top_n=1,
+            retrieval_auto_cross_ref_closure=True,
+        )
         seen_bm25_filters: list[dict] = []
 
         async def _fake_vector_search(query: str, top_k: int, filters: dict):
@@ -2006,3 +2011,101 @@ class TestMetadataProbeBm25Fields:
         assert metadata_probe_calls
         assert [chunk.chunk_id for chunk in result.chunks] == ["probe-hit"]
         assert result.groundedness == "grounded"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_skips_implicit_cross_ref_closure_by_default(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(rerank_top_n=1, vector_top_k=1, bm25_top_k=1)
+        cross_ref_calls: list[set[str]] = []
+
+        async def _fake_vector_search(query: str, top_k: int, filters: dict):
+            return [{"chunk_id": "main", "source": "EN 1992-1-1", "score": 0.9}]
+
+        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
+            return []
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            return [
+                _make_chunk(
+                    "main",
+                    "Material partial factors are given in Table 2.1N.",
+                    source="EN 1992-1-1",
+                    source_title="Materials",
+                    section_path=["2.4.2.4"],
+                    clause_ids=["2.4.2.4"],
+                    ref_labels=["Table 2.1N"],
+                )
+            ]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(chunks[0], 0.9)]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        async def _fake_fetch_cross_ref_chunks(refs: set[str], *args, **kwargs):
+            cross_ref_calls.append(refs)
+            return []
+
+        retriever._vector_search = _fake_vector_search
+        retriever._bm25_search = _fake_bm25_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
+
+        result = await retriever.retrieve(["material partial factors"])
+
+        assert result.ref_chunks == []
+        assert cross_ref_calls == []
+
+    @pytest.mark.asyncio
+    async def test_retrieve_can_enable_implicit_cross_ref_closure(self):
+        retriever = HybridRetriever.__new__(HybridRetriever)
+        retriever.config = ServerConfig(
+            rerank_top_n=1,
+            vector_top_k=1,
+            bm25_top_k=1,
+            retrieval_auto_cross_ref_closure=True,
+        )
+        cross_ref_calls: list[set[str]] = []
+
+        async def _fake_vector_search(query: str, top_k: int, filters: dict):
+            return [{"chunk_id": "main", "source": "EN 1992-1-1", "score": 0.9}]
+
+        async def _fake_bm25_search(query: str, top_k: int, filters: dict, **kwargs):
+            return []
+
+        async def _fake_fetch_chunks(chunk_ids: list[str]):
+            return [
+                _make_chunk(
+                    "main",
+                    "Material partial factors are given in Table 2.1N.",
+                    source="EN 1992-1-1",
+                    source_title="Materials",
+                    section_path=["2.4.2.4"],
+                    clause_ids=["2.4.2.4"],
+                    ref_labels=["Table 2.1N"],
+                )
+            ]
+
+        async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
+            return [(chunks[0], 0.9)]
+
+        async def _fake_fetch_parent_chunks(chunks: list[Chunk]):
+            return []
+
+        async def _fake_fetch_cross_ref_chunks(refs: set[str], *args, **kwargs):
+            cross_ref_calls.append(refs)
+            return []
+
+        retriever._vector_search = _fake_vector_search
+        retriever._bm25_search = _fake_bm25_search
+        retriever._fetch_chunks = _fake_fetch_chunks
+        retriever._rerank = _fake_rerank
+        retriever._fetch_parent_chunks = _fake_fetch_parent_chunks
+        retriever._fetch_cross_ref_chunks = _fake_fetch_cross_ref_chunks
+
+        await retriever.retrieve(["material partial factors"])
+
+        assert cross_ref_calls == [{"Table 2.1N"}]
