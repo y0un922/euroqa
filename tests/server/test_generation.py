@@ -892,6 +892,71 @@ class TestGenerateAnswer:
         assert "Annex A" in seen_user_prompts[0]
 
     @pytest.mark.asyncio
+    async def test_generate_answer_prompt_includes_slot_coverage(
+        self, sample_text_chunk
+    ):
+        seen_user_prompts: list[str] = []
+        raw = json.dumps(
+            {
+                "answer": "当前可确认部分内容，材料分项系数仍缺证据。",
+                "sources": [],
+                "related_refs": [],
+                "confidence": "medium",
+            }
+        )
+
+        class _FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.chat = SimpleNamespace(
+                    completions=SimpleNamespace(create=self._create)
+                )
+
+            async def _create(self, **kwargs):
+                seen_user_prompts.append(
+                    _message_text(kwargs["messages"][1]["content"])
+                )
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content=raw))],
+                    usage=None,
+                )
+
+        slot_results = [
+            {
+                "id": "actions",
+                "description": "Action partial factor values",
+                "status": "satisfied",
+                "chunk_count": 1,
+            },
+            {
+                "id": "materials",
+                "description": "Material partial factor values",
+                "status": "missing",
+                "chunk_count": 0,
+            },
+        ]
+
+        with patch("server.core.generation.AsyncOpenAI", _FakeClient):
+            result = await generate_answer(
+                "请给出作用和材料的分项系数。",
+                [sample_text_chunk],
+                [],
+                groundedness="partial",
+                slot_results=slot_results,
+                unresolved_slots=["Material partial factor values"],
+            )
+
+        assert seen_user_prompts
+        assert "Evidence slot 覆盖情况" in seen_user_prompts[0]
+        assert "Action partial factor values: satisfied" in seen_user_prompts[0]
+        assert "Material partial factor values: missing" in seen_user_prompts[0]
+        assert "不得凭常识补全" in seen_user_prompts[0]
+        assert result.retrieval_context is not None
+        assert result.retrieval_context.slot_results == slot_results
+        assert result.retrieval_context.unresolved_slots == [
+            "Material partial factor values"
+        ]
+
+    @pytest.mark.asyncio
     async def test_generate_answer_includes_retrieval_context_snapshot(
         self, sample_text_chunk, sample_table_chunk
     ):

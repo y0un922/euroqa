@@ -45,7 +45,7 @@ class ServerConfig(BaseSettings):
     agent_llm_base_url: str = ""
     agent_llm_model: str = ""
 
-    agentic_search_enabled: bool = True
+    agentic_search_enabled: bool = False
     agentic_search_max_slots: int = 4
     agentic_search_planner_timeout_seconds: float = 8.0
     retrieval_auto_cross_ref_closure: bool = False

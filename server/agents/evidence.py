@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from server.core.retrieval import RetrievalResult
 from server.models.schemas import Chunk
@@ -20,6 +21,8 @@ class EvidenceBundle:
     groundedness: str = "not_grounded"
     resolved_refs: list[str] = field(default_factory=list)
     unresolved_refs: list[str] = field(default_factory=list)
+    slot_results: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_slots: list[str] = field(default_factory=list)
     tool_trace: list[dict] = field(default_factory=list)
     question_type: str | None = None
     engineering_context: object | None = None

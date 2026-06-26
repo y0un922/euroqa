@@ -261,6 +261,16 @@ async def _retrieve_agentic_impl(
         )
     agentic_groundedness = _groundedness_from_slot_summaries(slot_summaries, plan)
     ctx.context.bundle.groundedness = agentic_groundedness
+    ctx.context.bundle.slot_results = slot_summaries
+    ctx.context.bundle.unresolved_slots = [
+        str(slot["description"])
+        for slot in slot_summaries
+        if slot["status"] == "missing"
+    ]
+    ctx.context.bundle.unresolved_refs = _merge_strings(
+        ctx.context.bundle.unresolved_refs,
+        [f"Evidence slot: {slot}" for slot in ctx.context.bundle.unresolved_slots],
+    )
 
     ctx.context.bundle.tool_trace.append(
         {
@@ -509,6 +519,17 @@ def _merge_chunks(existing: list[Chunk], incoming: list[Chunk]) -> list[Chunk]:
             continue
         seen.add(chunk.chunk_id)
         merged.append(chunk)
+    return merged
+
+
+def _merge_strings(existing: list[str], incoming: list[str]) -> list[str]:
+    seen = set(existing)
+    merged = list(existing)
+    for item in incoming:
+        if item in seen:
+            continue
+        seen.add(item)
+        merged.append(item)
     return merged
 
 

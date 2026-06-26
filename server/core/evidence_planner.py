@@ -248,7 +248,7 @@ def _heuristic_plan(
                     for label in explicit_objects
                     if term.lower() in label.lower() or len(terms) == 1
                 ],
-                retry_query=_retry_query_for_term(term, normalized_question),
+                retry_query=f"{term} {normalized_question}",
             )
         )
     if len(slots) <= 1:
@@ -306,19 +306,6 @@ def _split_compound_terms(question: str) -> list[str]:
 def _slot_query(question: str, term: str) -> str:
     if term in question:
         return f"{term}；{question}"
-    return f"{term} {question}"
-
-
-def _retry_query_for_term(term: str, question: str) -> str:
-    lowered = term.lower()
-    if any(token in term for token in ("作用", "荷载")) or any(
-        token in lowered for token in ("action", "load")
-    ):
-        return "EN 1990 Annex A1 Table A1.2 gamma_G gamma_Q action partial factor values"
-    if any(token in term for token in ("材料", "混凝土", "钢筋")) or any(
-        token in lowered for token in ("material", "concrete", "steel")
-    ):
-        return "EN 1992 Table 2.1N Table 4.3 gamma_C gamma_S material partial factor values"
     return f"{term} {question}"
 
 

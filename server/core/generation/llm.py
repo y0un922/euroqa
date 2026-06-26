@@ -155,6 +155,8 @@ async def generate_answer_stream(
     groundedness: str | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
+    slot_results: list[dict[str, object]] | None = None,
+    unresolved_slots: list[str] | None = None,
     intent_label: str | None = None,
 ):
     """流式生成 LLM 回答，通过异步生成器逐步输出。
@@ -188,6 +190,8 @@ async def generate_answer_stream(
         generation_mode=generation_mode,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
+        slot_results=slot_results,
+        unresolved_slots=unresolved_slots,
         intent_label=intent_label,
         config=cfg,
     )
@@ -345,6 +349,8 @@ async def generate_answer_stream(
             scores=scores,
             resolved_refs=resolved_refs,
             unresolved_refs=unresolved_refs,
+            slot_results=slot_results,
+            unresolved_slots=unresolved_slots,
             config=cfg,
         )
         yield (
@@ -381,6 +387,8 @@ async def generate_answer(
     groundedness: str | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
+    slot_results: list[dict[str, object]] | None = None,
+    unresolved_slots: list[str] | None = None,
     intent_label: str | None = None,
 ) -> QueryResponse:
     """调用 LLM 生成基于检索内容的回答。
@@ -412,6 +420,8 @@ async def generate_answer(
         scores=scores,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
+        slot_results=slot_results,
+        unresolved_slots=unresolved_slots,
         config=cfg,
     )
     qt_normalized = _normalize_question_type(question_type)
@@ -429,6 +439,8 @@ async def generate_answer(
         generation_mode=generation_mode,
         resolved_refs=resolved_refs,
         unresolved_refs=unresolved_refs,
+        slot_results=slot_results,
+        unresolved_slots=unresolved_slots,
         intent_label=intent_label,
         config=cfg,
     )

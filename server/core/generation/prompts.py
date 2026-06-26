@@ -522,6 +522,8 @@ def build_prompt(
     generation_mode: str | None = None,
     resolved_refs: list[str] | None = None,
     unresolved_refs: list[str] | None = None,
+    slot_results: list[dict[str, object]] | None = None,
+    unresolved_slots: list[str] | None = None,
     intent_label: str | None = None,
     config: ServerConfig | None = None,
 ) -> str:
@@ -565,6 +567,20 @@ def build_prompt(
         parts.append("尚未补齐的直接引用：\n")
         for ref in unresolved_refs:
             parts.append(f"- {ref}\n")
+    if slot_results:
+        parts.append("Evidence slot 覆盖情况：\n")
+        for slot in slot_results:
+            status = slot.get("status") or "unknown"
+            description = slot.get("description") or slot.get("id") or "unknown"
+            chunk_count = slot.get("chunk_count", 0)
+            parts.append(f"- {description}: {status}, chunks={chunk_count}\n")
+        if unresolved_slots:
+            parts.append(
+                "以下 evidence slots 未检索到可用证据，回答时必须显式说明缺口，"
+                "不得凭常识补全：\n"
+            )
+            for slot in unresolved_slots:
+                parts.append(f"- {slot}\n")
 
     ordered_citable = _build_prioritized_source_chunks(
         chunks,

@@ -519,10 +519,11 @@ Implementation status: partially completed in this iteration.
 - Slot retrieval caps per-slot `top_k` to keep combined context bounded.
 - Implicit all-reference closure is disabled by default; value-oriented slots infer relevant Table/Expression labels from retrieved evidence and call `lookup_object` only for those objects.
 - Value-oriented slots must contain actual numeric evidence or table/formula object evidence. A chunk that only says "see Table/Annex/National Annex" is treated as incomplete and triggers the slot retry query.
-- Heuristic retry queries for action/load and material factor slots now target the likely value-bearing objects (`EN 1990 Annex A1 Table A1.2` for `gamma_G/gamma_Q`, and `EN 1992 Table 2.1N/Table 4.3` for `gamma_C/gamma_S`) instead of repeating the broad user question.
+- Heuristic retry queries remain generic and do not hard-code domain mappings such as action/load factors to EN 1990 or material factors to EN 1992. Specific value-bearing targets should come from the LLM planner, source metadata, or retrieved object references.
 - The QA agent now exposes `retrieve_agentic` as the single agent-facing retrieval tool. The legacy `retrieve` helper remains available internally and in tests, but the LLM no longer chooses between two primary retrieval tools per turn.
 - Agentic retrieval now computes groundedness from required slot statuses. A single grounded slot can no longer mask a missing required slot, and `retrieve_agentic` no longer skips a new question merely because the bundle was globally grounded by previous evidence.
-- Slot results are recorded in `tool_trace`; `EvidenceBundle.slot_results` is deferred to Phase 4.
+- Slot results are recorded in `tool_trace`, `EvidenceBundle.slot_results`, and retrieval context. Answer generation receives the slot coverage summary and unresolved slots, so missing slots can be called out explicitly instead of being hidden inside mixed chunks.
+- `AGENTIC_SEARCH_ENABLED` now defaults to `false`. The agent still calls the unified `retrieve_agentic` tool, but the tool uses a single-slot fallback unless the deployment explicitly enables planner-driven slot decomposition.
 
 ### Phase 4: Answer Generation and Groundedness Update
 

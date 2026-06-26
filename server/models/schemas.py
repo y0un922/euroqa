@@ -183,6 +183,8 @@ class RetrievalContext(BaseModel):
     ref_chunks: list[dict[str, object]] = Field(default_factory=list)
     resolved_refs: list[str] = Field(default_factory=list)
     unresolved_refs: list[str] = Field(default_factory=list)
+    slot_results: list[dict[str, object]] = Field(default_factory=list)
+    unresolved_slots: list[str] = Field(default_factory=list)
 
 
 class QueryResponse(BaseModel):

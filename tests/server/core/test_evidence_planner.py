@@ -61,12 +61,10 @@ async def test_heuristic_planner_uses_original_when_rewrite_loses_compound_cues(
     assert len(plan.slots) == 2
     assert "作用荷载" in plan.slots[0].query
     assert "材料" in plan.slots[1].query
-    assert plan.slots[0].retry_query == (
-        "EN 1990 Annex A1 Table A1.2 gamma_G gamma_Q action partial factor values"
-    )
-    assert plan.slots[1].retry_query == (
-        "EN 1992 Table 2.1N Table 4.3 gamma_C gamma_S material partial factor values"
-    )
+    assert "作用荷载" in (plan.slots[0].retry_query or "")
+    assert "材料" in (plan.slots[1].retry_query or "")
+    assert "Table A1.2" not in (plan.slots[0].retry_query or "")
+    assert "Table 2.1N" not in (plan.slots[1].retry_query or "")
 
 
 def test_agentic_planner_model_config_falls_back_to_agent_model():

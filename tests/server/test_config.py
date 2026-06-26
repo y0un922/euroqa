@@ -1,6 +1,10 @@
 from server.config import ServerConfig
 
 
+def test_agentic_search_defaults_to_safe_single_slot_mode():
+    assert ServerConfig().agentic_search_enabled is False
+
+
 def test_agent_llm_config_falls_back_to_main_llm_config():
     config = ServerConfig(
         llm_api_key="main-key",
