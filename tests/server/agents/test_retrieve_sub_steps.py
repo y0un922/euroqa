@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from agents import RunContextWrapper
 import pytest
 
@@ -59,6 +61,27 @@ class _FakeRetriever:
                 "chunk_count": 20,
             },
         ]
+
+
+class _DelayedFakeRetriever(_FakeRetriever):
+    def __init__(
+        self,
+        result: RetrievalResult | list[RetrievalResult],
+        delay_seconds: float = 0.02,
+    ) -> None:
+        super().__init__(result)
+        self.delay_seconds = delay_seconds
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def retrieve(self, queries: list[str], **kwargs) -> RetrievalResult:
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        await asyncio.sleep(self.delay_seconds)
+        try:
+            return await super().retrieve(queries, **kwargs)
+        finally:
+            self.active_calls -= 1
 
 
 def _make_chunk() -> Chunk:
@@ -241,6 +264,169 @@ async def test_retrieve_agentic_runs_slot_plan_through_existing_retriever(monkey
     assert "Table 2.1N" in retriever.calls[1]["requested_objects"]
     assert deps.bundle.chunk_count == 2
     assert deps.bundle.tool_trace[-1]["tool"] == "retrieve_agentic"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_agentic_does_not_skip_on_existing_global_groundedness(
+    monkeypatch,
+):
+    retriever = _FakeRetriever(
+        RetrievalResult(
+            chunks=[_make_chunk()],
+            parent_chunks=[],
+            scores=[0.8],
+            groundedness="partial",
+        )
+    )
+    deps = QADeps(
+        config=ServerConfig(agentic_search_enabled=True),
+        retriever=retriever,
+        glossary={},
+        bundle=EvidenceBundle(groundedness="grounded"),
+        conversation_state=None,
+        tool_progress=_ProgressCollector().on_tool_sub_step,
+    )
+    analysis = QueryAnalysis(
+        original_question="钢筋的主要特性有哪些？",
+        expanded_queries=["reinforcing steel properties"],
+        filters={},
+        question_type=QuestionType.PARAMETER,
+        intent_label="definition",
+    )
+    plan = EvidencePlan(
+        strategy="single",
+        slots=[
+            EvidenceSlot(
+                id="steel",
+                description="Reinforcing steel properties",
+                query="reinforcing steel properties",
+                search_queries=["reinforcing steel properties"],
+            )
+        ],
+    )
+
+    async def _fake_analyze_query(question, glossary, config, history):
+        return analysis
+
+    async def _fake_plan_evidence(question, query_analysis, inventory, config):
+        return plan
+
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.analyze_query",
+        _fake_analyze_query,
+    )
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.plan_evidence",
+        _fake_plan_evidence,
+    )
+
+    summary = await _retrieve_agentic_impl(RunContextWrapper(deps), "钢筋的主要特性有哪些？")
+
+    assert len(retriever.calls) == 1
+    assert "跳过检索" not in summary
+    assert deps.bundle.groundedness == "partial"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_agentic_groundedness_requires_all_required_slots(
+    monkeypatch,
+):
+    retriever = _DelayedFakeRetriever(
+        [
+            RetrievalResult(
+                chunks=[
+                    _make_chunk().model_copy(
+                        update={
+                            "content": (
+                                "For persistent design situations, "
+                                "gamma_G = 1.35 and gamma_Q = 1.5."
+                            )
+                        }
+                    )
+                ],
+                parent_chunks=[],
+                scores=[0.92],
+                groundedness="grounded",
+            ),
+            RetrievalResult(
+                chunks=[],
+                parent_chunks=[],
+                scores=[],
+                groundedness="not_grounded",
+            ),
+        ],
+        delay_seconds=0.01,
+    )
+    deps = QADeps(
+        config=ServerConfig(agentic_search_enabled=True),
+        retriever=retriever,
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=None,
+        tool_progress=_ProgressCollector().on_tool_sub_step,
+    )
+    analysis = QueryAnalysis(
+        original_question="请给出作用和材料的分项系数。",
+        expanded_queries=["partial factors actions materials"],
+        filters={},
+        question_type=QuestionType.PARAMETER,
+        intent_label="limit",
+    )
+    plan = EvidencePlan(
+        strategy="slot",
+        slots=[
+            EvidenceSlot(
+                id="actions",
+                description="Action partial factors",
+                query="partial factors for actions",
+                search_queries=["EN 1990 partial factors actions"],
+            ),
+            EvidenceSlot(
+                id="materials",
+                description="Material partial factors",
+                query="partial factors for materials",
+                search_queries=["EN 1992 material partial factors"],
+            ),
+        ],
+    )
+
+    async def _fake_analyze_query(question, glossary, config, history):
+        return analysis
+
+    async def _fake_plan_evidence(question, query_analysis, inventory, config):
+        return plan
+
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.analyze_query",
+        _fake_analyze_query,
+    )
+    monkeypatch.setattr(
+        "server.agents.tools.agentic_retrieve.plan_evidence",
+        _fake_plan_evidence,
+    )
+
+    await _retrieve_agentic_impl(RunContextWrapper(deps), "请给出作用和材料的分项系数。")
+
+    assert len(retriever.calls) == 2
+    assert retriever.max_active_calls == 2
+    assert deps.bundle.groundedness == "partial"
+    assert deps.bundle.tool_trace[-1]["groundedness"] == "partial"
+    assert deps.bundle.tool_trace[-1]["slots"] == [
+        {
+            "id": "actions",
+            "description": "Action partial factors",
+            "status": "satisfied",
+            "chunk_count": 1,
+            "object_labels": [],
+        },
+        {
+            "id": "materials",
+            "description": "Material partial factors",
+            "status": "missing",
+            "chunk_count": 0,
+            "object_labels": [],
+        },
+    ]
 
 
 @pytest.mark.asyncio

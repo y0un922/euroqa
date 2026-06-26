@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -140,20 +141,6 @@ async def _retrieve_agentic_impl(
     query: str,
     top_k: int = _DEFAULT_TOP_K,
 ) -> str:
-    if ctx.context.bundle.groundedness == "grounded":
-        ctx.context.bundle.tool_trace.append(
-            {
-                "tool": "retrieve_agentic",
-                "query": query,
-                "skipped": True,
-                "reason": "already_grounded",
-            }
-        )
-        return (
-            "跳过检索：当前证据已充足 "
-            f"(groundedness=grounded, {ctx.context.bundle.chunk_count} 个片段)。"
-        )
-
     effective_top_k = min(_clamp_top_k(top_k), _MAX_SLOT_TOP_K)
     progress = ToolProgressEmitter("retrieve_agentic", ctx.context.tool_progress)
     history = (
@@ -210,14 +197,19 @@ async def _retrieve_agentic_impl(
     )
 
     slot_summaries: list[dict[str, object]] = []
-    for slot in plan.slots:
-        result = await _retrieve_slot(
-            ctx,
-            analysis=analysis,
-            slot=slot,
-            top_k=effective_top_k,
-            progress=progress,
-        )
+    first_round_results = await asyncio.gather(
+        *[
+            _retrieve_slot(
+                ctx,
+                analysis=analysis,
+                slot=slot,
+                top_k=effective_top_k,
+                progress=progress,
+            )
+            for slot in plan.slots
+        ]
+    )
+    for slot, result in zip(plan.slots, first_round_results, strict=True):
         inferred_objects = _infer_required_object_labels(slot, result)
         if inferred_objects:
             result = await _lookup_slot_objects(
@@ -267,6 +259,8 @@ async def _retrieve_agentic_impl(
                 "object_labels": slot.object_labels,
             }
         )
+    agentic_groundedness = _groundedness_from_slot_summaries(slot_summaries, plan)
+    ctx.context.bundle.groundedness = agentic_groundedness
 
     ctx.context.bundle.tool_trace.append(
         {
@@ -276,10 +270,10 @@ async def _retrieve_agentic_impl(
             "plan": _serialize_plan(plan),
             "slots": slot_summaries,
             "chunk_count": ctx.context.bundle.chunk_count,
-            "groundedness": ctx.context.bundle.groundedness,
+            "groundedness": agentic_groundedness,
         }
     )
-    return _format_agentic_summary(plan, slot_summaries, ctx.context.bundle.groundedness)
+    return _format_agentic_summary(plan, slot_summaries, agentic_groundedness)
 
 
 async def _retrieve_slot(
@@ -383,6 +377,26 @@ def _evaluate_slot(slot: EvidenceSlot, result: RetrievalResult) -> str:
     if result.groundedness == "grounded":
         return "satisfied"
     return "partial"
+
+
+def _groundedness_from_slot_summaries(
+    slot_summaries: list[dict[str, object]],
+    plan: EvidencePlan,
+) -> str:
+    required_slot_ids = {slot.id for slot in plan.slots if slot.required}
+    required_statuses = [
+        str(summary["status"])
+        for summary in slot_summaries
+        if str(summary["id"]) in required_slot_ids
+    ]
+    if not required_statuses:
+        statuses = [str(summary["status"]) for summary in slot_summaries]
+        return "grounded" if any(status == "satisfied" for status in statuses) else "partial"
+    if all(status == "satisfied" for status in required_statuses):
+        return "grounded"
+    if any(status in {"satisfied", "partial"} for status in required_statuses):
+        return "partial"
+    return "not_grounded"
 
 
 async def _lookup_slot_objects(

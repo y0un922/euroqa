@@ -515,12 +515,13 @@ Implementation status: partially completed in this iteration.
 - Implemented `retrieve_agentic`, `list_sources`, `lookup_object`, and `open_chunk`.
 - Implemented constrained slot orchestration over the existing `HybridRetriever.retrieve(...)` pipeline.
 - Implemented rule-based slot status and planner-provided retry query support.
-- Slot searches currently run serially to keep progress reporting simple; parallel fan-out remains an optimization.
+- First-round slot searches run concurrently with `asyncio.gather`; missing required slots still retry serially to keep retry behavior bounded and inspectable.
 - Slot retrieval caps per-slot `top_k` to keep combined context bounded.
 - Implicit all-reference closure is disabled by default; value-oriented slots infer relevant Table/Expression labels from retrieved evidence and call `lookup_object` only for those objects.
 - Value-oriented slots must contain actual numeric evidence or table/formula object evidence. A chunk that only says "see Table/Annex/National Annex" is treated as incomplete and triggers the slot retry query.
 - Heuristic retry queries for action/load and material factor slots now target the likely value-bearing objects (`EN 1990 Annex A1 Table A1.2` for `gamma_G/gamma_Q`, and `EN 1992 Table 2.1N/Table 4.3` for `gamma_C/gamma_S`) instead of repeating the broad user question.
 - The QA agent now exposes `retrieve_agentic` as the single agent-facing retrieval tool. The legacy `retrieve` helper remains available internally and in tests, but the LLM no longer chooses between two primary retrieval tools per turn.
+- Agentic retrieval now computes groundedness from required slot statuses. A single grounded slot can no longer mask a missing required slot, and `retrieve_agentic` no longer skips a new question merely because the bundle was globally grounded by previous evidence.
 - Slot results are recorded in `tool_trace`; `EvidenceBundle.slot_results` is deferred to Phase 4.
 
 ### Phase 4: Answer Generation and Groundedness Update
