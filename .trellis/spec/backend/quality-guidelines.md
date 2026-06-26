@@ -1230,6 +1230,60 @@ if decision.action == "compose_rag" and not retrieve_called:
     await _retrieve_impl(...)
 ```
 
+### Scenario: Agentic Retrieval Must Wrap, Not Split, Hybrid Retrieval
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to agentic search, evidence planning, retrieval tools, `HybridRetriever.retrieve`, or QA agent tool prompts.
+- Reason: vector search, BM25, RRF fusion, rerank, parent expansion, guide retrieval, and cross-reference closure are one quality-critical pipeline. Agentic planning should decide evidence slots and source/object hints outside that pipeline, not reimplement low-level retrieval stages in the agent layer.
+
+#### 2. Signatures
+
+- Main tool: `retrieve(ctx, query, top_k=8) -> str`.
+- Agentic tool: `retrieve_agentic(ctx, query, top_k=8) -> str`.
+- Planner: `plan_evidence(question, analysis, source_inventory, config) -> EvidencePlan`.
+- Source metadata tool: `HybridRetriever.list_sources(filters=None, size=100) -> list[dict]`.
+- Object/context tools: `HybridRetriever.lookup_object(label, filters=None, top_k=3)` and `HybridRetriever.open_chunk(chunk_id, neighbors=0)`.
+
+#### 3. Contracts
+
+- Do not expose separate `search_keyword` and `search_semantic` tools unless the feature explicitly reimplements fusion, rerank, parent expansion, and cross-reference closure at the same quality level.
+- `retrieve_agentic` may split a compound question into slots, but each slot must still call `retriever.retrieve(...)` rather than bypassing the hybrid pipeline.
+- Source inventory is metadata only. It may guide slot `source_hints`, but answer evidence must still come from retrieved chunks or object/chunk lookup tools.
+- Planner model settings must be independently configurable and fall back to the agent/main LLM config when unset.
+- If planning fails or agentic search is disabled, fall back to a single-slot retrieval path rather than adding question-specific query patches.
+- Remove per-question deterministic query hacks from query understanding. Query understanding should preserve LLM/rule analysis; coverage belongs in evidence planning.
+
+#### 4. Tests Required
+
+- Unit test planner fallback for compound questions when the planner LLM fails.
+- Unit test `retrieve_agentic` with multiple slots and assert each slot calls `retriever.retrieve(...)` with source/object hints.
+- Keep existing `retrieve` tests passing to prove the non-agentic path is unchanged.
+- Run retrieval core tests when adding retriever metadata/object helper methods.
+
+#### 5. Wrong vs Correct
+
+##### Wrong
+
+```python
+# Agent layer now owns low-level retrieval quality decisions.
+keyword_hits = await search_keyword(slot.query)
+vector_hits = await search_semantic(slot.query)
+return keyword_hits + vector_hits  # no RRF, rerank, parent, or cross-ref closure
+```
+
+##### Correct
+
+```python
+# Agentic layer plans the slot; HybridRetriever still owns retrieval quality.
+result = await retriever.retrieve(
+    slot.normalized_queries(),
+    filters=slot_filters,
+    requested_objects=slot.object_labels,
+    top_k=top_k,
+)
+```
+
 ---
 
 ## Code Review Checklist

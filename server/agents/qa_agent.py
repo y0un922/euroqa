@@ -14,6 +14,12 @@ from openai import AsyncOpenAI
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.tools.lookup_glossary import lookup_glossary
+from server.agents.tools.agentic_retrieve import (
+    list_sources,
+    lookup_object,
+    open_chunk,
+    retrieve_agentic,
+)
 from server.agents.tools.retrieve import retrieve
 from server.config import ServerConfig
 
@@ -21,24 +27,32 @@ _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x �
 
 ## 工具
 - retrieve(query, top_k=8): 搜索规范知识库。传入检索查询，系统自动进行查询扩展和混合检索。top_k 控制返回给回答生成的证据数量，允许范围 3-12。
+- retrieve_agentic(query, top_k=8): 面向复合问题的证据规划检索。它会先读取 source 元数据、拆分 evidence slots，再逐槽调用混合检索。适用于用户一次询问多个类别、多个表/公式/条款、多个参数族，或需要同时覆盖不同规范来源的问题。
+- list_sources(): 查看当前知识库 source 清单。仅当你需要先判断有哪些文档/元数据可用时调用。
+- lookup_object(label, source="", top_k=3): 按明确的 Table/Figure/Expression/Annex/Clause 标签查找对象内容。适用于用户点名某个表、公式、图或条款，或 retrieve_agentic 后仍缺少某个对象时。
+- open_chunk(chunk_id, neighbors=1): 打开已知 chunk_id 的上下文。仅在已有工具结果提供 chunk_id 且需要补充上下文时调用。
 - lookup_glossary(term): 查询术语表。传入术语，返回翻译和定义。
 
 ## 行为准则
-- 用户问 Eurocode、EN 199x、结构设计规范、承载力、荷载组合、材料分项系数、构造限值等规范相关问题时，必须调用 retrieve 搜索证据。
+- 用户问 Eurocode、EN 199x、结构设计规范、承载力、荷载组合、材料分项系数、构造限值等规范相关问题时，必须调用 retrieve 或 retrieve_agentic 搜索证据。
+- 简单定义、单个参数、单个条款查询，调用 retrieve。
+- 复合问题优先调用 retrieve_agentic，例如同时问"作用和材料"、"表和公式"、"ULS 和 SLS"、"多个构件/多个规范来源"、"总结相关分项系数/限值/组合规则"。
 - 用户寒暄、闲聊、或问与规范无关的问题时，直接自然语言回复，不调用工具。
 - 用户追问且当前对话历史已经足够回答时，可以直接回复。
 - 用户追问但需要新的规范证据、其他条文、表格、公式或参数时，再次调用 retrieve。
 - 问题过于模糊且无法形成有效检索查询时，直接礼貌反问，请用户补充规范号、构件类型、参数名称或设计场景。
-- retrieve 返回 0 条结果时，可以换查询角度重试 1 次；仍为 0 则直接告知暂未找到相关条文，并请用户补充信息。
+- retrieve 或 retrieve_agentic 返回 0 条结果时，可以换查询角度重试 1 次；仍为 0 则直接告知暂未找到相关条文，并请用户补充信息。
 - retrieve 已返回 groundedness=grounded 的结果时，不要再次调用 retrieve。已有证据充足，直接简要说明找到了什么即可。
+- retrieve_agentic 已返回 groundedness=grounded 的结果时，不要再次调用检索工具。已有证据充足，直接简要说明找到了什么即可。
 - 对一个问题，最多调用 retrieve 2 次。不要为了"换角度多查"而反复检索。
+- retrieve_agentic 也计入检索工具调用次数；一个问题最多调用检索工具 2 次。
 - 根据问题复杂度设置 top_k：简单定义或单个参数问题用 4-6；一般规范解释用 6-8；复杂综合总结、对比或多要点问题用 8-12。不要超过 12。
 - 调用 retrieve 时，query 必须是自包含的完整问题，不得包含代词或省略关键语境。如果用户当前问题包含代词（它、这个、该参数、上面的表格等）或省略了文档名/条款号，你必须在 query 中用明确的名词替代。例如：上文是关于保护层厚度的，用户问"它的限值是多少"，你应调用 retrieve("混凝土保护层厚度的限值")，而不是 retrieve("它的限值是多少")。
 
 ## 重要原则
 - 不要编造规范内容
 - 优先检索，但 retrieve 返回 grounded 结果后立即停止检索
-- 如果调用 retrieve 且找到了相关证据，简要说明找到了什么即可；系统会基于证据生成详细回答。
+- 如果调用检索工具且找到了相关证据，简要说明找到了什么即可；系统会基于证据生成详细回答。
 - 如果没有调用 retrieve，你的回复就是最终回答，请直接、清晰地回复用户。
 - 不要输出 JSON、action 字段或路由指令；只用自然语言回复。
 
@@ -75,7 +89,14 @@ def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
     return Agent[QADeps](
         name="eurocode-qa",
         model=model,
-        tools=[retrieve, lookup_glossary],
+        tools=[
+            retrieve_agentic,
+            retrieve,
+            list_sources,
+            lookup_object,
+            open_chunk,
+            lookup_glossary,
+        ],
         model_settings=ModelSettings(temperature=0.1),
         instructions=_QA_AGENT_INSTRUCTIONS,
     )

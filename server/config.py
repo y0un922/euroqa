@@ -45,6 +45,15 @@ class ServerConfig(BaseSettings):
     agent_llm_base_url: str = ""
     agent_llm_model: str = ""
 
+    agentic_search_enabled: bool = True
+    agentic_search_max_slots: int = 4
+    agentic_search_planner_api_key: str = ""
+    agentic_search_planner_base_url: str = ""
+    agentic_search_planner_model: str = ""
+    agentic_search_verifier_api_key: str = ""
+    agentic_search_verifier_base_url: str = ""
+    agentic_search_verifier_model: str = ""
+
     translation_llm_api_key: str = ""
     translation_llm_base_url: str = ""
     translation_llm_model: str = ""
@@ -115,6 +124,57 @@ class ServerConfig(BaseSettings):
     def resolved_agent_llm_model(self) -> str:
         """Return the agent-loop LLM model with main LLM fallback."""
         return self.agent_llm_model or self.llm_model
+
+    @property
+    def resolved_agentic_search_planner_api_key(self) -> str:
+        """Return planner LLM API key with agent/main LLM fallback."""
+        return (
+            self.agentic_search_planner_api_key
+            or self.resolved_agent_llm_api_key
+            or self.llm_api_key
+        )
+
+    @property
+    def resolved_agentic_search_planner_base_url(self) -> str:
+        """Return planner LLM base URL with agent/main LLM fallback."""
+        return (
+            self.agentic_search_planner_base_url
+            or self.resolved_agent_llm_base_url
+            or self.llm_base_url
+        )
+
+    @property
+    def resolved_agentic_search_planner_model(self) -> str:
+        """Return planner LLM model with agent/main LLM fallback."""
+        return (
+            self.agentic_search_planner_model
+            or self.resolved_agent_llm_model
+            or self.llm_model
+        )
+
+    @property
+    def resolved_agentic_search_verifier_api_key(self) -> str:
+        """Return verifier LLM API key with planner/agent/main fallback."""
+        return (
+            self.agentic_search_verifier_api_key
+            or self.resolved_agentic_search_planner_api_key
+        )
+
+    @property
+    def resolved_agentic_search_verifier_base_url(self) -> str:
+        """Return verifier LLM base URL with planner/agent/main fallback."""
+        return (
+            self.agentic_search_verifier_base_url
+            or self.resolved_agentic_search_planner_base_url
+        )
+
+    @property
+    def resolved_agentic_search_verifier_model(self) -> str:
+        """Return verifier LLM model with planner/agent/main fallback."""
+        return (
+            self.agentic_search_verifier_model
+            or self.resolved_agentic_search_planner_model
+        )
 
     def with_llm_override(
         self,

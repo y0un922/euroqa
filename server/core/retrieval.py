@@ -97,6 +97,15 @@ _CROSS_REF_PRIORITY = {
 }
 
 
+def _preferred_element_for_category(category: str | None) -> str | None:
+    """Map reference categories to indexed element types for BM25 boosts."""
+    return {
+        "table": "table",
+        "figure": "image",
+        "expression": "formula",
+    }.get(category or "")
+
+
 def _warn_search_failed(
     event: str,
     *,
@@ -1088,6 +1097,108 @@ class HybridRetriever:
             return True
         head = code.split("-", 1)[0]
         return head in known
+
+    async def list_sources(
+        self,
+        filters: dict | None = None,
+        *,
+        size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return compact source inventory for planning and diagnostics."""
+        es = await self._get_es()
+        filter_clauses = self._build_source_filter_clauses(filters or {})
+        body: dict[str, Any] = {
+            "size": 0,
+            "query": {"bool": {"filter": filter_clauses}} if filter_clauses else {"match_all": {}},
+            "aggs": {
+                "sources": {
+                    "terms": {"field": "source", "size": max(1, size)},
+                    "aggs": {
+                        "sample": {
+                            "top_hits": {
+                                "size": 1,
+                                "_source": ["source_title", "display_title"],
+                            }
+                        }
+                    },
+                }
+            },
+        }
+        resp = await es.search(index=self.config.es_index, body=body)
+        buckets = resp.get("aggregations", {}).get("sources", {}).get("buckets", [])
+        inventory: list[dict[str, Any]] = []
+        for bucket in buckets:
+            source = str(bucket.get("key", "")).strip()
+            if not source:
+                continue
+            hits = (
+                bucket.get("sample", {})
+                .get("hits", {})
+                .get("hits", [])
+            )
+            sample = hits[0].get("_source", {}) if hits else {}
+            title = (
+                sample.get("display_title")
+                or sample.get("source_title")
+                or source
+            )
+            inventory.append(
+                {
+                    "source": source,
+                    "title": str(title),
+                    "chunk_count": int(bucket.get("doc_count", 0)),
+                }
+            )
+        return inventory
+
+    async def lookup_object(
+        self,
+        label: str,
+        filters: dict | None = None,
+        *,
+        top_k: int = 3,
+    ) -> list[Chunk]:
+        """Lookup an exact structured object such as a table or expression."""
+        normalized = normalize_reference_label(label) or label.strip()
+        if not normalized:
+            return []
+        filters = filters or {}
+        category = classify_reference_label(normalized)
+        filter_clauses = self._build_source_filter_clauses(filters)
+        if category in ("table", "figure", "expression", "clause"):
+            chunks = await self._exact_object_label_candidates(
+                normalized,
+                category,
+                filter_clauses,
+                size=top_k,
+            )
+            if chunks:
+                return chunks
+
+        results = await self._bm25_search(
+            normalized,
+            top_k=max(top_k * 2, top_k),
+            filters=filters,
+            preferred_element_type=_preferred_element_for_category(category),
+        )
+        chunk_ids = [item["chunk_id"] for item in results[:top_k] if item.get("chunk_id")]
+        return await self._fetch_chunks(chunk_ids)
+
+    async def open_chunk(
+        self,
+        chunk_id: str,
+        *,
+        neighbors: int = 0,
+    ) -> list[Chunk]:
+        """Open a chunk by ID, optionally including its parent context."""
+        chunk_id = chunk_id.strip()
+        if not chunk_id:
+            return []
+        chunks = await self._fetch_chunks([chunk_id])
+        if not chunks or neighbors <= 0:
+            return chunks
+        parent_chunks = await self._fetch_parent_chunks(chunks)
+        return self._append_unique_chunks(chunks, parent_chunks)
 
     async def _exact_object_label_lookup(
         self,

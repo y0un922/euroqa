@@ -397,7 +397,7 @@ class TestExpandQueries:
         assert result.routing is None
 
     @pytest.mark.asyncio
-    async def test_stabilizes_chinese_partial_factor_query_after_open_llm_routing(self):
+    async def test_preserves_chinese_partial_factor_llm_routing_for_planner(self):
         llm_response = json.dumps({
             "rewritten_question": "混凝土结构设计中的荷载分项系数和土的分项系数取值",
             "semantic": "concrete design safety discussion",
@@ -420,25 +420,18 @@ class TestExpandQueries:
                 {},
             )
 
-        assert result.queries == [
-            "concrete structural design Eurocode partial factors for actions and materials",
-            "EN 1990 EN 1992 EN 1992-1-1 actions materials loads load combination "
-            "ultimate limit state safety factor partial factor concrete steel",
-            "γF γG γQ γM γC γS γ_F γ_G γ_Q γ_M γ_C γ_S "
-            "gammaF gammaG gammaQ gammaM gammaC gammaS "
-            "gamma_F gamma_G gamma_Q gamma_M gamma_C gamma_S",
-        ]
-        assert result.question_type == QuestionType.PARAMETER
+        assert result.queries[0] == "concrete design safety discussion"
+        assert result.question_type == QuestionType.MECHANISM
         assert result.routing is not None
-        assert result.routing.intent_label == "limit"
-        assert result.routing.target_hint.document == "EN 1990 and EN 1992-1-1"
-        assert result.routing.target_hint.clause is None
+        assert result.routing.intent_label == "explanation"
+        assert result.routing.target_hint.document == "Designers' Guide EN 1992"
+        assert result.routing.target_hint.clause == "2.4.2"
         assert result.rewritten_question == (
-            "请给出混凝土结构设计中相关作用荷载和材料的分项系数。"
+            "混凝土结构设计中的荷载分项系数和土的分项系数取值"
         )
 
     @pytest.mark.asyncio
-    async def test_stabilizes_english_partial_factor_query(self):
+    async def test_preserves_english_partial_factor_llm_queries_for_planner(self):
         llm_response = json.dumps({
             "semantic": "where to find design values",
             "concepts": "values",
@@ -453,14 +446,12 @@ class TestExpandQueries:
                 {},
             )
 
-        assert result.question_type == QuestionType.PARAMETER
-        assert result.routing is not None
-        assert result.routing.target_hint.document == "EN 1990 and EN 1992-1-1"
-        assert "γF" in result.queries[2]
-        assert "gamma_F" in result.queries[2]
+        assert result.queries == ["where to find design values", "values", "factors"]
+        assert result.question_type is None
+        assert result.routing is None
 
     @pytest.mark.asyncio
-    async def test_stabilizes_gamma_symbol_partial_factor_query(self):
+    async def test_preserves_gamma_symbol_llm_queries_for_planner(self):
         llm_response = json.dumps({
             "semantic": "gamma symbols in concrete design",
             "concepts": "symbols",
@@ -474,9 +465,13 @@ class TestExpandQueries:
                 {},
             )
 
-        assert result.question_type == QuestionType.PARAMETER
-        assert result.routing is not None
-        assert result.routing.target_hint.object == "partial factors for actions and materials"
+        assert result.queries == [
+            "gamma symbols in concrete design",
+            "symbols",
+            "gamma",
+        ]
+        assert result.question_type is None
+        assert result.routing is None
 
     @pytest.mark.asyncio
     async def test_does_not_stabilize_non_partial_factor_query(self):
@@ -613,7 +608,7 @@ class TestAnalyzeQuery:
         assert result.guide_hint.example_kind == "worked_example"
 
     @pytest.mark.asyncio
-    async def test_partial_factor_analysis_is_stable_exact_parameter(self):
+    async def test_partial_factor_analysis_preserves_llm_result_for_planner(self):
         llm_response = json.dumps({
             "semantic": "drifted open discussion",
             "concepts": "commentary guide",
@@ -635,11 +630,9 @@ class TestAnalyzeQuery:
                 {},
             )
 
-        assert result.expanded_queries[0] == (
-            "concrete structural design Eurocode partial factors for actions and materials"
-        )
-        assert result.question_type == QuestionType.PARAMETER
-        assert result.intent_label == "limit"
+        assert result.expanded_queries[0] == "drifted open discussion"
+        assert result.question_type == QuestionType.MECHANISM
+        assert result.intent_label == "explanation"
         assert result.target_hint is not None
-        assert result.target_hint.document == "EN 1990 and EN 1992-1-1"
-        assert result.target_hint.clause is None
+        assert result.target_hint.document == "Designers' Guide"
+        assert result.target_hint.clause == "2.4.2.4"

@@ -61,7 +61,6 @@ async def _retrieve_impl(
         ctx.context.config,
         history,
     )
-    effective_original = analysis.rewritten_question or query
     was_rewritten = bool(
         analysis.rewritten_question and analysis.rewritten_question != query
     )
@@ -81,16 +80,32 @@ async def _retrieve_impl(
         },
     )
 
+    return await _execute_hybrid_retrieve(
+        ctx,
+        query=query,
+        analysis=analysis,
+        top_k=effective_top_k,
+        progress=progress,
+        trace_tool="retrieve",
+    )
+
+async def _execute_hybrid_retrieve(
+    ctx: RunContextWrapper[QADeps],
+    *,
+    query: str,
+    analysis,
+    top_k: int,
+    progress: ToolProgressEmitter,
+    trace_tool: str,
+) -> str:
     filters = dict(analysis.filters)
-    if ctx.context.domain_filter:
-        filters["source"] = ctx.context.domain_filter
-    if ctx.context.sources_filter:
-        filters["sources"] = ctx.context.sources_filter
+    filters.update(_base_filters(ctx))
     await progress.start(
         "hybrid_search",
         RETRIEVE_STEPS["hybrid_search"]["title"],
         "正在执行向量检索、关键词检索与重排序",
     )
+    effective_original = analysis.rewritten_question or query
     result = await ctx.context.retriever.retrieve(
         analysis.expanded_queries,
         original_query=effective_original,
@@ -101,7 +116,7 @@ async def _retrieve_impl(
         target_hint=analysis.target_hint,
         requested_objects=analysis.requested_objects,
         preferred_element_type=analysis.preferred_element_type,
-        top_k=effective_top_k,
+        top_k=top_k,
         progress=progress,
     )
     await progress.complete(
@@ -115,13 +130,13 @@ async def _retrieve_impl(
             "guide_count": len(result.guide_chunks) + len(result.guide_example_chunks),
         },
     )
-    result = _limit_retrieval_result(result, effective_top_k)
+    result = _limit_retrieval_result(result, top_k)
     ctx.context.bundle.add_retrieval(result)
     ctx.context.bundle.tool_trace.append(
         {
-            "tool": "retrieve",
+            "tool": trace_tool,
             "query": query,
-            "top_k": effective_top_k,
+            "top_k": top_k,
             "requested_top_k": top_k,
             "expanded_queries": analysis.expanded_queries,
             "rewritten_question": analysis.rewritten_question,
@@ -130,6 +145,14 @@ async def _retrieve_impl(
         }
     )
     return _format_retrieval_summary(result.groundedness, result.chunks)
+
+def _base_filters(ctx: RunContextWrapper[QADeps]) -> dict[str, object]:
+    filters: dict[str, object] = {}
+    if ctx.context.domain_filter:
+        filters["source"] = ctx.context.domain_filter
+    if ctx.context.sources_filter:
+        filters["sources"] = ctx.context.sources_filter
+    return filters
 
 
 def _clamp_top_k(top_k: int) -> int:
