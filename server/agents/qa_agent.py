@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+import structlog
 from agents import Agent, ModelSettings, RawResponsesStreamEvent, Runner
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.stream_events import RunItemStreamEvent
@@ -21,6 +22,9 @@ from server.agents.tools.agentic_retrieve import (
     retrieve_agentic,
 )
 from server.config import ServerConfig
+from shared.spot_check import merge_spot_check_usage
+
+logger = structlog.get_logger(__name__)
 
 _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x 系列）的专家问答助手。
 
@@ -43,7 +47,8 @@ _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x �
 - retrieve_agentic 已返回 groundedness=grounded 的结果时，不要再次调用检索工具。已有证据充足，直接简要说明找到了什么即可。
 - 对一个问题，最多调用 retrieve_agentic 2 次。不要为了"换角度多查"而反复检索。
 - 根据问题复杂度设置 top_k：简单定义或单个参数问题用 4-6；一般规范解释用 6-8；复杂综合总结、对比或多要点问题用 8-12。不要超过 12。
-- 调用 retrieve_agentic 时，query 必须是自包含的完整问题，不得包含代词或省略关键语境。如果用户当前问题包含代词（它、这个、该参数、上面的表格等）或省略了文档名/条款号，你必须在 query 中用明确的名词替代。例如：上文是关于保护层厚度的，用户问"它的限值是多少"，你应调用 retrieve_agentic("混凝土保护层厚度的限值")，而不是 retrieve_agentic("它的限值是多少")。
+- 调用 retrieve_agentic 时，query 应尽量保留用户当前问题的原始措辞；只有用户使用代词或省略了历史中明确出现的关键语境时，才补成自包含问题。
+- 不要把用户问题改写成关键词串；不要补入用户当前问题或明确历史中没有出现的规范号、章节号、表号或公式号。
 
 ## 重要原则
 - 不要编造规范内容
@@ -59,6 +64,7 @@ _QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x �
 """
 
 _CITATION_RE = re.compile(r"\[Ref-\d+\]")
+_RAG_TOOL_NAMES = {"retrieve", "retrieve_agentic"}
 
 
 @dataclass(frozen=True)
@@ -71,6 +77,29 @@ class AgentStreamEvent:
     tool_result: str | None = None
     tool_trace: dict[str, object] | None = None
     summary: str = ""
+
+
+def _usage_summary(value: object | None) -> dict[str, int] | None:
+    if value is None:
+        return None
+    requests = int(getattr(value, "requests", 0) or 0)
+    input_tokens = int(getattr(value, "input_tokens", 0) or 0)
+    output_tokens = int(getattr(value, "output_tokens", 0) or 0)
+    total_tokens = int(getattr(value, "total_tokens", 0) or 0)
+    cached_tokens = int(
+        getattr(getattr(value, "input_tokens_details", None), "cached_tokens", 0) or 0
+    )
+    reasoning_tokens = int(
+        getattr(getattr(value, "output_tokens_details", None), "reasoning_tokens", 0) or 0
+    )
+    return {
+        "requests": requests,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
+        "reasoning_tokens": reasoning_tokens,
+    }
 
 
 def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
@@ -115,6 +144,9 @@ async def run_qa_agent(
         max_turns=max_turns,
         error_handlers={"max_turns": on_max_turns},
     )
+    usage = _usage_summary(getattr(result, "usage", None))
+    if usage is not None:
+        merge_spot_check_usage(usage)
     return str(result.final_output or ""), deps.bundle
 
 
@@ -187,8 +219,21 @@ async def run_qa_agent_streamed(
                 tool_trace=_latest_tool_trace(deps.bundle.tool_trace, tool_name),
                 summary=_tool_result_summary(tool_name, output_text),
             )
+            if _should_short_circuit_after_rag_tool(tool_name, deps):
+                logger.info(
+                    "qa_agent_short_circuit_after_rag_tool",
+                    tool_name=tool_name,
+                    chunk_count=deps.bundle.chunk_count,
+                    groundedness=deps.bundle.groundedness,
+                    tool_trace_count=len(deps.bundle.tool_trace),
+                )
+                yield (_fallback_agent_reply(deps), deps.bundle)
+                return
 
     final_output = str(result.final_output or "")
+    usage = _usage_summary(getattr(result, "usage", None))
+    if usage is not None:
+        merge_spot_check_usage(usage)
     yield (final_output or _fallback_agent_reply(deps), deps.bundle)
 
 
@@ -220,6 +265,13 @@ def _fallback_agent_reply(deps: QADeps) -> str:
     if deps.bundle.has_rag_evidence:
         return "已检索到相关规范证据，正在整理回答。"
     return "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
+
+
+def _should_short_circuit_after_rag_tool(
+    tool_name: str | None,
+    deps: QADeps,
+) -> bool:
+    return bool(tool_name in _RAG_TOOL_NAMES and deps.bundle.has_rag_evidence)
 
 
 def _raw_item_payload(item: object) -> object:

@@ -26,6 +26,7 @@
 - 主回答静态 system prompt 包含通用回答规则、四类问题策略和流式输出硬约束，真实 Qwen 测试可创建约 1250 个 ephemeral cache input tokens；动态 user prompt 保持普通字符串。
 - source 翻译 LLM 调用同样只对固定 system prompt 添加显式缓存标记，待翻译 source payload 保持普通 user prompt。
 - 流式 Qwen 调用会请求 `stream_options={"include_usage": true}`，并从 `usage.prompt_tokens_details.cached_tokens` 记录缓存命中 token 数，非流式调用同样在结束日志记录缓存命中信息。
+- `generate_answer_stream()` 应记录 `llm_stream_first_content` 与 `llm_first_content_ms` spot-check，用于观察从回答 LLM 请求开始到首个正文 token 的延迟；reasoning token 可单独记录首个 reasoning 延迟，但不应改变 SSE 事件顺序。
 
 ## 依赖关系
 

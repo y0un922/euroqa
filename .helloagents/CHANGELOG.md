@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [0.1.41] - 2026-06-29
+
+### 优化
+- **[server.agents.qa_agent / server.core.generation / tests]**: 流式 QA agent 在 `retrieve_agentic` / `retrieve` 工具已经写入 RAG evidence 后直接结束 agent loop，跳过无用的 post-tool LLM final-output 等待，让后续回答生成立即启动；同时为流式回答生成记录首个内容 token 延迟，便于区分检索耗时和生成首字耗时 — by Codex
+  - 类型: 简化流程（全自动执行）
+  - 文件: server/agents/qa_agent.py; server/core/generation/llm.py; tests/server/agents/test_qa_agent.py
+
 ## [0.1.40] - 2026-06-26
 
 ### 修复

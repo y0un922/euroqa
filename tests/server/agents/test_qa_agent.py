@@ -419,6 +419,66 @@ async def test_run_qa_agent_streamed_yields_tool_progress():
     assert events[-1] == ("已检索到相关规范证据。", deps.bundle)
 
 
+@pytest.mark.asyncio
+async def test_run_qa_agent_streamed_short_circuits_after_rag_tool_with_evidence():
+    deps = _make_deps()
+
+    class _FakeStreamedRun:
+        @property
+        def final_output(self):
+            raise AssertionError("final_output should not be read after short-circuit")
+
+        async def stream_events(self):
+            from agents.stream_events import RunItemStreamEvent
+
+            yield RunItemStreamEvent(
+                name="tool_called",
+                item=SimpleNamespace(
+                    type="tool_call_item",
+                    tool_name="retrieve_agentic",
+                    call_id="call-1",
+                    raw_item={"arguments": '{"query": "design working life"}'},
+                ),
+            )
+            deps.bundle.chunks = [_make_chunk()]
+            deps.bundle.groundedness = "partial"
+            deps.bundle.tool_trace.append(
+                {
+                    "tool": "retrieve_agentic",
+                    "query": "design working life",
+                    "chunk_count": 1,
+                    "groundedness": "partial",
+                }
+            )
+            yield RunItemStreamEvent(
+                name="tool_output",
+                item=SimpleNamespace(
+                    type="tool_call_output_item",
+                    call_id="call-1",
+                    output="检索到 1 个片段。",
+                ),
+            )
+            raise AssertionError("stream should stop immediately after RAG evidence")
+
+    with patch(
+        "server.agents.qa_agent.Runner.run_streamed",
+        return_value=_FakeStreamedRun(),
+    ):
+        events = [
+            item
+            async for item in run_qa_agent_streamed(
+                agent=object(),
+                question="设计使用年限是什么？",
+                deps=deps,
+            )
+        ]
+
+    assert len(events) == 3
+    assert isinstance(events[1], AgentStreamEvent)
+    assert events[1].kind == "tool_result"
+    assert events[-1] == ("已检索到相关规范证据，正在整理回答。", deps.bundle)
+
+
 def test_qa_agent_exposes_only_agentic_retrieval_tool():
     agent = build_qa_agent(ServerConfig())
     tool_names = {getattr(tool, "name", "") for tool in agent.tools}

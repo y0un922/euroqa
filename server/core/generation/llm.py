@@ -44,6 +44,7 @@ from server.models.schemas import (
     QuestionType,
 )
 from shared.llm_clients import get_async_openai_client
+from shared.spot_check import merge_spot_check_usage
 from shared.spot_check import record_spot_check
 
 logger = structlog.get_logger(__name__)
@@ -137,6 +138,41 @@ def _extract_cached_prompt_tokens(usage: Any) -> int | None:
         if cached is None and isinstance(details, dict):
             cached = details.get("cached_tokens")
     return cached if isinstance(cached, int) else None
+
+
+def _merge_usage_summary(usage: Any) -> None:
+    if usage is None:
+        return
+    merge_spot_check_usage(
+        {
+            "requests": int(getattr(usage, "requests", 1) or 1),
+            "input_tokens": int(
+                getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", 0)) or 0
+            ),
+            "output_tokens": int(
+                getattr(
+                    usage,
+                    "completion_tokens",
+                    getattr(usage, "output_tokens", 0),
+                )
+                or 0
+            ),
+            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            "cached_tokens": int(_extract_cached_prompt_tokens(usage) or 0),
+            "reasoning_tokens": int(
+                getattr(
+                    getattr(usage, "completion_tokens_details", None),
+                    "reasoning_tokens",
+                    getattr(
+                        getattr(usage, "output_tokens_details", None),
+                        "reasoning_tokens",
+                        0,
+                    ),
+                )
+                or 0
+            ),
+        }
+    )
 
 
 async def generate_answer_stream(
@@ -261,6 +297,7 @@ async def generate_answer_stream(
             prompt_tokens_estimate,
             qt_normalized,
         )
+        stream_started = time.perf_counter()
         stream = await client.chat.completions.create(
             model=cfg.llm_model,
             messages=_build_chat_messages(
@@ -273,8 +310,11 @@ async def generate_answer_stream(
             stream=True,
             **_build_stream_completion_kwargs(cfg),
         )
+        stream_create_ms = (time.perf_counter() - stream_started) * 1000
         chunk_count = 0
         total_content_len = 0
+        first_content_ms: float | None = None
+        first_reasoning_ms: float | None = None
         finish_reason = None
         stream_usage = None
         async for token in stream:
@@ -285,10 +325,30 @@ async def generate_answer_stream(
             delta = token.choices[0].delta
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
+                if first_reasoning_ms is None:
+                    first_reasoning_ms = (time.perf_counter() - stream_started) * 1000
                 yield ("reasoning", {"text": reasoning})
 
             content = delta.content
             if content:
+                if first_content_ms is None:
+                    first_content_ms = (time.perf_counter() - stream_started) * 1000
+                    logger.info(
+                        "llm_stream_first_content",
+                        first_content_ms=round(first_content_ms, 2),
+                        stream_create_ms=round(stream_create_ms, 2),
+                        first_reasoning_ms=round(first_reasoning_ms, 2)
+                        if first_reasoning_ms is not None
+                        else None,
+                    )
+                    record_spot_check(
+                        "llm_first_content_ms",
+                        {
+                            "value": round(first_content_ms, 2),
+                            "stream_create_ms": round(stream_create_ms, 2),
+                            "model": cfg.llm_model,
+                        },
+                    )
                 chunk_count += 1
                 total_content_len += len(content)
                 yield ("chunk", {"text": content, "done": False})
@@ -300,12 +360,17 @@ async def generate_answer_stream(
 
         logger.info(
             "llm_stream_end chunks=%d content_chars=%d finish_reason=%s "
-            "cached_prompt_tokens=%s",
+            "cached_prompt_tokens=%s stream_create_ms=%.2f first_content_ms=%s "
+            "first_reasoning_ms=%s",
             chunk_count,
             total_content_len,
             finish_reason,
             _extract_cached_prompt_tokens(stream_usage),
+            stream_create_ms,
+            round(first_content_ms, 2) if first_content_ms is not None else None,
+            round(first_reasoning_ms, 2) if first_reasoning_ms is not None else None,
         )
+        _merge_usage_summary(stream_usage)
 
         # 从检索结果直接构建结构化元数据，不依赖 LLM 输出
         # 主 chunk、父片段、交叉引用和 guide/example chunk 统一编号，
@@ -501,6 +566,7 @@ async def generate_answer(
             len(raw),
             _extract_cached_prompt_tokens(getattr(resp, "usage", None)),
         )
+        _merge_usage_summary(getattr(resp, "usage", None))
         response = parse_llm_response(raw)
         all_citable = (
             list(chunks)
