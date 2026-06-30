@@ -1284,6 +1284,42 @@ result = await retriever.retrieve(
 )
 ```
 
+### Scenario: Query Response Telemetry
+
+#### 1. Scope / Trigger
+
+- Trigger: any change to `/api/v1/query`, `/api/v1/query/stream`,
+  `QueryResponse`, or persisted assistant-turn payloads.
+- Reason: the frontend renders answer telemetry for finished turns, so the
+  backend must keep usage and elapsed-time metadata stable across direct,
+  streaming, and restored-session paths.
+
+#### 2. Contracts
+
+- Query responses may include JSON-friendly `usage` and `elapsed_ms` fields.
+- `usage` should preserve provider-reported token counts when available and may
+  stay `null` when the provider does not expose them.
+- `elapsed_ms` should reflect wall-clock latency for the answer path and be
+  carried through both streaming and non-streaming responses.
+- Persisted assistant turns must restore `usage` and `elapsed_ms` from stored
+  payloads so reloaded sessions show the same telemetry as the original answer.
+
+#### 3. Validation & Error Matrix
+
+- Direct query path returns usage and elapsed time -> response schema and stored
+  conversation turn both expose the same metadata.
+- Streaming answer path finishes normally -> final `done` payload includes the
+  same telemetry fields the frontend uses for display.
+- Historical turns do not contain telemetry -> leave the fields `null` rather
+  than fabricating placeholder values.
+
+#### 4. Tests Required
+
+- API tests must cover `usage` and `elapsed_ms` on both direct and streaming
+  query responses.
+- Conversation restoration tests must assert the metadata survives round-trips
+  through the persisted turn payload.
+
 ---
 
 ## Code Review Checklist
