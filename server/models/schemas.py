@@ -194,6 +194,8 @@ class QueryResponse(BaseModel):
     confidence: Confidence
     conversation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     degraded: bool = False
+    usage: dict[str, int] | None = None
+    elapsed_ms: int | None = None
     retrieval_context: RetrievalContext | None = None
     question_type: Optional[str] = None
     engineering_context: Optional[dict[str, object]] = None
@@ -212,6 +214,8 @@ class ConversationTurn(CamelModel):
     degraded: bool = False
     conversation_id: str
     error_message: Optional[str] = None
+    usage: dict[str, int] | None = None
+    elapsed_ms: int | None = None
     retrieval_context: Optional[dict[str, object]] = None
     question_type: Optional[str] = None
     engineering_context: Optional[dict[str, object]] = None

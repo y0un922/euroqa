@@ -704,6 +704,8 @@ export function useEuroQaDemo() {
             );
           },
           onDone: (payload) => {
+            const usage = payload.usage ?? null;
+            const elapsedMs = payload.elapsed_ms ?? null;
             setMessages((current) =>
               current.map((message) =>
                 message.id === turnId
@@ -718,6 +720,8 @@ export function useEuroQaDemo() {
                       sources: payload.sources ?? [],
                       questionType: payload.question_type ?? null,
                       engineeringContext: payload.engineering_context ?? null,
+                      usage,
+                      elapsed_ms: elapsedMs,
                       status: "done",
                       errorMessage: undefined,
                     }
@@ -777,6 +781,8 @@ export function useEuroQaDemo() {
                   sources: response.sources ?? [],
                   questionType: response.question_type ?? null,
                   engineeringContext: response.engineering_context ?? null,
+                  usage: response.usage ?? null,
+                  elapsed_ms: response.elapsed_ms ?? null,
                   status: "done",
                   errorMessage: undefined,
                   conversationId: response.conversation_id || sessionId,
@@ -806,6 +812,8 @@ export function useEuroQaDemo() {
                   confidence: message.answer ? message.confidence : "low",
                   status: message.answer ? "done" : "error",
                   retrievalContext: null,
+                  usage: null,
+                  elapsed_ms: null,
                   errorMessage: reason,
                 }
               : message,
@@ -845,6 +853,8 @@ export function useEuroQaDemo() {
         status: "streaming",
         conversationId: nextSessionId,
         retrievalContext: null,
+        usage: null,
+        elapsed_ms: null,
         progressEvents: [],
         commentaries: [],
         toolSubSteps: [],
@@ -905,6 +915,8 @@ export function useEuroQaDemo() {
               status: "streaming" as const,
               errorMessage: undefined,
               retrievalContext: null,
+              usage: null,
+              elapsed_ms: null,
               conversationId: nextSessionId,
               progressEvents: [],
               commentaries: [],

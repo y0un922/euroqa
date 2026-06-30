@@ -171,6 +171,7 @@ async def query(
     conv_mgr=Depends(get_conversation_manager),
     kb_db: KBDatabase = Depends(get_kb_database),
 ) -> QueryResponse:
+    started_at = time.perf_counter()
     runtime_config = _resolve_runtime_config(config, req)
     sources_filter = await _resolve_kb_sources(req, kb_db, retriever)
     recorder = (
@@ -201,6 +202,12 @@ async def query(
             conv=conv,
             uses_external_session=uses_external_session(req),
         )
+        response = response.model_copy(
+            update={
+                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                "usage": agent_result.usage or response.usage,
+            }
+        )
 
         if uses_external_session(req):
             await _add_conversation_turn(
@@ -216,6 +223,7 @@ async def query(
                 answer_mode=answer_mode,
                 groundedness=response.groundedness,
                 tool_trace=bundle.tool_trace,
+                response_payload=response.model_dump(mode="json"),
             )
 
         return response
@@ -232,6 +240,7 @@ async def query(
             confidence="low",
             conversation_id=req.session_id or req.conversation_id or "",
             degraded=True,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
             retrieval_context=None,
             question_type=None,
             engineering_context=None,
@@ -354,6 +363,8 @@ async def query_stream(
                         bundle=bundle,
                         started_at=started_at,
                         uses_external_session=uses_external_session(req),
+                        request_started_at=started_at,
+                        usage=agent_result.usage,
                     ):
                         yield event
                     return
@@ -395,6 +406,7 @@ async def query_stream(
                     conv=conv,
                     bundle=bundle,
                     uses_external_session=uses_external_session(req),
+                    request_started_at=started_at,
                 ):
                     if groundedness is not None:
                         final_groundedness = groundedness

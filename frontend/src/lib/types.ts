@@ -100,6 +100,8 @@ export type QueryResponse = {
   confidence: Confidence;
   conversation_id: string;
   degraded?: boolean;
+  usage?: Record<string, number> | null;
+  elapsed_ms?: number | null;
   retrieval_context?: RetrievalContext | null;
   question_type?: QuestionType | null;
   engineering_context?: Record<string, unknown> | null;
@@ -140,6 +142,8 @@ export type StreamDonePayload = {
   answerMode?: string;
   title?: string | null;
   groundedness?: string | null;
+  usage?: Record<string, number> | null;
+  elapsed_ms?: number | null;
   retrieval_context?: RetrievalContext | null;
   question_type?: QuestionType | null;
   engineering_context?: Record<string, unknown> | null;
@@ -343,6 +347,8 @@ export type ChatTurn = {
   degraded: boolean;
   conversationId?: string;
   errorMessage?: string;
+  usage?: Record<string, number> | null;
+  elapsed_ms?: number | null;
   retrievalContext?: RetrievalContext | null;
   questionType?: QuestionType | null;
   engineeringContext?: Record<string, unknown> | null;

@@ -131,7 +131,7 @@ async def run_qa_agent(
     question: str,
     deps: QADeps,
     max_turns: int = 5,
-) -> tuple[str, EvidenceBundle]:
+) -> tuple[str, EvidenceBundle, dict[str, int] | None]:
     input_items = _build_input_items(question, deps)
 
     def on_max_turns(_handler_input: object) -> str:
@@ -147,7 +147,7 @@ async def run_qa_agent(
     usage = _usage_summary(getattr(result, "usage", None))
     if usage is not None:
         merge_spot_check_usage(usage)
-    return str(result.final_output or ""), deps.bundle
+    return str(result.final_output or ""), deps.bundle, usage
 
 
 async def run_qa_agent_streamed(
@@ -155,7 +155,9 @@ async def run_qa_agent_streamed(
     question: str,
     deps: QADeps,
     max_turns: int = 5,
-) -> AsyncIterator[AgentStreamEvent | tuple[str, EvidenceBundle]]:
+) -> AsyncIterator[
+    AgentStreamEvent | tuple[str, EvidenceBundle, dict[str, int] | None]
+]:
     """Run the QA agent and yield internal progress events before final output."""
     input_items = _build_input_items(question, deps)
 
@@ -234,7 +236,7 @@ async def run_qa_agent_streamed(
     usage = _usage_summary(getattr(result, "usage", None))
     if usage is not None:
         merge_spot_check_usage(usage)
-    yield (final_output or _fallback_agent_reply(deps), deps.bundle)
+    yield (final_output or _fallback_agent_reply(deps), deps.bundle, usage)
 
 
 def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:

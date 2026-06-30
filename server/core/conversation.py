@@ -211,6 +211,8 @@ def _conversation_turns_from_messages(
                     "degraded": False,
                     "conversation_id": conversation_id,
                     "retrieval_context": None,
+                    "usage": None,
+                    "elapsed_ms": None,
                     "question_type": None,
                     "engineering_context": None,
                     "progress_events": [],
@@ -238,6 +240,8 @@ def _conversation_turns_from_messages(
                         "conversation_id": conversation_id,
                         "error_message": "上次回答在生成过程中中断，已保留问题。",
                         "retrieval_context": None,
+                        "usage": None,
+                        "elapsed_ms": None,
                         "question_type": None,
                         "engineering_context": None,
                         "progress_events": [],
@@ -276,6 +280,8 @@ def _conversation_turns_from_messages(
             response.get("engineeringContext", payload.get("engineeringContext")),
         )
         thinking = str(response.get("thinking") or payload.get("thinking") or "")
+        usage = response.get("usage", payload.get("usage"))
+        elapsed_ms = response.get("elapsed_ms", payload.get("elapsed_ms"))
         turn_index += 1
         turns.append(
             {
@@ -294,6 +300,8 @@ def _conversation_turns_from_messages(
                 "retrieval_context": retrieval_context
                 if isinstance(retrieval_context, dict)
                 else None,
+                "usage": usage if isinstance(usage, dict) else None,
+                "elapsed_ms": int(elapsed_ms) if isinstance(elapsed_ms, int) else None,
                 "question_type": question_type
                 if isinstance(question_type, str)
                 else None,
@@ -322,6 +330,8 @@ def _conversation_turns_from_messages(
                 "conversation_id": conversation_id,
                 "error_message": "上次回答在生成过程中中断，已保留问题。",
                 "retrieval_context": None,
+                "usage": None,
+                "elapsed_ms": None,
                 "question_type": None,
                 "engineering_context": None,
                 "progress_events": [],

@@ -27,8 +27,7 @@ import { buildReferenceRecords, type DemoDocumentInfo } from "../lib/api";
 import {
   getUnmatchedCitationLabelFromHref,
   getReferenceIdFromHref,
-  linkifyReferenceCitations,
-  matchRelatedRefToReference
+  linkifyReferenceCitations
 } from "../lib/citations";
 import {
   buildInlineReferenceAnchor,
@@ -143,6 +142,36 @@ function getCitationText(children: ReactNode): string {
   }
 
   return String(children ?? "");
+}
+
+function formatUsageSummary(usage: ChatTurn["usage"]): string | null {
+  if (!usage) {
+    return null;
+  }
+
+  const totalTokens = usage.total_tokens ?? usage.totalTokens;
+  const inputTokens = usage.input_tokens ?? usage.prompt_tokens;
+  const outputTokens = usage.output_tokens ?? usage.completion_tokens;
+  const parts: string[] = [];
+
+  if (typeof totalTokens === "number") {
+    parts.push(`总 ${totalTokens}`);
+  }
+  if (typeof inputTokens === "number") {
+    parts.push(`输入 ${inputTokens}`);
+  }
+  if (typeof outputTokens === "number") {
+    parts.push(`输出 ${outputTokens}`);
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function formatElapsedMs(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null;
+  }
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${value}ms`;
 }
 
 function useStableCallback<T extends (...args: any[]) => unknown>(
@@ -497,6 +526,30 @@ const ChatTranscript = memo(function ChatTranscript({
                       </div>
                     ) : null}
 
+                    {message.status === "done" ? (
+                      (() => {
+                        const usage = formatUsageSummary(message.usage);
+                        const elapsed = formatElapsedMs(message.elapsed_ms);
+                        if (!usage && !elapsed) {
+                          return null;
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-2 text-xs text-stone-500">
+                            {usage ? (
+                              <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
+                                Token {usage}
+                              </span>
+                            ) : null}
+                            {elapsed ? (
+                              <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
+                                耗时 {elapsed}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })()
+                    ) : null}
+
                     {references.length > 0 ? (
                       <div className="border-t border-stone-100 pt-4">
                         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">
@@ -535,50 +588,6 @@ const ChatTranscript = memo(function ChatTranscript({
                             );
                           })}
                         </div>
-                      </div>
-                    ) : null}
-
-                    {message.relatedRefs.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {message.relatedRefs.map((ref) => {
-                          const matched = matchRelatedRefToReference(ref, references);
-                          if (matched) {
-                            const ordinal = getReferenceOrdinal(matched.id, references) ?? "?";
-                            const isActive = activeReferenceId === matched.id;
-                            return (
-                              <button
-                                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-all ${
-                                  isActive
-                                    ? "bg-stone-900 text-white shadow-md"
-                                    : "border border-stone-200 bg-stone-50 text-stone-600 hover:border-stone-300 hover:bg-stone-100"
-                                }`}
-                                key={ref}
-                                onClick={() => onReferenceClick(matched.id)}
-                                title={`引用 ${ordinal} · ${ref}`}
-                                type="button"
-                              >
-                                <span
-                                  className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full text-[10px] font-semibold leading-none ${
-                                    isActive
-                                      ? "bg-white/15 text-white"
-                                      : "bg-cyan-700 text-white"
-                                  }`}
-                                >
-                                  {ordinal}
-                                </span>
-                                {ref}
-                              </button>
-                            );
-                          }
-                          return (
-                            <span
-                              className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-500"
-                              key={ref}
-                            >
-                              {ref}
-                            </span>
-                          );
-                        })}
                       </div>
                     ) : null}
 

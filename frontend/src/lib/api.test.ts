@@ -529,6 +529,58 @@ test("queryStream forwards reasoning events to the caller", async () => {
   ]);
 });
 
+test("queryStream forwards usage and elapsed time in done payloads", async () => {
+  const encoder = new TextEncoder();
+  const donePayloads: Array<{
+    usage?: Record<string, number> | null;
+    elapsed_ms?: number | null;
+  }> = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'event: done\ndata: {"confidence":"low","sources":[],"related_refs":[],"usage":{"input_tokens":11,"output_tokens":22,"total_tokens":33},"elapsed_ms":987}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      );
+
+    await queryStream(
+      {
+        question: "桥梁设计使用年限是多少？",
+        stream: true,
+      },
+      {
+        onReasoning: () => {},
+        onChunk: () => {},
+        onDone: (payload) => {
+          donePayloads.push({
+            usage: payload.usage ?? null,
+            elapsed_ms: payload.elapsed_ms ?? null,
+          });
+        },
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(donePayloads, [
+    {
+      usage: { input_tokens: 11, output_tokens: 22, total_tokens: 33 },
+      elapsed_ms: 987,
+    },
+  ]);
+});
+
 test("queryStream forwards retrieval progress events to the caller", async () => {
   const encoder = new TextEncoder();
   const progressEvents: Array<{ title: string; summary: string }> = [];

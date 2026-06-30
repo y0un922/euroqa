@@ -47,6 +47,7 @@ class AgentResult:
     bundle: EvidenceBundle
     conv: object
     deps: QADeps
+    usage: dict[str, int] | None = None
 
     @property
     def needs_rag(self) -> bool:
@@ -129,6 +130,7 @@ def _build_agent_deps(
         glossary=glossary,
         bundle=EvidenceBundle(),
         conversation_state=_conversation_state_for_agent(conv, req),
+        user_question=req.question,
         domain_filter=req.domain,
         sources_filter=sources_filter,
         tool_progress=tool_progress,
@@ -143,7 +145,7 @@ async def _run_agent_dispatch(
     glossary: dict[str, str],
     conv_mgr: object,
     sources_filter: list[str] | None = None,
-) -> tuple[str, EvidenceBundle, object, QADeps]:
+) -> tuple[str, EvidenceBundle, object, QADeps, dict[str, int] | None]:
     """Run the QA agent and return its reply, evidence bundle, session, and deps."""
     conv = await _get_conversation_state(conv_mgr, conversation_id_from_request(req))
     deps = _build_agent_deps(
@@ -158,7 +160,9 @@ async def _run_agent_dispatch(
     breaker = _get_agent_circuit_breaker(runtime_config)
     started_at = time.perf_counter()
 
-    async def run_agent_with_limits() -> tuple[str, EvidenceBundle]:
+    async def run_agent_with_limits() -> tuple[
+        str, EvidenceBundle, dict[str, int] | None
+    ]:
         semaphore_wait_started_at = time.perf_counter()
         async with _get_agent_semaphore(runtime_config):
             logger.info(
@@ -183,7 +187,7 @@ async def _run_agent_dispatch(
 
     try:
         async with asyncio.timeout(runtime_config.agent_timeout_seconds):
-            agent_reply, bundle = await breaker.call(run_agent_with_limits)
+            agent_reply, bundle, usage = await breaker.call(run_agent_with_limits)
         logger.info(
             "agent_dispatch_completed",
             needs_rag=bundle.has_rag_evidence,
@@ -206,7 +210,7 @@ async def _run_agent_dispatch(
                 chunk_count=deps.bundle.chunk_count,
                 groundedness=deps.bundle.groundedness,
             )
-            return _DEGRADED_RAG_REPLY, deps.bundle, conv, deps
+            return _DEGRADED_RAG_REPLY, deps.bundle, conv, deps, None
 
         await breaker.record_failure()
         raise LLMUnavailableError("agent 决策超时")
@@ -229,7 +233,7 @@ async def _run_agent_dispatch(
             breaker_state=breaker.state,
         )
         raise LLMUnavailableError(f"agent LLM 不可用: {exc}") from exc
-    return agent_reply, bundle, conv, deps
+    return agent_reply, bundle, conv, deps, usage
 
 
 async def dispatch_agent(
@@ -242,7 +246,7 @@ async def dispatch_agent(
     sources_filter: list[str] | None = None,
 ) -> AgentResult:
     """Run the agent for a query request."""
-    agent_reply, bundle, conv, deps = await _run_agent_dispatch(
+    agent_reply, bundle, conv, deps, usage = await _run_agent_dispatch(
         req=req,
         runtime_config=config,
         retriever=retriever,
@@ -250,7 +254,13 @@ async def dispatch_agent(
         conv_mgr=conv_mgr,
         sources_filter=sources_filter,
     )
-    return AgentResult(agent_reply=agent_reply, bundle=bundle, conv=conv, deps=deps)
+    return AgentResult(
+        agent_reply=agent_reply,
+        bundle=bundle,
+        conv=conv,
+        deps=deps,
+        usage=usage,
+    )
 
 
 async def dispatch_agent_streamed(
@@ -297,12 +307,13 @@ async def dispatch_agent_streamed(
                     yield AgentProgress(event=item)
                     continue
 
-                agent_reply, bundle = item
+                agent_reply, bundle, usage = item
                 yield AgentResult(
                     agent_reply=agent_reply,
                     bundle=bundle,
                     conv=conv,
                     deps=deps,
+                    usage=usage,
                 )
 
     try:
@@ -348,6 +359,7 @@ async def dispatch_agent_streamed(
                 bundle=deps.bundle,
                 conv=conv,
                 deps=deps,
+                usage=None,
             )
             return
 

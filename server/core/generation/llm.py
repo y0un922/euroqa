@@ -175,6 +175,44 @@ def _merge_usage_summary(usage: Any) -> None:
     )
 
 
+def _usage_summary(usage: Any) -> dict[str, int] | None:
+    """Normalize provider usage into a JSON-friendly summary."""
+    if usage is None:
+        return None
+    return {
+        key: value
+        for key, value in {
+            "requests": int(getattr(usage, "requests", 1) or 1),
+            "input_tokens": int(
+                getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", 0)) or 0
+            ),
+            "output_tokens": int(
+                getattr(
+                    usage,
+                    "completion_tokens",
+                    getattr(usage, "output_tokens", 0),
+                )
+                or 0
+            ),
+            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            "cached_tokens": int(_extract_cached_prompt_tokens(usage) or 0),
+            "reasoning_tokens": int(
+                getattr(
+                    getattr(usage, "completion_tokens_details", None),
+                    "reasoning_tokens",
+                    getattr(
+                        getattr(usage, "output_tokens_details", None),
+                        "reasoning_tokens",
+                        0,
+                    ),
+                )
+                or 0
+            ),
+        }.items()
+        if value is not None
+    }
+
+
 async def generate_answer_stream(
     question: str,
     chunks: list[Chunk],
@@ -429,6 +467,7 @@ async def generate_answer_stream(
                 "engineering_context": ctx_normalized.model_dump()
                 if ctx_normalized
                 else None,
+                "usage": _usage_summary(stream_usage),
             },
         )
     except Exception:
@@ -566,6 +605,7 @@ async def generate_answer(
             len(raw),
             _extract_cached_prompt_tokens(getattr(resp, "usage", None)),
         )
+        usage = _usage_summary(getattr(resp, "usage", None))
         _merge_usage_summary(getattr(resp, "usage", None))
         response = parse_llm_response(raw)
         all_citable = (
@@ -611,6 +651,7 @@ async def generate_answer(
                 "engineering_context": (
                     ctx_normalized.model_dump() if ctx_normalized else None
                 ),
+                "usage": usage,
             }
         )
     except Exception:

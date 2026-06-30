@@ -16,7 +16,7 @@ from server.config import ServerConfig
 from server.core.generation import generate_answer, generate_answer_stream
 from server.core.generation import postprocess_citations
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
-from shared.spot_check import SpotCheckRecorder
+from shared.spot_check import SpotCheckRecorder, get_current_recorder
 
 logger = structlog.get_logger(__name__)
 
@@ -170,6 +170,53 @@ def _serialize_response_payload_for_history(
     return dict(response_payload)
 
 
+def _response_usage(response: object | None = None) -> dict[str, int] | None:
+    """Extract token usage from a response-like object or active recorder."""
+    usage = getattr(response, "usage", None) if response is not None else None
+    if usage is None:
+        recorder = get_current_recorder()
+        usage = recorder.data.get("usage") if recorder is not None else None
+    if usage is None:
+        return None
+    if isinstance(usage, dict):
+        return {
+            key: int(value or 0)
+            for key, value in usage.items()
+            if isinstance(value, int) or value is not None
+        }
+
+    summary: dict[str, int] = {}
+    for key in (
+        "requests",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
+    ):
+        value = getattr(usage, key, None)
+        if value is not None:
+            summary[key] = int(value or 0)
+    return summary or None
+
+
+def _response_elapsed_ms(
+    response: object | None = None,
+    *,
+    started_at: float | None = None,
+) -> int | None:
+    """Extract elapsed time from a response-like object or wall clock."""
+    elapsed_ms = getattr(response, "elapsed_ms", None) if response is not None else None
+    if elapsed_ms is None:
+        if started_at is None:
+            return None
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    try:
+        return int(elapsed_ms)
+    except (TypeError, ValueError):
+        return None
+
+
 def _camelize_source_payload(source: dict) -> dict:
     """Add interface-document camelCase aliases while preserving old keys."""
     aliases = {
@@ -233,6 +280,8 @@ def _external_done_payload(
         "answerMode": answer_mode or _answer_mode_from_groundedness(groundedness),
         "groundedness": groundedness,
         "title": title,
+        "usage": data.get("usage"),
+        "elapsed_ms": data.get("elapsed_ms"),
     }
 
 
@@ -280,6 +329,8 @@ async def _build_query_response(
                 confidence="high",
                 conversation_id=conv.conversation_id,
                 degraded=False,
+                usage=None,
+                elapsed_ms=None,
                 retrieval_context=RetrievalContext(),
                 question_type=None,
                 engineering_context=None,
@@ -322,6 +373,8 @@ async def _build_query_response(
             or _bundle_metadata(bundle, "question_type"),
             "engineering_context": response.engineering_context
             or _bundle_metadata(bundle, "engineering_context"),
+            "usage": _response_usage(response),
+            "elapsed_ms": _response_elapsed_ms(response),
         }
     )
     return response, _answer_mode_from_groundedness(response.groundedness)
@@ -367,6 +420,8 @@ async def _stream_direct_agent_events(
     bundle: EvidenceBundle,
     started_at: float,
     uses_external_session: bool,
+    request_started_at: float | None = None,
+    usage: dict[str, int] | None = None,
 ) -> AsyncIterator[dict[str, str]]:
     """Yield stream events for direct agent responses."""
     payload = _build_direct_agent_payload(agent_reply=agent_reply, bundle=bundle)
@@ -397,6 +452,10 @@ async def _stream_direct_agent_events(
         groundedness=None,
         title=None,
         answer_mode="direct",
+    )
+    data["usage"] = usage or _response_usage()
+    data["elapsed_ms"] = _response_elapsed_ms(
+        started_at=request_started_at or started_at
     )
     data["request_id"] = get_contextvars().get("request_id", "")
     if uses_external_session:
@@ -430,6 +489,7 @@ async def _stream_rag_answer_events(
     conv: object,
     bundle: EvidenceBundle,
     uses_external_session: bool,
+    request_started_at: float | None = None,
     generate_answer_stream_fn: Callable[..., AsyncIterator[tuple[str, dict]]]
     | None = None,
 ) -> AsyncIterator[tuple[str, str, str | None]]:
@@ -504,6 +564,10 @@ async def _stream_rag_answer_events(
                 question_type=data.get("question_type"),
                 groundedness=bundle.groundedness,
                 title=title,
+            )
+            data["usage"] = data.get("usage") or _response_usage()
+            data["elapsed_ms"] = _response_elapsed_ms(
+                started_at=request_started_at or generate_t0
             )
             data["request_id"] = get_contextvars().get("request_id", "")
             if uses_external_session:
