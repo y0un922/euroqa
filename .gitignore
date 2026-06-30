@@ -23,7 +23,10 @@ data/parsed/*
 !data/parsed/.gitkeep
 data/pdfs/*
 !data/pdfs/.gitkeep
+data/knowledge_bases.db*
 logs/
+outputs/
+gpt_image2_ppt_work/
 
 # Local agent/tooling state
 .agents/
