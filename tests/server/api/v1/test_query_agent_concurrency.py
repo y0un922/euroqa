@@ -161,7 +161,7 @@ async def test_run_agent_dispatch_half_open_success_closes_breaker(monkeypatch):
             await dispatch()
 
         clock_now = 10.0
-        agent_reply, _bundle, _conv, _deps = await dispatch()
+        agent_reply, _bundle, _conv, _deps, _usage = await dispatch()
 
     assert agent_reply == "ok"
     assert breaker.state == "closed"
@@ -193,6 +193,7 @@ async def test_run_agent_dispatch_timeout_returns_existing_evidence(monkeypatch)
             bundle,
             _conv,
             _deps,
+            _usage,
         ) = await orchestrator_module._run_agent_dispatch(
             req=QueryRequest(question="钢筋的主要特性有哪些？"),
             runtime_config=config,
@@ -215,16 +216,11 @@ async def test_run_agent_dispatch_stream_timeout_returns_existing_evidence(
     async def fake_run_qa_agent_streamed(_agent, _question, deps, **_kwargs):
         deps.bundle.chunks.append(_make_chunk())
         deps.bundle.groundedness = "grounded"
-        return
-        yield
+        raise asyncio.TimeoutError()
+        yield  # noqa: RUF028 - makes this an async generator
 
     monkeypatch.setattr(orchestrator_module, "_agent_semaphore", None)
     monkeypatch.setattr(orchestrator_module, "_agent_circuit_breaker", None)
-    monkeypatch.setattr(
-        orchestrator_module.asyncio,
-        "timeout",
-        lambda _seconds: _TimeoutAfterBody(),
-    )
     monkeypatch.setattr(
         orchestrator_module, "_get_or_build_agent", lambda _config: object()
     )

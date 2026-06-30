@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from server.core.query_understanding import (
-    _format_history_for_expansion,
     _parse_expansion_result,
     analyze_query,
     expand_queries,
@@ -14,37 +13,7 @@ from server.core.query_understanding import (
 from server.models.schemas import QuestionType
 
 
-def test_format_history_for_expansion_none_returns_empty_string():
-    assert _format_history_for_expansion(None) == ""
-
-
-def test_format_history_for_expansion_empty_returns_empty_string():
-    assert _format_history_for_expansion([]) == ""
-
-
-def test_format_history_for_expansion_uses_last_three_turns_and_truncates():
-    long_question = "q" * 250
-    long_answer = "a" * 250
-    history = [
-        {"question": "old-1", "answer": "answer-1"},
-        {"question": "old-2", "answer": "answer-2"},
-        {"question": "recent-1", "answer": "answer-3"},
-        {"question": long_question, "answer": long_answer},
-        {"question": "recent-3", "answer": "answer-5"},
-    ]
-
-    formatted = _format_history_for_expansion(history)
-
-    assert "old-1" not in formatted
-    assert "old-2" not in formatted
-    assert "recent-1" in formatted
-    assert f"用户：{'q' * 200}" in formatted
-    assert f"助手：{'a' * 200}" in formatted
-    assert "q" * 201 not in formatted
-    assert "a" * 201 not in formatted
-
-
-def test_parse_expansion_result_populates_rewritten_question():
+def test_parse_expansion_result_ignores_rewritten_question():
     raw = json.dumps(
         {
             "rewritten_question": "混凝土保护层厚度的限值是多少？",
@@ -57,7 +26,7 @@ def test_parse_expansion_result_populates_rewritten_question():
     result = _parse_expansion_result(raw)
 
     assert result is not None
-    assert result.rewritten_question == "混凝土保护层厚度的限值是多少？"
+    assert result.rewritten_question is None
 
 
 def test_parse_expansion_result_missing_rewritten_question_is_none():
@@ -76,7 +45,7 @@ def test_parse_expansion_result_missing_rewritten_question_is_none():
 
 
 @pytest.mark.asyncio
-async def test_analyze_query_accepts_history_parameter():
+async def test_analyze_query_does_not_send_history_to_llm():
     llm_response = json.dumps(
         {
             "rewritten_question": "原始问题",
@@ -88,9 +57,15 @@ async def test_analyze_query_accepts_history_parameter():
     mock_llm = AsyncMock(return_value=llm_response)
 
     with patch("server.core.query_understanding._call_llm", mock_llm):
-        result = await analyze_query("原始问题", {}, history=None)
+        result = await analyze_query(
+            "原始问题",
+            {},
+            history=[{"question": "旧问题", "answer": "旧答案"}],
+        )
 
-    assert result.rewritten_question == "原始问题"
+    sent_prompt = mock_llm.call_args.args[0]
+    assert "旧问题" not in sent_prompt
+    assert result.rewritten_question is None
     assert result.expanded_queries[0] == "design working life"
 
 
@@ -127,4 +102,5 @@ async def test_partial_factor_stabilization_preserves_rewritten_question():
         )
 
     assert result.question_type == QuestionType.PARAMETER
-    assert result.rewritten_question == "混凝土结构中作用荷载和材料的分项系数是多少？"
+    assert result.rewritten_question is None
+    assert result.target_hint is None

@@ -125,10 +125,9 @@ class TestParseExpansionResult:
         assert result is not None
         assert result.question_type is not None
         assert result.question_type.value == "parameter"
-        assert result.engineering_context is not None
-        assert result.engineering_context.concrete_class == "C30/37"
+        assert result.engineering_context is None
 
-    def test_parses_guide_hint(self):
+    def test_parses_guide_hint_ignored_at_parse_level(self):
         raw = json.dumps({
             "semantic": "design value calculation example",
             "concepts": "load combination design value",
@@ -142,10 +141,7 @@ class TestParseExpansionResult:
         })
         result = _parse_expansion_result(raw)
         assert result is not None
-        assert result.guide_hint is not None
-        assert result.guide_hint.need_example is True
-        assert result.guide_hint.example_query == "design value load combination worked example"
-        assert result.guide_hint.example_kind == "worked_example"
+        assert result.guide_hint is None
 
     def test_invalid_guide_hint_degrades_to_none(self):
         raw = json.dumps({
@@ -183,7 +179,7 @@ class TestParseExpansionResult:
         assert result.routing.target_hint.document == "EN 1992-1-1"
         assert result.routing.target_hint.clause == "6.1"
         assert result.routing.target_hint.object == "basic assumptions"
-        assert result.routing.reason_short == "asks for direct normative assumptions"
+        assert result.routing.reason_short == "assumption"
 
     def test_invalid_question_type_returns_none_type(self):
         raw = json.dumps({
@@ -224,7 +220,7 @@ class TestParseExpansionResult:
         assert result is not None
         assert result.routing is None
 
-    def test_non_string_reason_is_rejected(self):
+    def test_non_string_reason_is_ignored(self):
         raw = json.dumps({
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
@@ -241,7 +237,7 @@ class TestParseExpansionResult:
         result = _parse_expansion_result(raw)
 
         assert result is not None
-        assert result.routing is None
+        assert result.routing is not None
 
     def test_target_hint_strips_whitespace_and_normalizes_blank_strings(self):
         raw = json.dumps({
@@ -347,7 +343,7 @@ class TestExpandQueries:
             assert "design working life" in result.queries[0]
 
     @pytest.mark.asyncio
-    async def test_preserves_routing_metadata(self):
+    async def test_drops_untraceable_routing_metadata(self):
         llm_response = json.dumps({
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
@@ -365,10 +361,8 @@ class TestExpandQueries:
         with patch("server.core.query_understanding._call_llm", mock_llm):
             result = await expand_queries("欧标的截面计算的基本假设前提是什么", {})
 
-        assert result.routing is not None
-        assert result.routing.intent_label == "assumption"
-        assert result.routing.target_hint is not None
-        assert result.routing.target_hint.clause == "6.1"
+        assert result.intent_label == "assumption"
+        assert result.routing is None
 
     @pytest.mark.asyncio
     async def test_falls_back_to_original_on_failure(self):
@@ -421,14 +415,10 @@ class TestExpandQueries:
             )
 
         assert result.queries[0] == "concrete design safety discussion"
-        assert result.question_type == QuestionType.MECHANISM
-        assert result.routing is not None
-        assert result.routing.intent_label == "explanation"
-        assert result.routing.target_hint.document == "Designers' Guide EN 1992"
-        assert result.routing.target_hint.clause == "2.4.2"
-        assert result.rewritten_question == (
-            "混凝土结构设计中的荷载分项系数和土的分项系数取值"
-        )
+        assert result.question_type == QuestionType.PARAMETER
+        assert result.routing is None
+        assert result.rewritten_question is None
+        assert result.target_hint is None
 
     @pytest.mark.asyncio
     async def test_preserves_english_partial_factor_llm_queries_for_planner(self):
@@ -447,7 +437,7 @@ class TestExpandQueries:
             )
 
         assert result.queries == ["where to find design values", "values", "factors"]
-        assert result.question_type is None
+        assert result.question_type == QuestionType.PARAMETER
         assert result.routing is None
 
     @pytest.mark.asyncio
@@ -470,7 +460,7 @@ class TestExpandQueries:
             "symbols",
             "gamma",
         ]
-        assert result.question_type is None
+        assert result.question_type == QuestionType.PARAMETER
         assert result.routing is None
 
     @pytest.mark.asyncio
@@ -495,7 +485,7 @@ class TestExpandQueries:
 
         assert result.queries[0] == "concrete creep and shrinkage factors"
         assert result.question_type == QuestionType.MECHANISM
-        assert result.routing is not None
+        assert result.routing is None
 
     @pytest.mark.asyncio
     async def test_does_not_stabilize_generic_why_question(self):
@@ -519,7 +509,7 @@ class TestExpandQueries:
 
         assert result.queries[0] == "why are safety factors used"
         assert result.question_type == QuestionType.MECHANISM
-        assert result.routing is not None
+        assert result.routing is None
 
     @pytest.mark.asyncio
     async def test_does_not_stabilize_concrete_material_question_without_action_context(self):
@@ -543,7 +533,31 @@ class TestExpandQueries:
 
         assert result.queries[0] == "concrete material partial factors"
         assert result.question_type == QuestionType.PARAMETER
-        assert result.routing is not None
+        assert result.routing is None
+
+    @pytest.mark.asyncio
+    async def test_drops_hallucinated_clause_target_hint(self):
+        llm_response = json.dumps({
+            "semantic": "partial factors for actions and materials",
+            "concepts": "actions materials partial factors",
+            "terms": "gamma_F gamma_M",
+            "question_type": "parameter",
+            "target_hint": {
+                "document": "EN 1992-1-1",
+                "clause": "Chapter 11",
+                "object": "partial factors",
+            },
+        })
+        mock_llm = AsyncMock(return_value=llm_response)
+
+        with patch("server.core.query_understanding._call_llm", mock_llm):
+            result = await expand_queries(
+                "请给出混凝土结构设计中组合作用荷载和材料的分项系数",
+                {},
+            )
+
+        assert result.question_type == QuestionType.PARAMETER
+        assert result.target_hint is None
 
 
 class TestAnalyzeQuery:
@@ -559,7 +573,7 @@ class TestAnalyzeQuery:
         assert result.expanded_queries == ["巴黎地铁的设计使用年限有多久？"]
 
     @pytest.mark.asyncio
-    async def test_preserves_routing_metadata(self):
+    async def test_drops_untraceable_routing_metadata(self):
         llm_response = json.dumps({
             "semantic": "basic assumptions for section design",
             "concepts": "ultimate moment resistance assumptions",
@@ -578,10 +592,8 @@ class TestAnalyzeQuery:
             result = await analyze_query("欧标的截面计算的基本假设前提是什么", {})
 
         assert result.intent_label == "assumption"
-        assert result.target_hint is not None
-        assert result.target_hint.document == "EN 1992-1-1"
-        assert result.target_hint.clause == "6.1"
-        assert result.reason_short == "asks for direct normative assumptions"
+        assert result.target_hint is None
+        assert result.reason_short == "assumption"
 
     @pytest.mark.asyncio
     async def test_preserves_guide_hint(self):
@@ -631,8 +643,28 @@ class TestAnalyzeQuery:
             )
 
         assert result.expanded_queries[0] == "drifted open discussion"
-        assert result.question_type == QuestionType.MECHANISM
+        assert result.question_type == QuestionType.PARAMETER
         assert result.intent_label == "explanation"
-        assert result.target_hint is not None
-        assert result.target_hint.document == "Designers' Guide"
-        assert result.target_hint.clause == "2.4.2.4"
+        assert result.target_hint is None
+
+    @pytest.mark.asyncio
+    async def test_analyze_query_does_not_send_history_to_llm(self):
+        llm_response = json.dumps({
+            "rewritten_question": "原始问题",
+            "semantic": "design working life",
+            "concepts": "durability service life",
+            "terms": "working life",
+        })
+        mock_llm = AsyncMock(return_value=llm_response)
+
+        with patch("server.core.query_understanding._call_llm", mock_llm):
+            result = await analyze_query(
+                "原始问题",
+                {},
+                history=[{"question": "旧问题", "answer": "旧答案"}],
+            )
+
+        sent_prompt = mock_llm.call_args.args[0]
+        assert "旧问题" not in sent_prompt
+        assert result.rewritten_question is None
+        assert result.expanded_queries[0] == "design working life"

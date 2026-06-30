@@ -101,6 +101,7 @@ class ServerConfig(BaseSettings):
 
     request_deadline_seconds: int = 120
     agent_timeout_seconds: int = 60
+    agent_llm_timeout_seconds: float = 30.0
     agent_max_concurrency: int = 5
     agent_circuit_breaker_failure_threshold: int = 5
     agent_circuit_breaker_recovery_seconds: float = 30.0

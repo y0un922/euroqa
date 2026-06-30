@@ -526,30 +526,6 @@ const ChatTranscript = memo(function ChatTranscript({
                       </div>
                     ) : null}
 
-                    {message.status === "done" ? (
-                      (() => {
-                        const usage = formatUsageSummary(message.usage);
-                        const elapsed = formatElapsedMs(message.elapsed_ms);
-                        if (!usage && !elapsed) {
-                          return null;
-                        }
-                        return (
-                          <div className="flex flex-wrap gap-2 text-xs text-stone-500">
-                            {usage ? (
-                              <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
-                                Token {usage}
-                              </span>
-                            ) : null}
-                            {elapsed ? (
-                              <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
-                                耗时 {elapsed}
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })()
-                    ) : null}
-
                     {references.length > 0 ? (
                       <div className="border-t border-stone-100 pt-4">
                         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-stone-400">
@@ -591,44 +567,64 @@ const ChatTranscript = memo(function ChatTranscript({
                       </div>
                     ) : null}
 
-                    {/* 底部操作栏：复制 + 重新生成 */}
+                    {/* 底部操作栏：复制 + 重新生成 + 用量/耗时 */}
                     {message.status === "done" ? (
-                      <div className="flex items-center gap-1 pt-2">
-                        <button
-                          aria-label="复制回答"
-                          className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition ${
-                            copyTone === "success"
-                              ? "text-emerald-600"
-                              : "text-stone-400 hover:bg-stone-100 hover:text-stone-600"
-                          }`}
-                          disabled={!isCopyable}
-                          onClick={() => {
-                            void handleCopyMessage(message);
-                          }}
-                          title={
-                            copyTone === "success"
-                              ? "已复制"
-                              : "复制回答"
-                          }
-                          type="button"
-                        >
-                          {copyTone === "success" ? (
-                            <Check className="h-4 w-4" />
-                          ) : (
-                            <Copy className="h-4 w-4" />
-                          )}
-                        </button>
-                        <button
-                          aria-label="重新生成"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-300"
-                          disabled={isSubmitting || !canRegenerateAnswer}
-                          onClick={() => onRegenerateAnswer(message.id)}
-                          title="重新生成"
-                          type="button"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </button>
-                      </div>
+                      (() => {
+                        const usage = formatUsageSummary(message.usage);
+                        const elapsed = formatElapsedMs(message.elapsed_ms);
+                        return (
+                          <div className="flex items-center gap-1 pt-2">
+                            <button
+                              aria-label="复制回答"
+                              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition ${
+                                copyTone === "success"
+                                  ? "text-emerald-600"
+                                  : "text-stone-400 hover:bg-stone-100 hover:text-stone-600"
+                              }`}
+                              disabled={!isCopyable}
+                              onClick={() => {
+                                void handleCopyMessage(message);
+                              }}
+                              title={
+                                copyTone === "success"
+                                  ? "已复制"
+                                  : "复制回答"
+                              }
+                              type="button"
+                            >
+                              {copyTone === "success" ? (
+                                <Check className="h-4 w-4" />
+                              ) : (
+                                <Copy className="h-4 w-4" />
+                              )}
+                            </button>
+                            <button
+                              aria-label="重新生成"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:text-stone-300"
+                              disabled={isSubmitting || !canRegenerateAnswer}
+                              onClick={() => onRegenerateAnswer(message.id)}
+                              title="重新生成"
+                              type="button"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                            {(usage || elapsed) ? (
+                              <div className="ml-auto flex flex-wrap gap-2 text-xs text-stone-500">
+                                {usage ? (
+                                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
+                                    Token {usage}
+                                  </span>
+                                ) : null}
+                                {elapsed ? (
+                                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
+                                    耗时 {elapsed}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()
                     ) : null}
                   </div>
                 </motion.div>

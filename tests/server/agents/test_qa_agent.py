@@ -12,7 +12,6 @@ from server.agents.qa_agent import (
     AgentStreamEvent,
     _QA_AGENT_INSTRUCTIONS,
     _build_input_items,
-    _compress_answer_for_agent,
     build_qa_agent,
     run_qa_agent,
     run_qa_agent_streamed,
@@ -87,7 +86,7 @@ async def test_chat_greeting():
         "server.agents.qa_agent.Runner.run",
         return_value=await _fake_runner_result(reply),
     ):
-        result, bundle = await run_qa_agent(
+        result, bundle, _usage = await run_qa_agent(
             agent=object(),
             question="hi",
             deps=deps,
@@ -140,7 +139,7 @@ async def test_rag_eurocode_question():
         patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run),
         patch("server.agents.tools.retrieve.analyze_query", return_value=analysis),
     ):
-        result, bundle = await run_qa_agent(
+        result, bundle, _usage = await run_qa_agent(
             agent=object(),
             question="设计使用年限是什么？",
             deps=deps,
@@ -253,23 +252,14 @@ def test_retrieve_tool_clamps_top_k(requested, expected):
     assert _clamp_top_k(requested) == expected
 
 
-def test_compress_answer_for_agent_strips_citations_and_truncates():
-    answer = "[Ref-1] " + "设计使用年限" * 30 + " [Ref-22]"
-
-    compressed = _compress_answer_for_agent(answer, limit=20)
-
-    assert "[Ref-" not in compressed
-    assert compressed == ("设计使用年限" * 3 + "设计") + "..."
-
-
-def test_build_input_items_compresses_previous_answers_only():
+def test_build_input_items_strips_citations_from_previous_answers():
     deps = _make_deps()
     deps.conversation_state = ConversationState(
         conversation_id="conv-1",
         history=[
             {
                 "question": "上一轮问题",
-                "answer": "[Ref-1] " + "A" * 250,
+                "answer": "[Ref-1] " + "A" * 250 + " [Ref-22]",
             }
         ]
     )
@@ -278,7 +268,7 @@ def test_build_input_items_compresses_previous_answers_only():
 
     assert input_items == [
         {"role": "user", "content": "上一轮问题"},
-        {"role": "assistant", "content": "A" * 200 + "..."},
+        {"role": "assistant", "content": "A" * 250},
         {"role": "user", "content": "当前问题 [Ref-2]"},
     ]
 
@@ -292,7 +282,7 @@ async def test_clarify_vague_question():
         "server.agents.qa_agent.Runner.run",
         return_value=await _fake_runner_result(reply),
     ):
-        result, bundle = await run_qa_agent(
+        result, bundle, _usage = await run_qa_agent(
             agent=object(),
             question="这个参数是多少",
             deps=deps,
@@ -312,7 +302,7 @@ async def test_max_turns_with_evidence():
         return SimpleNamespace(final_output=decision)
 
     with patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run):
-        result, returned_bundle = await run_qa_agent(
+        result, returned_bundle, _usage = await run_qa_agent(
             agent=object(),
             question="EN 1990 设计使用年限是什么？",
             deps=deps,
@@ -332,7 +322,7 @@ async def test_max_turns_without_evidence():
         return SimpleNamespace(final_output=decision)
 
     with patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run):
-        result, bundle = await run_qa_agent(
+        result, bundle, _usage = await run_qa_agent(
             agent=object(),
             question="EN 1990 设计使用年限是什么？",
             deps=deps,
@@ -353,7 +343,7 @@ async def test_direct_reply_without_retrieve_exposes_empty_bundle():
         "server.agents.qa_agent.Runner.run",
         return_value=await _fake_runner_result(reply),
     ):
-        result, bundle = await run_qa_agent(
+        result, bundle, _usage = await run_qa_agent(
             agent=object(),
             question="混凝土分项系数是多少？",
             deps=deps,
@@ -416,7 +406,7 @@ async def test_run_qa_agent_streamed_yields_tool_progress():
     assert isinstance(events[1], AgentStreamEvent)
     assert events[1].kind == "tool_result"
     assert events[1].tool_result == "检索到 1 个片段。"
-    assert events[-1] == ("已检索到相关规范证据。", deps.bundle)
+    assert events[-1] == ("已检索到相关规范证据。", deps.bundle, None)
 
 
 @pytest.mark.asyncio
@@ -476,7 +466,7 @@ async def test_run_qa_agent_streamed_short_circuits_after_rag_tool_with_evidence
     assert len(events) == 3
     assert isinstance(events[1], AgentStreamEvent)
     assert events[1].kind == "tool_result"
-    assert events[-1] == ("已检索到相关规范证据，正在整理回答。", deps.bundle)
+    assert events[-1] == ("已检索到相关规范证据，正在整理回答。", deps.bundle, None)
 
 
 def test_qa_agent_exposes_only_agentic_retrieval_tool():

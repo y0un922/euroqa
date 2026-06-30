@@ -143,11 +143,7 @@ async def _retrieve_agentic_impl(
 ) -> str:
     effective_top_k = min(_clamp_top_k(top_k), _MAX_SLOT_TOP_K)
     progress = ToolProgressEmitter("retrieve_agentic", ctx.context.tool_progress)
-    history = (
-        ctx.context.conversation_state.history
-        if ctx.context.conversation_state
-        else None
-    )
+    user_question = (ctx.context.user_question or query).strip()
 
     await progress.start(
         "query_understanding",
@@ -158,17 +154,16 @@ async def _retrieve_agentic_impl(
         query,
         ctx.context.glossary,
         ctx.context.config,
-        history,
+        None,
     )
     await progress.complete(
         "query_understanding",
         RETRIEVE_STEPS["query_understanding"]["title"],
-        _format_understanding_summary(
-            analysis,
-            bool(analysis.rewritten_question and analysis.rewritten_question != query),
-        ),
+        _format_understanding_summary(analysis),
         metadata={
-            "original_query": query,
+            "user_question": user_question,
+            "agent_query": query,
+            "original_query": user_question,
             "rewritten_question": analysis.rewritten_question,
             "question_type": (
                 analysis.question_type.value if analysis.question_type else None
@@ -574,7 +569,7 @@ def _format_chunk_list(title: str, chunks: list[Chunk]) -> str:
     return "\n".join(lines)
 
 
-def _format_understanding_summary(analysis, was_rewritten: bool) -> str:
+def _format_understanding_summary(analysis, was_rewritten: bool = False) -> str:
     question_type = (
         analysis.question_type.value if analysis.question_type else "unknown"
     )

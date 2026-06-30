@@ -130,14 +130,26 @@ _QUERY_EXPANSION_SYSTEM_PROMPT = (
 
 @dataclass
 class ExpansionResult:
-    """查询扩展结果，包含检索查询、问题类型和工程上下文。"""
+    """查询扩展结果，包含检索查询和问题类型。"""
 
     queries: list[str]
     question_type: QuestionType | None = None
+    intent_label: str | None = None
+    target_hint: RoutingTargetHint | None = None
     engineering_context: EngineeringContext | None = None
     guide_hint: GuideHint | None = None
-    routing: RoutingDecision | None = None
     rewritten_question: str | None = None
+
+    @property
+    def routing(self) -> RoutingDecision | None:
+        """Backward-compatible routing view for older callers/tests."""
+        if not self.intent_label or self.target_hint is None:
+            return None
+        return RoutingDecision(
+            intent_label=self.intent_label,
+            target_hint=self.target_hint,
+            reason_short=self.intent_label,
+        )
 
 
 @dataclass
@@ -270,21 +282,6 @@ def extract_requested_objects(
     return requested
 
 
-def _format_history_for_expansion(history: list[dict[str, str]] | None) -> str:
-    if not history:
-        return ""
-
-    lines = ["对话历史（从旧到新）："]
-    for turn in history[-3:]:
-        question = (turn.get("question") or "").strip()
-        answer = (turn.get("answer") or "").strip()
-        if question:
-            lines.append(f"用户：{question[:200]}")
-        if answer:
-            lines.append(f"助手：{answer[:200]}")
-    return "\n".join(lines) + "\n" if len(lines) > 1 else ""
-
-
 def _should_enable_prompt_cache(
     cfg: ServerConfig,
     *,
@@ -315,19 +312,19 @@ async def expand_queries(
     glossary: dict[str, str],
     config: ServerConfig | None = None,
     history: list[dict[str, str]] | None = None,
+    source_question: str | None = None,
 ) -> ExpansionResult:
     """将中文问题扩展为三路英文检索查询，并提取问题类型与工程上下文。
 
-    一次 LLM 调用同时完成：
+    一次 LLM 调用只完成：
     1. semantic  — 自然语言语义查询（适合向量检索）
     2. concepts  — 相关概念、同义词、上下位词（拓宽召回面）
     3. terms     — 变量名、缩写、公式符号（命中公式和符号定义片段）
     4. question_type — 问题分型（rule/parameter/calculation/mechanism）
-    5. context   — 工程上下文字段，缺失置为 null
-    6. routing   — 规范目标线索
 
     失败时降级为仅返回原始问题。
     """
+    _ = history
     matched_terms: dict[str, str] = {}
     for zh, en in glossary.items():
         if zh in question:
@@ -338,8 +335,7 @@ async def expand_queries(
         pairs = ", ".join(f"{zh}={en}" for zh, en in matched_terms.items())
         term_hint = f"已知术语对照：{pairs}\n"
 
-    history_block = _format_history_for_expansion(history)
-    user_prompt = f"{history_block}\n{term_hint}问题：{question}"
+    user_prompt = f"{term_hint}问题：{question}"
 
     try:
         raw = await _call_llm(
@@ -349,6 +345,11 @@ async def expand_queries(
         )
         result = _parse_expansion_result(raw)
         if result and result.queries:
+            result.question_type = _refine_question_type(question, result.question_type)
+            result.target_hint = _validate_target_hint(
+                result.target_hint,
+                " ".join(part for part in [source_question, question] if part),
+            )
             return result
         logger.warning(
             "query_expansion_failed_falling_back_to_original",
@@ -367,7 +368,7 @@ async def expand_queries(
 
 
 def _parse_expansion_result(raw: str) -> ExpansionResult | None:
-    """从 LLM 响应中解析查询扩展、问题类型和工程上下文。"""
+    """从 LLM 响应中解析查询扩展和低信任目标线索。"""
     cleaned = raw.strip()
     if "```json" in cleaned:
         cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
@@ -391,12 +392,6 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
     if not queries:
         return None
 
-    rewritten_question = data.get("rewritten_question")
-    if isinstance(rewritten_question, str):
-        rewritten_question = rewritten_question.strip() or None
-    else:
-        rewritten_question = None
-
     # 解析问题类型
     parsed_type: QuestionType | None = None
     raw_type = data.get("question_type")
@@ -406,101 +401,149 @@ def _parse_expansion_result(raw: str) -> ExpansionResult | None:
         except ValueError:
             parsed_type = None
 
-    # 解析工程上下文
-    eng_context: EngineeringContext | None = None
-    raw_context = data.get("context")
-    if isinstance(raw_context, dict):
-        normalized = {k: raw_context.get(k) for k in EngineeringContext.model_fields}
-        try:
-            eng_context = EngineeringContext.model_validate(normalized)
-        except Exception:
-            logger.warning("engineering_context_parse_failed", exc_info=True)
-
-    guide_hint = _parse_guide_hint(data.get("guide_hint"))
-    routing = _parse_routing_decision(data)
+    intent_label = _clean_str(data.get("intent_label"))
+    target_hint = _parse_target_hint(data.get("target_hint"))
 
     return ExpansionResult(
         queries=queries,
         question_type=parsed_type,
-        engineering_context=eng_context,
-        guide_hint=guide_hint,
-        routing=routing,
-        rewritten_question=rewritten_question,
+        intent_label=intent_label,
+        target_hint=target_hint,
     )
 
 
-def _parse_guide_hint(payload: object) -> GuideHint | None:
-    """解析 guide_hint；缺失或格式不合法时安全降级。"""
+def _clean_str(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _parse_target_hint(payload: object) -> RoutingTargetHint | None:
+    """Parse LLM target hints as untrusted candidates."""
     if not isinstance(payload, dict):
         return None
 
-    raw_need_example = payload.get("need_example")
-    if not isinstance(raw_need_example, bool):
-        return None
-
-    raw_example_query = payload.get("example_query")
-    example_query = (
-        raw_example_query.strip() if isinstance(raw_example_query, str) else None
-    )
-    if example_query == "":
-        example_query = None
-
-    raw_example_kind = payload.get("example_kind")
-    example_kind = (
-        raw_example_kind.strip() if isinstance(raw_example_kind, str) else None
-    )
-    if example_kind == "":
-        example_kind = None
-
-    return GuideHint(
-        need_example=raw_need_example,
-        example_query=example_query,
-        example_kind=example_kind,
-    )
-
-
-def _parse_routing_decision(data: dict[str, object]) -> RoutingDecision | None:
-    """解析 routing 元数据；缺失、低置信度或格式异常时安全降级。"""
-    raw_intent = data.get("intent_label")
-    raw_target = data.get("target_hint")
-    raw_reason = data.get("reason_short")
-
-    if not all(
-        (
-            isinstance(raw_intent, str),
-            isinstance(raw_target, dict),
-            isinstance(raw_reason, str),
-        )
-    ):
-        return None
-
-    intent_label = raw_intent.strip()
-    reason_short = raw_reason.strip()
-    if not intent_label or not reason_short:
-        return None
-
-    normalized_target: dict[str, str | None] = {}
+    normalized: dict[str, str | None] = {}
     for key in RoutingTargetHint.model_fields:
-        value = raw_target.get(key)
-        if value is None:
-            normalized_target[key] = None
-            continue
-        if not isinstance(value, str):
-            return None
-        stripped = value.strip()
-        normalized_target[key] = stripped or None
-
+        normalized[key] = _clean_str(payload.get(key))
     try:
-        target_hint = RoutingTargetHint.model_validate(normalized_target)
+        target_hint = RoutingTargetHint.model_validate(normalized)
     except Exception:
         logger.warning("routing_target_hint_parse_failed", exc_info=True)
         return None
+    if not any((target_hint.document, target_hint.clause, target_hint.object)):
+        return None
+    return target_hint
 
-    return RoutingDecision(
-        intent_label=intent_label,
-        target_hint=target_hint,
-        reason_short=reason_short,
+
+def _validate_target_hint(
+    target_hint: RoutingTargetHint | None,
+    evidence_text: str,
+) -> RoutingTargetHint | None:
+    """Drop target hints that cannot be traced to the input text."""
+    if target_hint is None:
+        return None
+
+    document = target_hint.document if _contains_hint(evidence_text, target_hint.document) else None
+    clause = target_hint.clause if _contains_hint(evidence_text, target_hint.clause) else None
+    obj = target_hint.object if _contains_hint(evidence_text, target_hint.object) else None
+    if not any((document, clause, obj)):
+        return None
+    return RoutingTargetHint(
+        document=document,
+        clause=clause,
+        object=obj,
     )
+
+
+def _contains_hint(text: str, hint: str | None) -> bool:
+    if not hint:
+        return False
+    compact_text = re.sub(r"\s+", "", text).casefold()
+    compact_hint = re.sub(r"\s+", "", hint).casefold()
+    return compact_hint in compact_text
+
+
+def _extract_engineering_context(question: str) -> EngineeringContext:
+    lower = question.casefold()
+    structure_type = None
+    for value, pattern in {
+        "beam": r"梁|\bbeams?\b",
+        "slab": r"板|\bslabs?\b",
+        "column": r"柱|\bcolumns?\b",
+        "wall": r"墙|\bwalls?\b",
+        "foundation": r"基础|\bfoundations?\b",
+    }.items():
+        if re.search(pattern, lower, re.IGNORECASE):
+            structure_type = value
+            break
+
+    limit_state = None
+    if re.search(r"\bULS\b|承载", question, re.IGNORECASE):
+        limit_state = "ULS"
+    elif re.search(r"\bSLS\b|正常使用", question, re.IGNORECASE):
+        limit_state = "SLS"
+
+    concrete_match = re.search(r"\bC\d{2}(?:/\d{2})?\b", question, re.IGNORECASE)
+    rebar_match = re.search(r"\bB\d{3}[A-Z]?\b", question, re.IGNORECASE)
+    return EngineeringContext(
+        structure_type=structure_type,
+        limit_state=limit_state,
+        load_combination=bool(re.search(r"组合|combination", question, re.IGNORECASE))
+        or None,
+        concrete_class=concrete_match.group(0).upper() if concrete_match else None,
+        rebar_grade=rebar_match.group(0).upper() if rebar_match else None,
+        prestressed=True
+        if re.search(r"预应力|prestress", question, re.IGNORECASE)
+        else None,
+        discontinuity_region=True
+        if re.search(r"不连续区|D[- ]?region", question, re.IGNORECASE)
+        else None,
+    )
+
+
+def _derive_guide_hint(
+    question: str,
+    question_type: QuestionType | None,
+) -> GuideHint | None:
+    if question_type is None:
+        return None
+    wants_example = bool(
+        re.search(r"算例|例子|示例|example|worked example", question, re.IGNORECASE)
+    )
+    need_example = question_type == QuestionType.CALCULATION or wants_example
+    return GuideHint(
+        need_example=need_example,
+        example_query=question if need_example else None,
+        example_kind="worked_example" if wants_example else None,
+    )
+
+
+def _refine_question_type(
+    question: str,
+    parsed_type: QuestionType | None,
+) -> QuestionType | None:
+    if re.search(r"有什么作用|为什么|why\b", question, re.IGNORECASE):
+        return parsed_type
+    if re.search(
+        r"分项系数|partial\s+factors?|gamma|γ[GCQSM]",
+        question,
+        re.IGNORECASE,
+    ):
+        return QuestionType.PARAMETER
+    return parsed_type
+
+
+def _derive_intent_label(question_type: QuestionType | None) -> str | None:
+    if question_type is None:
+        return None
+    return {
+        QuestionType.RULE: "assumption",
+        QuestionType.PARAMETER: "limit",
+        QuestionType.CALCULATION: "formula",
+        QuestionType.MECHANISM: "mechanism",
+    }[question_type]
 
 
 async def analyze_query(
@@ -508,17 +551,25 @@ async def analyze_query(
     glossary: dict[str, str],
     config: ServerConfig | None = None,
     history: list[dict[str, str]] | None = None,
+    source_question: str | None = None,
 ) -> QueryAnalysis:
     """组合过滤提取与多角度查询扩展，返回完整分析结果."""
+    _ = history
     question = sanitize_input(question)
     filters = extract_filters(question)
     preferred_element_type = extract_preferred_element_type(question)
-    expansion = await expand_queries(question, glossary, config, history)
+    expansion = await expand_queries(
+        question,
+        glossary,
+        config,
+        source_question=source_question,
+    )
     matched_terms = {zh: en for zh, en in glossary.items() if zh in question}
     requested_objects = extract_requested_objects(
         question,
-        expansion.routing.target_hint if expansion.routing else None,
+        expansion.target_hint,
     )
+    intent_label = expansion.intent_label or _derive_intent_label(expansion.question_type)
 
     return QueryAnalysis(
         original_question=question,
@@ -527,13 +578,13 @@ async def analyze_query(
         matched_terms=matched_terms,
         requested_objects=requested_objects,
         question_type=expansion.question_type,
-        engineering_context=expansion.engineering_context,
-        guide_hint=expansion.guide_hint,
-        intent_label=expansion.routing.intent_label if expansion.routing else None,
-        target_hint=expansion.routing.target_hint if expansion.routing else None,
-        reason_short=expansion.routing.reason_short if expansion.routing else None,
+        engineering_context=_extract_engineering_context(question),
+        guide_hint=_derive_guide_hint(question, expansion.question_type),
+        intent_label=intent_label,
+        target_hint=expansion.target_hint,
+        reason_short=intent_label,
         preferred_element_type=preferred_element_type,
-        rewritten_question=expansion.rewritten_question,
+        rewritten_question=None,
     )
 
 

@@ -314,21 +314,34 @@ async def query_stream(
                     ):
                         yield agent_item
 
-                async for item in _merge_agent_and_tool_progress(
-                    agent_items(),
-                    tool_step_queue,
-                ):
-                    if isinstance(item, ToolSubStep):
-                        yield _tool_progress_sse_event(item, started_at)
-                        continue
-                    if isinstance(item, AgentProgress):
-                        for event in _agent_progress_sse_events(
-                            item,
-                            started_at=started_at,
-                        ):
-                            yield event
-                        continue
-                    agent_result = item
+                _agent_timed_out = False
+                try:
+                    async for item in _merge_agent_and_tool_progress(
+                        agent_items(),
+                        tool_step_queue,
+                        timeout_seconds=runtime_config.agent_timeout_seconds,
+                    ):
+                        if isinstance(item, ToolSubStep):
+                            yield _tool_progress_sse_event(item, started_at)
+                            continue
+                        if isinstance(item, AgentProgress):
+                            for event in _agent_progress_sse_events(
+                                item,
+                                started_at=started_at,
+                            ):
+                                yield event
+                            continue
+                        agent_result = item
+                except asyncio.TimeoutError:
+                    _agent_timed_out = True
+
+                if _agent_timed_out:
+                    logger.warning(
+                        "stream_agent_timeout",
+                        duration_ms=int((time.perf_counter() - agent_t0) * 1000),
+                    )
+                    if agent_result is None:
+                        raise LLMUnavailableError("agent 决策超时")
 
                 if agent_result is None:
                     raise LLMUnavailableError("agent 未返回结果，请重试")
@@ -500,16 +513,30 @@ def _agent_progress_sse_events(
 async def _merge_agent_and_tool_progress(
     agent_items,
     tool_step_queue: asyncio.Queue[ToolSubStep],
+    timeout_seconds: float | None = None,
 ):
     agent_done = False
     pending_agent = asyncio.create_task(anext(agent_items, None))
     pending_tool = asyncio.create_task(tool_step_queue.get())
+    deadline = (time.perf_counter() + timeout_seconds) if timeout_seconds else None
     try:
         while True:
             pending = [pending_tool]
             if not agent_done:
                 pending.append(pending_agent)
-            done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+            wait_timeout: float | None = None
+            if deadline is not None and not agent_done:
+                wait_timeout = max(0, deadline - time.perf_counter())
+
+            done, _ = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=wait_timeout,
+            )
+
+            if not done:
+                raise asyncio.TimeoutError()
 
             if pending_tool in done:
                 yield pending_tool.result()

@@ -10,6 +10,7 @@ import structlog
 from agents import Agent, ModelSettings, RawResponsesStreamEvent, Runner
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents.stream_events import RunItemStreamEvent
+import httpx
 from openai import AsyncOpenAI
 
 from server.agents.deps import QADeps
@@ -79,33 +80,43 @@ class AgentStreamEvent:
     summary: str = ""
 
 
-def _usage_summary(value: object | None) -> dict[str, int] | None:
-    if value is None:
+def _aggregate_streamed_usage(result: object) -> dict[str, int] | None:
+    """Sum usage across all raw_responses from a streamed run."""
+    raw_responses = getattr(result, "raw_responses", None)
+    if not raw_responses:
         return None
-    requests = int(getattr(value, "requests", 0) or 0)
-    input_tokens = int(getattr(value, "input_tokens", 0) or 0)
-    output_tokens = int(getattr(value, "output_tokens", 0) or 0)
-    total_tokens = int(getattr(value, "total_tokens", 0) or 0)
-    cached_tokens = int(
-        getattr(getattr(value, "input_tokens_details", None), "cached_tokens", 0) or 0
-    )
-    reasoning_tokens = int(
-        getattr(getattr(value, "output_tokens_details", None), "reasoning_tokens", 0) or 0
-    )
-    return {
-        "requests": requests,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": total_tokens,
-        "cached_tokens": cached_tokens,
-        "reasoning_tokens": reasoning_tokens,
-    }
+    totals: dict[str, int] = {}
+    for resp in raw_responses:
+        usage = getattr(resp, "usage", None)
+        if usage is None:
+            continue
+        for key in (
+            "requests",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+        ):
+            val = getattr(usage, key, 0) or 0
+            if val:
+                totals[key] = totals.get(key, 0) + int(val)
+        cached = getattr(
+            getattr(usage, "input_tokens_details", None), "cached_tokens", 0
+        ) or 0
+        if cached:
+            totals["cached_tokens"] = totals.get("cached_tokens", 0) + int(cached)
+        reasoning = getattr(
+            getattr(usage, "output_tokens_details", None), "reasoning_tokens", 0
+        ) or 0
+        if reasoning:
+            totals["reasoning_tokens"] = totals.get("reasoning_tokens", 0) + int(reasoning)
+    return totals or None
 
 
 def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
     client = AsyncOpenAI(
         api_key=config.resolved_agent_llm_api_key,
         base_url=config.resolved_agent_llm_base_url,
+        timeout=httpx.Timeout(config.agent_llm_timeout_seconds, connect=10.0),
     )
     model = OpenAIChatCompletionsModel(
         model=config.resolved_agent_llm_model,
@@ -144,7 +155,7 @@ async def run_qa_agent(
         max_turns=max_turns,
         error_handlers={"max_turns": on_max_turns},
     )
-    usage = _usage_summary(getattr(result, "usage", None))
+    usage = _aggregate_streamed_usage(result)
     if usage is not None:
         merge_spot_check_usage(usage)
     return str(result.final_output or ""), deps.bundle, usage
@@ -229,11 +240,11 @@ async def run_qa_agent_streamed(
                     groundedness=deps.bundle.groundedness,
                     tool_trace_count=len(deps.bundle.tool_trace),
                 )
-                yield (_fallback_agent_reply(deps), deps.bundle)
+                yield (_fallback_agent_reply(deps), deps.bundle, None)
                 return
 
     final_output = str(result.final_output or "")
-    usage = _usage_summary(getattr(result, "usage", None))
+    usage = _aggregate_streamed_usage(result)
     if usage is not None:
         merge_spot_check_usage(usage)
     yield (final_output or _fallback_agent_reply(deps), deps.bundle, usage)
@@ -242,25 +253,17 @@ async def run_qa_agent_streamed(
 def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:
     input_items: list[dict[str, str]] = []
     if deps.conversation_state is not None:
-        rounds = deps.conversation_state.history[-deps.config.max_conversation_rounds :]
-        for turn in rounds:
+        for turn in deps.conversation_state.history:
             previous_question = turn.get("question", "")
             previous_answer = turn.get("answer", "")
             if previous_question:
                 input_items.append({"role": "user", "content": previous_question})
             if previous_answer:
-                compressed = _compress_answer_for_agent(previous_answer)
-                input_items.append({"role": "assistant", "content": compressed})
+                cleaned = _CITATION_RE.sub("", previous_answer).strip()
+                input_items.append({"role": "assistant", "content": cleaned})
     input_items.append({"role": "user", "content": question})
     return input_items
 
-
-def _compress_answer_for_agent(answer: str, limit: int = 200) -> str:
-    """Strip citation markers and truncate previous answers for agent context."""
-    cleaned = _CITATION_RE.sub("", answer).strip()
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[:limit].rstrip() + "..."
 
 
 def _fallback_agent_reply(deps: QADeps) -> str:

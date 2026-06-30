@@ -154,9 +154,9 @@ async def test_retrieve_impl_emits_sub_steps_and_rewrite_metadata(monkeypatch):
         intent_label="mechanism",
     )
 
-    async def _fake_analyze_query(question, glossary, config, history):
+    async def _fake_analyze_query(question, glossary, config, history, **kwargs):
         assert question == "它跟耐久性等级有什么关系？"
-        assert history == deps.conversation_state.history
+        assert history is None
         return analysis
 
     monkeypatch.setattr(
@@ -234,7 +234,7 @@ async def test_retrieve_agentic_runs_slot_plan_through_existing_retriever(monkey
         ],
     )
 
-    async def _fake_analyze_query(question, glossary, config, history):
+    async def _fake_analyze_query(question, glossary, config, history, **kwargs):
         return analysis
 
     async def _fake_plan_evidence(question, query_analysis, inventory, config):
@@ -305,7 +305,7 @@ async def test_retrieve_agentic_does_not_skip_on_existing_global_groundedness(
         ],
     )
 
-    async def _fake_analyze_query(question, glossary, config, history):
+    async def _fake_analyze_query(question, glossary, config, history, **kwargs):
         return analysis
 
     async def _fake_plan_evidence(question, query_analysis, inventory, config):
@@ -390,7 +390,7 @@ async def test_retrieve_agentic_groundedness_requires_all_required_slots(
         ],
     )
 
-    async def _fake_analyze_query(question, glossary, config, history):
+    async def _fake_analyze_query(question, glossary, config, history, **kwargs):
         return analysis
 
     async def _fake_plan_evidence(question, query_analysis, inventory, config):
@@ -477,7 +477,7 @@ async def test_retrieve_agentic_fetches_required_table_for_value_slot(monkeypatc
         ],
     )
 
-    async def _fake_analyze_query(question, glossary, config, history):
+    async def _fake_analyze_query(question, glossary, config, history, **kwargs):
         return analysis
 
     async def _fake_plan_evidence(question, query_analysis, inventory, config):
@@ -574,7 +574,7 @@ async def test_retrieve_agentic_retries_value_slot_without_numeric_evidence(
         ],
     )
 
-    async def _fake_analyze_query(question, glossary, config, history):
+    async def _fake_analyze_query(question, glossary, config, history, **kwargs):
         return analysis
 
     async def _fake_plan_evidence(question, query_analysis, inventory, config):

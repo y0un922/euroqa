@@ -42,6 +42,19 @@ def reset_current_recorder(token: Any) -> None:
     _CURRENT_RECORDER.reset(token)
 
 
+def merge_spot_check_usage(usage: dict[str, int]) -> None:
+    """Accumulate LLM token usage into the active spot-check recorder."""
+    recorder = get_current_recorder()
+    if recorder is None:
+        return
+    existing = recorder.data.get("usage")
+    if existing is None:
+        recorder.data["usage"] = dict(usage)
+    else:
+        for key, val in usage.items():
+            existing[key] = existing.get(key, 0) + val
+
+
 def record_spot_check(field: str, value: Any) -> None:
     """Record a field on the active spot-check recorder, if enabled."""
     recorder = get_current_recorder()

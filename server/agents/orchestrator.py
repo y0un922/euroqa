@@ -319,18 +319,17 @@ async def dispatch_agent_streamed(
     try:
         await breaker._before_call()
         try:
-            async with asyncio.timeout(config.agent_timeout_seconds):
-                async for item in stream_agent_with_limits():
-                    if isinstance(item, AgentResult):
-                        logger.info(
-                            "agent_dispatch_completed",
-                            needs_rag=item.bundle.has_rag_evidence,
-                            tool_calls=len(item.bundle.tool_trace),
-                            duration_ms=int((time.perf_counter() - started_at) * 1000),
-                            breaker_state=breaker.state,
-                            streamed=True,
-                        )
-                    yield item
+            async for item in stream_agent_with_limits():
+                if isinstance(item, AgentResult):
+                    logger.info(
+                        "agent_dispatch_completed",
+                        needs_rag=item.bundle.has_rag_evidence,
+                        tool_calls=len(item.bundle.tool_trace),
+                        duration_ms=int((time.perf_counter() - started_at) * 1000),
+                        breaker_state=breaker.state,
+                        streamed=True,
+                    )
+                yield item
         except asyncio.TimeoutError:
             raise
         except Exception:

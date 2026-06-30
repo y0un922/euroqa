@@ -21,6 +21,7 @@ class QADeps:
     glossary: dict[str, str]
     bundle: EvidenceBundle
     conversation_state: ConversationState | None = None
+    user_question: str | None = None
     domain_filter: str | None = None
     sources_filter: list[str] | None = None
     tool_progress: ToolProgressCallback | None = None

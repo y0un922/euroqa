@@ -44,11 +44,7 @@ async def _retrieve_impl(
 
     effective_top_k = _clamp_top_k(top_k)
     progress = ToolProgressEmitter("retrieve", ctx.context.tool_progress)
-    history = (
-        ctx.context.conversation_state.history
-        if ctx.context.conversation_state
-        else None
-    )
+    user_question = (ctx.context.user_question or query).strip()
 
     await progress.start(
         "query_understanding",
@@ -59,7 +55,8 @@ async def _retrieve_impl(
         query,
         ctx.context.glossary,
         ctx.context.config,
-        history,
+        None,
+        source_question=user_question,
     )
     was_rewritten = bool(
         analysis.rewritten_question and analysis.rewritten_question != query
@@ -69,7 +66,9 @@ async def _retrieve_impl(
         RETRIEVE_STEPS["query_understanding"]["title"],
         _format_understanding_summary(analysis, was_rewritten),
         metadata={
-            "original_query": query,
+            "user_question": user_question,
+            "agent_query": query,
+            "original_query": user_question,
             "rewritten_question": analysis.rewritten_question,
             "was_rewritten": was_rewritten,
             "question_type": (
@@ -135,6 +134,8 @@ async def _execute_hybrid_retrieve(
     ctx.context.bundle.tool_trace.append(
         {
             "tool": trace_tool,
+            "user_question": (ctx.context.user_question or query).strip(),
+            "agent_query": query,
             "query": query,
             "top_k": top_k,
             "requested_top_k": top_k,
