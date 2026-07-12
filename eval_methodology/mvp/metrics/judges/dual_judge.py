@@ -14,6 +14,8 @@ from eval_methodology.mvp.metrics.judges.cache import (
     make_cache_key,
 )
 from eval_methodology.mvp.metrics.judges.cli_backend import (
+    resolve_claude_model_id,
+    resolve_codex_model_id,
     run_claude_json,
     run_codex_json,
     run_with_retry,
@@ -71,22 +73,34 @@ def _run_family(
     prompt: str,
     *,
     cache: JudgeCache,
-    cache_key: str,
+    model_id: str,
+    question: str,
+    answer: str,
+    context_chunks: list[dict[str, Any]],
+    units: ExtractedUnits,
 ) -> tuple[JudgeRawOutput | None, str, str | None]:
+    """Run one judge family. Cache key includes the real resolved model id."""
+    cache_key = make_cache_key(
+        family=family,
+        model_id=model_id,
+        question=question,
+        answer=answer,
+        context_chunks=context_chunks,
+        citations=units.model_dump(),
+        prompt_schema_version=PROMPT_SCHEMA_VERSION,
+        kind="judge",
+    )
     cached = cache.get(cache_key)
     if cached:
         try:
             return (
                 JudgeRawOutput.model_validate(cached["output"]),
-                cached.get("model_id", f"{family}-cached"),
+                str(cached.get("model_id") or model_id),
                 None,
             )
         except Exception as exc:  # noqa: BLE001
-            err = f"cache corrupt: {exc}"
-        else:
-            err = None
-    else:
-        err = None
+            # Fall through to re-run on corrupt cache.
+            _ = f"cache corrupt: {exc}"
 
     try:
         if family == "codex":
@@ -102,22 +116,65 @@ def _run_family(
             raw = run_with_retry(
                 lambda: run_claude_json(prompt, schema_path=JUDGE_SCHEMA)
             )
-        model_id = str(raw.get("_resolved_model") or f"{family}-default")
+        actual_model = str(raw.get("_resolved_model") or model_id)
+        # If CLI resolved a more specific model than env placeholder, re-key cache.
+        if actual_model != model_id:
+            cache_key = make_cache_key(
+                family=family,
+                model_id=actual_model,
+                question=question,
+                answer=answer,
+                context_chunks=context_chunks,
+                citations=units.model_dump(),
+                prompt_schema_version=PROMPT_SCHEMA_VERSION,
+                kind="judge",
+            )
         cleaned = {k: v for k, v in raw.items() if not k.startswith("_")}
         out = JudgeRawOutput.model_validate(cleaned)
         cache.set(
             cache_key,
-            {"output": out.model_dump(), "model_id": model_id, "family": family},
+            {
+                "output": out.model_dump(),
+                "model_id": actual_model,
+                "family": family,
+                "parse_source": raw.get("_parse_source"),
+            },
         )
-        return out, model_id, None
+        return out, actual_model, None
     except Exception as exc:  # noqa: BLE001
-        return None, f"{family}-failed", f"{type(exc).__name__}: {exc}"
+        return None, model_id, f"{type(exc).__name__}: {exc}"
 
 
 def _rate(supported_flags: list[bool]) -> float | None:
     if not supported_flags:
         return None
     return sum(1 for x in supported_flags if x) / len(supported_flags)
+
+
+def _drop(
+    *,
+    units: ExtractedUnits,
+    codex: JudgeRawOutput | None,
+    claude: JudgeRawOutput | None,
+    reason: str,
+    resolved: dict[str, str],
+    claim_agree: dict[str, bool] | None = None,
+    cit_agree: dict[str, bool] | None = None,
+) -> DualJudgeResult:
+    """Question-level drop: both Faith and CitP null; counts toward drop rate."""
+    return DualJudgeResult(
+        units=units,
+        codex=codex,
+        claude=claude,
+        faith=None,
+        citp=None,
+        agreed=False,
+        dropped=True,
+        drop_reason=reason,
+        resolved_models=resolved,
+        per_claim_agreement=claim_agree or {},
+        per_citation_agreement=cit_agree or {},
+    )
 
 
 def judge_question(
@@ -128,8 +185,14 @@ def judge_question(
     sources: list[dict[str, Any]] | None = None,
     use_llm_extract: bool = True,
     cache: JudgeCache | None = None,
+    codex_model: str | None = None,
+    claude_model: str | None = None,
 ) -> DualJudgeResult:
-    """Extract units once, dual-judge, gate on unit-level agreement."""
+    """Extract units once, dual-judge, gate on unit-level agreement.
+
+    Any unit-level disagreement or missing family → full question drop
+    (Faith and CitP both null; audit D2).
+    """
     cache = cache or JudgeCache()
     units = extract_units(
         question=question,
@@ -142,131 +205,101 @@ def judge_question(
     )
     prompt = _judge_prompt(question, answer, units, context_chunks)
 
-    codex_key = make_cache_key(
-        family="codex",
-        model_id="codex-judge",
-        question=question,
-        answer=answer,
-        context_chunks=context_chunks,
-        citations=units.model_dump(),
-        prompt_schema_version=PROMPT_SCHEMA_VERSION,
-        kind="judge",
-    )
-    claude_key = make_cache_key(
-        family="claude",
-        model_id="claude-judge",
-        question=question,
-        answer=answer,
-        context_chunks=context_chunks,
-        citations=units.model_dump(),
-        prompt_schema_version=PROMPT_SCHEMA_VERSION,
-        kind="judge",
-    )
+    codex_model_id = resolve_codex_model_id(codex_model)
+    claude_model_id = resolve_claude_model_id(claude_model)
 
-    codex_out, codex_model, codex_err = _run_family(
-        "codex", prompt, cache=cache, cache_key=codex_key
+    codex_out, codex_model_id, codex_err = _run_family(
+        "codex",
+        prompt,
+        cache=cache,
+        model_id=codex_model_id,
+        question=question,
+        answer=answer,
+        context_chunks=context_chunks,
+        units=units,
     )
-    claude_out, claude_model, claude_err = _run_family(
-        "claude", prompt, cache=cache, cache_key=claude_key
+    claude_out, claude_model_id, claude_err = _run_family(
+        "claude",
+        prompt,
+        cache=cache,
+        model_id=claude_model_id,
+        question=question,
+        answer=answer,
+        context_chunks=context_chunks,
+        units=units,
     )
 
     resolved = {
-        "codex": codex_model,
-        "claude": claude_model,
+        "codex": codex_model_id,
+        "claude": claude_model_id,
         "codex_family": "codex",
         "claude_family": "claude",
     }
 
     if codex_out is None or claude_out is None:
-        return DualJudgeResult(
+        return _drop(
             units=units,
             codex=codex_out,
             claude=claude_out,
-            faith=None,
-            citp=None,
-            agreed=False,
-            dropped=True,
-            drop_reason=f"missing judge: codex={codex_err} claude={claude_err}",
-            resolved_models=resolved,
-            per_claim_agreement={},
-            per_citation_agreement={},
+            reason=f"missing judge: codex={codex_err} claude={claude_err}",
+            resolved=resolved,
         )
 
-    claim_agree: dict[str, bool] = {}
+    if not units.claims:
+        return _drop(
+            units=units,
+            codex=codex_out,
+            claude=claude_out,
+            reason="no claims extracted",
+            resolved=resolved,
+        )
+
     codex_claim = {v.unit_id: v.supported for v in codex_out.claim_verdicts}
     claude_claim = {v.unit_id: v.supported for v in claude_out.claim_verdicts}
+    claim_agree: dict[str, bool] = {}
     for u in units.claims:
         a = codex_claim.get(u.unit_id)
         b = claude_claim.get(u.unit_id)
         claim_agree[u.unit_id] = a is not None and b is not None and a == b
 
-    cit_agree: dict[str, bool] = {}
+    if not all(claim_agree.values()):
+        return _drop(
+            units=units,
+            codex=codex_out,
+            claude=claude_out,
+            reason="claim-level judge disagreement",
+            resolved=resolved,
+            claim_agree=claim_agree,
+        )
+
     codex_cit = {v.citation_id: v.valid for v in codex_out.citation_verdicts}
     claude_cit = {v.citation_id: v.valid for v in claude_out.citation_verdicts}
+    cit_agree: dict[str, bool] = {}
     for c in units.citations:
         a = codex_cit.get(c.citation_id)
         b = claude_cit.get(c.citation_id)
         cit_agree[c.citation_id] = a is not None and b is not None and a == b
 
-    # Question-level drop rule: any claim unit disagrees → drop Faith/CitP for item.
-    claims_all_agree = all(claim_agree.values()) if claim_agree else False
-    # If no claims extracted, drop.
-    if not units.claims:
-        return DualJudgeResult(
+    # Citation disagreement → full question drop (do not keep Faith alone).
+    if units.citations and not all(cit_agree.values()):
+        return _drop(
             units=units,
             codex=codex_out,
             claude=claude_out,
-            faith=None,
-            citp=None,
-            agreed=False,
-            dropped=True,
-            drop_reason="no claims extracted",
-            resolved_models=resolved,
-            per_claim_agreement=claim_agree,
-            per_citation_agreement=cit_agree,
+            reason="citation-level judge disagreement",
+            resolved=resolved,
+            claim_agree=claim_agree,
+            cit_agree=cit_agree,
         )
 
-    if not claims_all_agree:
-        return DualJudgeResult(
-            units=units,
-            codex=codex_out,
-            claude=claude_out,
-            faith=None,
-            citp=None,
-            agreed=False,
-            dropped=True,
-            drop_reason="claim-level judge disagreement",
-            resolved_models=resolved,
-            per_claim_agreement=claim_agree,
-            per_citation_agreement=cit_agree,
-        )
-
-    # Agreed path: use conservative AND of both families for scores.
-    faith_flags = []
-    for u in units.claims:
-        faith_flags.append(bool(codex_claim[u.unit_id] and claude_claim[u.unit_id]))
+    faith_flags = [
+        bool(codex_claim[u.unit_id] and claude_claim[u.unit_id]) for u in units.claims
+    ]
     faith = _rate(faith_flags)
 
-    citp: float | None
     if not units.citations:
-        # No citations in answer: if system requires citations, CitP=0 when answer non-empty.
         citp = 0.0 if (answer or "").strip() else None
     else:
-        # Citation agreement required for those present; disagreeing citation → drop CitP only.
-        if units.citations and not all(cit_agree.get(c.citation_id, False) for c in units.citations):
-            return DualJudgeResult(
-                units=units,
-                codex=codex_out,
-                claude=claude_out,
-                faith=faith,
-                citp=None,
-                agreed=False,
-                dropped=True,
-                drop_reason="citation-level judge disagreement",
-                resolved_models=resolved,
-                per_claim_agreement=claim_agree,
-                per_citation_agreement=cit_agree,
-            )
         cit_flags = [
             bool(codex_cit[c.citation_id] and claude_cit[c.citation_id])
             for c in units.citations

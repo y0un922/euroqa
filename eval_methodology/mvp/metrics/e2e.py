@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from eval_methodology.mvp.metrics.diagnostics import crec_score, unresolved_ref_rate
+from eval_methodology.mvp.metrics.diagnostics import (
+    crec_score,
+    retrieval_gap_ids,
+    unresolved_ref_rate,
+)
 from eval_methodology.mvp.metrics.schemas import AggregateMetrics, PerQuestionMetrics
 from eval_methodology.mvp.paths import MAX_JUDGE_DROP_RATE, MIN_EFFECTIVE_N
 
@@ -21,9 +25,16 @@ def per_question_from_parts(
     resolved_refs: list[str] | None,
     n_claims: int = 0,
     n_citations: int = 0,
+    gold_claim_status: str = "",
     notes: str = "",
 ) -> PerQuestionMetrics:
-    crec, eligible = crec_score(e_plus or [], context_chunk_ids)
+    e_plus_list = list(e_plus or [])
+    # Full question drop nulls both hard metrics (defensive).
+    if judge_dropped:
+        faith = None
+        citp = None
+    crec, eligible = crec_score(e_plus_list, context_chunk_ids)
+    gaps = retrieval_gap_ids(e_plus_list, context_chunk_ids)
     return PerQuestionMetrics(
         question_id=question_id,
         faith=faith,
@@ -35,6 +46,9 @@ def per_question_from_parts(
         n_claims=n_claims,
         n_citations=n_citations,
         context_chunk_ids=list(context_chunk_ids),
+        e_plus=e_plus_list,
+        retrieval_gap_ids=gaps,
+        gold_claim_status=gold_claim_status,
         notes=notes,
     )
 
@@ -51,8 +65,10 @@ def aggregate(per_q: list[PerQuestionMetrics]) -> AggregateMetrics:
     dropped = sum(1 for p in per_q if p.judge_dropped)
     drop_rate = (dropped / n) if n else 0.0
 
-    faith_mean, n_faith = _mean(p.faith for p in per_q)
-    citp_mean, n_citp = _mean(p.citp for p in per_q)
+    # Only non-dropped questions contribute to hard-gate means.
+    kept = [p for p in per_q if not p.judge_dropped]
+    faith_mean, n_faith = _mean(p.faith for p in kept)
+    citp_mean, n_citp = _mean(p.citp for p in kept)
     crec_vals = [p.crec for p in per_q if p.crec_eligible and p.crec is not None]
     crec_mean = sum(crec_vals) / len(crec_vals) if crec_vals else None
     urr_mean, _ = _mean(p.unresolved_ref_rate for p in per_q)
@@ -110,6 +126,7 @@ def run_dict_from_stream_and_judge(
     stream_result: dict[str, Any],
     judge_result: Any,
     e_plus: list[str] | None,
+    gold_claim_status: str = "",
 ) -> PerQuestionMetrics:
     return per_question_from_parts(
         question_id=question_id,
@@ -122,5 +139,6 @@ def run_dict_from_stream_and_judge(
         resolved_refs=stream_result.get("resolved_refs"),
         n_claims=len(judge_result.units.claims),
         n_citations=len(judge_result.units.citations),
+        gold_claim_status=gold_claim_status,
         notes=judge_result.drop_reason,
     )

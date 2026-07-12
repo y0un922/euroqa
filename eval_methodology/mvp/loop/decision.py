@@ -172,20 +172,12 @@ def locate_bottleneck(
             metric_signals=signals,
         )
 
-    # Default: if mild unresolved, still L4; else unknown.
-    if baseline.unresolved_ref_rate and baseline.unresolved_ref_rate > 0:
-        return BottleneckResult(
-            stage="L4",
-            reason=(
-                f"residual unresolved_ref_rate={baseline.unresolved_ref_rate:.3f} "
-                "→ try L4 closure"
-            ),
-            metric_signals=signals,
-        )
-
     return BottleneckResult(
         stage="unknown",
-        reason="no clear bottleneck from Faith/CitP/CRec/unresolved_ref_rate",
+        reason=(
+            "no clear bottleneck from Faith/CitP/CRec/"
+            f"unresolved_ref_rate(need≥{unresolved_high})"
+        ),
         metric_signals=signals,
     )
 
@@ -231,27 +223,37 @@ def candidate_precheck(
     unresolved_high: float = UNRESOLVED_REF_HIGH,
     min_diff_questions: int = CONTEXT_DIFF_MIN_QUESTIONS,
 ) -> PrecheckResult:
-    """Two gates before expensive judge on candidate (MVP_PLAN §E.1 / §C)."""
+    """Two gates before expensive judge on candidate (MVP_PLAN §E.1 / §C).
+
+    Gate 1 — baseline must **clearly** point to L4:
+      unresolved_ref_rate >= UNRESOLVED_REF_HIGH (default 0.15).
+      Arbitrary residual >0 is NOT enough (audit B2).
+
+    Gate 2 — off→on must change the **ordered** context chunk-id sequence
+      on at least min_diff_questions items (not merely set membership).
+    """
     reasons: list[str] = []
     urr = baseline.unresolved_ref_rate
     points_l4 = urr is not None and urr >= unresolved_high
-    # Also allow residual > 0 when LocateBottleneck already chose L4.
-    if not points_l4 and urr is not None and urr > 0:
-        points_l4 = True
-        reasons.append(
-            f"unresolved_ref_rate={urr:.3f} > 0 (weak L4 signal accepted for MVP)"
-        )
     if not points_l4:
         reasons.append(
-            f"baseline unresolved_ref_rate={urr} does not point to L4 "
-            f"(need ≥ {unresolved_high} or > 0 residual)"
+            f"baseline unresolved_ref_rate={urr} does not clearly point to L4 "
+            f"(need ≥ {unresolved_high})"
+        )
+    else:
+        reasons.append(
+            f"L4 signal ok: unresolved_ref_rate={urr:.3f} ≥ {unresolved_high}"
         )
 
     diff_n = len(set(context_diff_question_ids))
     if diff_n < min_diff_questions:
         reasons.append(
-            f"context chunk-id set changed on {diff_n} questions "
+            f"ordered context chunk-id sequence changed on {diff_n} questions "
             f"(need ≥ {min_diff_questions})"
+        )
+    else:
+        reasons.append(
+            f"context ordered-seq diff on {diff_n} ≥ {min_diff_questions} questions"
         )
 
     ok = points_l4 and diff_n >= min_diff_questions
@@ -262,6 +264,81 @@ def candidate_precheck(
         points_to_l4=points_l4,
         context_diff_n=diff_n,
         reasons=reasons,
+    )
+
+
+def merge_hard_gate_decisions(
+    per_metric: dict[str, ABDecision],
+    *,
+    primary_metric: str = "faith",
+    regression_metrics: Sequence[str] = ("crec",),
+) -> ABDecision:
+    """Combine hard-gate metrics (Faith, CitP) + optional regression series.
+
+    Rules (main.tex G={Faith,CitP}; audit E3/G3):
+      - any hard metric **reject** → overall reject
+      - overall **accept** only if every present hard metric is accept
+      - otherwise inconclusive (includes mixed accept+inconclusive)
+      - regression metric reject also blocks accept (forces reject)
+    """
+    hard = ["faith", "citp"]
+    present_hard = {m: per_metric[m] for m in hard if m in per_metric}
+    if not present_hard:
+        return ABDecision(
+            state="inconclusive",
+            reason="no hard-gate metric series available",
+            primary_metric=primary_metric,
+        )
+
+    details: dict[str, Any] = {
+        "per_metric": {k: v.to_dict() for k, v in per_metric.items()},
+        "hard_metrics": list(present_hard.keys()),
+    }
+
+    rejects = [m for m, d in present_hard.items() if d.state == "reject"]
+    # Regression diagnostics (e.g. CRec): reject blocks; does not alone accept.
+    for m in regression_metrics:
+        d = per_metric.get(m)
+        if d is not None and d.state == "reject":
+            rejects.append(m)
+    if rejects:
+        primary = present_hard.get(primary_metric) or next(iter(present_hard.values()))
+        return ABDecision(
+            state="reject",
+            reason=f"hard/regression reject on: {', '.join(rejects)}",
+            primary_metric=primary_metric,
+            delta_mean=primary.delta_mean,
+            ci=primary.ci,
+            self_noise=primary.self_noise,
+            effective_n=min(d.effective_n for d in present_hard.values()),
+            details=details,
+        )
+
+    accepts = [m for m, d in present_hard.items() if d.state == "accept"]
+    if len(accepts) == len(present_hard):
+        primary = present_hard.get(primary_metric) or next(iter(present_hard.values()))
+        return ABDecision(
+            state="accept",
+            reason=f"all hard gates accept: {', '.join(sorted(accepts))}",
+            primary_metric=primary_metric,
+            delta_mean=primary.delta_mean,
+            ci=primary.ci,
+            self_noise=primary.self_noise,
+            effective_n=min(d.effective_n for d in present_hard.values()),
+            details=details,
+        )
+
+    states = {m: d.state for m, d in present_hard.items()}
+    primary = present_hard.get(primary_metric) or next(iter(present_hard.values()))
+    return ABDecision(
+        state="inconclusive",
+        reason=f"hard-gate mix {states} (accept requires every hard metric accept)",
+        primary_metric=primary_metric,
+        delta_mean=primary.delta_mean,
+        ci=primary.ci,
+        self_noise=primary.self_noise,
+        effective_n=min(d.effective_n for d in present_hard.values()),
+        details=details,
     )
 
 

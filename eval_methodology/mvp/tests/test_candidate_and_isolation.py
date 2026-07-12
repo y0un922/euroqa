@@ -95,3 +95,12 @@ def test_bootstrap_fixed_seed_reproducible():
     assert c1.mean == c2.mean
     assert c1.low == c2.low
     assert c1.high == c2.high
+
+
+def test_claude_cli_includes_no_session_persistence():
+    import inspect
+    from eval_methodology.mvp.metrics.judges import cli_backend as cb
+
+    src = inspect.getsource(cb.run_claude_json)
+    assert "--no-session-persistence" in src
+    assert "--bare" in src

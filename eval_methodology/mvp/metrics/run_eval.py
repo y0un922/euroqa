@@ -60,6 +60,13 @@ def _e_plus_for(item: dict[str, Any]) -> list[str]:
     return []
 
 
+def _gold_claim_status(item: dict[str, Any]) -> str:
+    gold = item.get("gold") or {}
+    if isinstance(gold, dict):
+        return str(gold.get("gold_claim_status") or "")
+    return ""
+
+
 def eval_on_sidecar(
     handle: SidecarHandle,
     items: list[dict[str, Any]],
@@ -121,6 +128,7 @@ def eval_on_sidecar(
                 stream_result=stream,
                 judge_result=judged,
                 e_plus=_e_plus_for(item),
+                gold_claim_status=_gold_claim_status(item),
             )
             per_q.append(pq)
             raw_results.append(
@@ -134,6 +142,7 @@ def eval_on_sidecar(
                         "elapsed_ms": stream.get("elapsed_ms"),
                     },
                     "metrics": pq.model_dump(),
+                    "retrieval_gap_ids": pq.retrieval_gap_ids,
                     "judge": {
                         "dropped": judged.dropped,
                         "drop_reason": judged.drop_reason,

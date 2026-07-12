@@ -205,5 +205,25 @@ def query_stream(
     }
 
 
+def context_id_sequence(result: dict[str, Any]) -> tuple[str, ...]:
+    """Ordered context chunk-id sequence (not a set — order is significant)."""
+    ids = result.get("context_chunk_ids") or []
+    return tuple(str(x) for x in ids if x)
+
+
 def context_id_set(result: dict[str, Any]) -> frozenset[str]:
-    return frozenset(result.get("context_chunk_ids") or [])
+    """Unordered id set (diagnostics only). Prefer context_id_sequence for precheck."""
+    return frozenset(context_id_sequence(result))
+
+
+def context_sequences_differ(
+    baseline: dict[str, Any] | tuple[str, ...] | list[str],
+    candidate: dict[str, Any] | tuple[str, ...] | list[str],
+) -> bool:
+    """True if ordered chunk-id sequences differ (order or membership)."""
+    def _as_seq(x: dict[str, Any] | tuple[str, ...] | list[str]) -> tuple[str, ...]:
+        if isinstance(x, dict):
+            return context_id_sequence(x)
+        return tuple(str(i) for i in x if i)
+
+    return _as_seq(baseline) != _as_seq(candidate)

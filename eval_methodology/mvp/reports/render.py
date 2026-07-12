@@ -109,31 +109,52 @@ def render_report(
     lines.extend(
         [
             "",
-            "## 4. 配对 bootstrap（95% CI）",
+            "## 4. 配对 bootstrap（95% CI）与硬门槛合成",
             "",
+            f"- **最终判定**：`{decision.get('state')}` — {decision.get('reason')}",
             f"- 主指标：`{decision.get('primary_metric')}`",
             f"- Δ 均值：`{_fmt(decision.get('delta_mean'))}`",
             f"- 95% CI：`[{_fmt(ci.get('low'))}, {_fmt(ci.get('high'))}]`（宽={_fmt(ci.get('width'))}）",
             f"- 有效配对 n：`{decision.get('effective_n', ci.get('n', '—'))}`",
             f"- 探索性（CI 宽>0.1）：`{ci.get('exploratory', '—')}`",
             f"- 基线自波动（noise floor）：`{_fmt(decision.get('self_noise'))}`",
-            f"- 配对题 ID：{', '.join(payload.get('paired_ids_faith') or []) or '—'}",
             "",
         ]
     )
 
-    if payload.get("decision_citp"):
-        d2 = payload["decision_citp"]
+    for metric in ("faith", "citp", "crec"):
+        key = f"decision_{metric}"
+        if not payload.get(key):
+            continue
+        d2 = payload[key]
         ci2 = d2.get("ci") or {}
         lines.extend(
             [
-                "### CitP 辅助判定",
+                f"### {metric}",
                 "",
                 f"- 状态：`{d2.get('state')}` — {d2.get('reason')}",
-                f"- Δ={_fmt(d2.get('delta_mean'))} CI=[{_fmt(ci2.get('low'))}, {_fmt(ci2.get('high'))}]",
+                f"- Δ={_fmt(d2.get('delta_mean'))} "
+                f"CI=[{_fmt(ci2.get('low'))}, {_fmt(ci2.get('high'))}] "
+                f"n={d2.get('effective_n', ci2.get('n'))}",
                 "",
             ]
         )
+
+    # Per-question paired deltas (audit E2).
+    paired = payload.get("paired_deltas") or {}
+    if paired:
+        lines.extend(["## 4.1 逐题配对差", ""])
+        for metric, rows in paired.items():
+            lines.append(f"### {metric}")
+            lines.append("")
+            lines.append("| question_id | baseline | candidate | delta |")
+            lines.append("|---|---:|---:|---:|")
+            for row in rows:
+                lines.append(
+                    f"| {row.get('question_id')} | {_fmt(row.get('baseline'))} | "
+                    f"{_fmt(row.get('candidate'))} | {_fmt(row.get('delta'))} |"
+                )
+            lines.append("")
 
     pre = payload.get("precheck") or {}
     lines.extend(

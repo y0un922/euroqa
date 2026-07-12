@@ -71,6 +71,10 @@ class PerQuestionMetrics(BaseModel):
     n_claims: int = 0
     n_citations: int = 0
     context_chunk_ids: list[str] = Field(default_factory=list)
+    # Gold / retrieval state machine (audit C1).
+    e_plus: list[str] = Field(default_factory=list)
+    retrieval_gap_ids: list[str] = Field(default_factory=list)
+    gold_claim_status: str = ""  # supported | corpus_gap | mixed | none
     notes: str = ""
 
 

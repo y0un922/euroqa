@@ -30,6 +30,7 @@ from eval_methodology.mvp.loop.decision import (  # noqa: E402
     ab_decide,
     candidate_precheck,
     locate_bottleneck,
+    merge_hard_gate_decisions,
     pick_single_var_action,
 )
 from eval_methodology.mvp.metrics.e2e import paired_series  # noqa: E402
@@ -46,7 +47,11 @@ from eval_methodology.mvp.paths import (  # noqa: E402
     REPORTS_DIR,
 )
 from eval_methodology.mvp.reports.render import render_report  # noqa: E402
-from eval_methodology.mvp.runner.client import context_id_set, query_stream  # noqa: E402
+from eval_methodology.mvp.runner.client import (  # noqa: E402
+    context_id_sequence,
+    context_sequences_differ,
+    query_stream,
+)
 from eval_methodology.mvp.runner.sidecar import SidecarHandle, start_sidecar  # noqa: E402
 
 
@@ -78,14 +83,18 @@ def _context_diff_scan(
             qid = item["id"]
             b = query_stream(base_h.stream_url, item["question"])
             c = query_stream(cand_h.stream_url, item["question"])
-            bs, cs = context_id_set(b), context_id_set(c)
-            changed = bs != cs
+            b_seq = context_id_sequence(b)
+            c_seq = context_id_sequence(c)
+            # Ordered sequence compare (not set): reordering alone counts.
+            changed = context_sequences_differ(b_seq, c_seq)
             details[qid] = {
                 "changed": changed,
-                "baseline_n": len(bs),
-                "candidate_n": len(cs),
-                "only_baseline": sorted(bs - cs)[:10],
-                "only_candidate": sorted(cs - bs)[:10],
+                "baseline_seq_n": len(b_seq),
+                "candidate_seq_n": len(c_seq),
+                "baseline_seq_head": list(b_seq[:8]),
+                "candidate_seq_head": list(c_seq[:8]),
+                "only_baseline": sorted(set(b_seq) - set(c_seq))[:10],
+                "only_candidate": sorted(set(c_seq) - set(b_seq))[:10],
             }
             if changed:
                 diff_ids.append(qid)
@@ -206,46 +215,62 @@ def run_mvp(
                 cand_h.stop()
             payload["candidate_runs"] = [cand_run]
 
-            # Paired series on Faith (primary hard gate); also record CitP.
+            # Hard gates Faith+CitP (merged); CRec as regression diagnostic.
             b_pq = _per_q_list(run1)
             c_pq = _per_q_list(cand_run)
-            b_f, c_f, ids_f = paired_series(b_pq, c_pq, "faith")
-            b_rep_a = [p.faith for p in _per_q_list(run1) if p.faith is not None]
-            # Align repeat series on intersection of non-null faith.
-            map1 = {p.question_id: p.faith for p in _per_q_list(run1)}
-            map2 = {p.question_id: p.faith for p in _per_q_list(run2)}
-            common = sorted(
-                qid
-                for qid in set(map1) & set(map2)
-                if map1[qid] is not None and map2[qid] is not None
-            )
-            rep_a = [float(map1[q]) for q in common]
-            rep_b = [float(map2[q]) for q in common]
+            drop = float(run1["aggregate"].get("judge_drop_rate") or 0)
+            degraded = bool(run1["aggregate"].get("degraded_to_trend"))
 
-            decision = ab_decide(
-                baseline_values=b_f,
-                candidate_values=c_f,
-                baseline_repeat_a=rep_a,
-                baseline_repeat_b=rep_b,
-                primary_metric="faith",
-                effective_n=len(b_f),
-                judge_drop_rate=float(run1["aggregate"].get("judge_drop_rate") or 0),
-                degraded_to_trend=bool(run1["aggregate"].get("degraded_to_trend")),
-            )
-            payload["decision"] = decision.to_dict()
-            payload["paired_ids_faith"] = ids_f
-
-            b_c, c_c, ids_c = paired_series(b_pq, c_pq, "citp")
-            if b_c:
-                citp_dec = ab_decide(
-                    baseline_values=b_c,
-                    candidate_values=c_c,
-                    primary_metric="citp",
-                    effective_n=len(b_c),
-                    judge_drop_rate=float(run1["aggregate"].get("judge_drop_rate") or 0),
+            def _repeat_series(metric: str) -> tuple[list[float], list[float]]:
+                m1 = {p.question_id: getattr(p, metric) for p in _per_q_list(run1)}
+                m2 = {p.question_id: getattr(p, metric) for p in _per_q_list(run2)}
+                common = sorted(
+                    qid
+                    for qid in set(m1) & set(m2)
+                    if m1[qid] is not None and m2[qid] is not None
                 )
-                payload["decision_citp"] = citp_dec.to_dict()
-                payload["paired_ids_citp"] = ids_c
+                return (
+                    [float(m1[q]) for q in common],
+                    [float(m2[q]) for q in common],
+                )
+
+            per_metric_decisions = {}
+            paired_deltas: dict[str, list[dict[str, Any]]] = {}
+            for metric in ("faith", "citp", "crec"):
+                b_vals, c_vals, ids = paired_series(b_pq, c_pq, metric)
+                if not b_vals:
+                    continue
+                rep_a, rep_b = _repeat_series(metric) if metric in ("faith", "citp") else ([], [])
+                dec = ab_decide(
+                    baseline_values=b_vals,
+                    candidate_values=c_vals,
+                    baseline_repeat_a=rep_a or None,
+                    baseline_repeat_b=rep_b or None,
+                    primary_metric=metric,
+                    effective_n=len(b_vals),
+                    judge_drop_rate=drop,
+                    degraded_to_trend=degraded,
+                )
+                per_metric_decisions[metric] = dec
+                paired_deltas[metric] = [
+                    {
+                        "question_id": qid,
+                        "baseline": b_vals[i],
+                        "candidate": c_vals[i],
+                        "delta": c_vals[i] - b_vals[i],
+                    }
+                    for i, qid in enumerate(ids)
+                ]
+                payload[f"paired_ids_{metric}"] = ids
+                payload[f"decision_{metric}"] = dec.to_dict()
+
+            final = merge_hard_gate_decisions(
+                per_metric_decisions,
+                primary_metric="faith",
+                regression_metrics=("crec",),
+            )
+            payload["decision"] = final.to_dict()
+            payload["paired_deltas"] = paired_deltas
 
         payload["finished_at"] = _utc()
     finally:
