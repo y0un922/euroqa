@@ -14,6 +14,7 @@ from eval_methodology.mvp.metrics.judges.cache import (
     make_cache_key,
 )
 from eval_methodology.mvp.metrics.judges.cli_backend import (
+    pin_resolved_model,
     resolve_claude_model_id,
     resolve_codex_model_id,
     run_claude_json,
@@ -117,11 +118,33 @@ def _run_family(
                 lambda: run_claude_json(prompt, schema_path=JUDGE_SCHEMA)
             )
         actual_model = str(raw.get("_resolved_model") or model_id)
-        # If CLI resolved a more specific model than env placeholder, re-key cache.
-        if actual_model != model_id:
-            cache_key = make_cache_key(
+        # Pin so subsequent lookups (this process + disk) use the real id (D4).
+        pin_resolved_model(family, actual_model)
+        cache_key = make_cache_key(
+            family=family,
+            model_id=actual_model,
+            question=question,
+            answer=answer,
+            context_chunks=context_chunks,
+            citations=units.model_dump(),
+            prompt_schema_version=PROMPT_SCHEMA_VERSION,
+            kind="judge",
+        )
+        cleaned = {k: v for k, v in raw.items() if not k.startswith("_")}
+        out = JudgeRawOutput.model_validate(cleaned)
+        payload = {
+            "output": out.model_dump(),
+            "model_id": actual_model,
+            "family": family,
+            "parse_source": raw.get("_parse_source"),
+        }
+        cache.set(cache_key, payload)
+        # Alias under provisional key only when it was a placeholder, so a
+        # concurrent lookup that still has the placeholder can hit once.
+        if model_id != actual_model and "unresolved" in model_id:
+            alias_key = make_cache_key(
                 family=family,
-                model_id=actual_model,
+                model_id=model_id,
                 question=question,
                 answer=answer,
                 context_chunks=context_chunks,
@@ -129,17 +152,7 @@ def _run_family(
                 prompt_schema_version=PROMPT_SCHEMA_VERSION,
                 kind="judge",
             )
-        cleaned = {k: v for k, v in raw.items() if not k.startswith("_")}
-        out = JudgeRawOutput.model_validate(cleaned)
-        cache.set(
-            cache_key,
-            {
-                "output": out.model_dump(),
-                "model_id": actual_model,
-                "family": family,
-                "parse_source": raw.get("_parse_source"),
-            },
-        )
+            cache.set(alias_key, payload)
         return out, actual_model, None
     except Exception as exc:  # noqa: BLE001
         return None, model_id, f"{type(exc).__name__}: {exc}"

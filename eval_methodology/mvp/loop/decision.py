@@ -271,73 +271,97 @@ def merge_hard_gate_decisions(
     per_metric: dict[str, ABDecision],
     *,
     primary_metric: str = "faith",
+    non_regress_metrics: Sequence[str] = ("citp",),
     regression_metrics: Sequence[str] = ("crec",),
 ) -> ABDecision:
-    """Combine hard-gate metrics (Faith, CitP) + optional regression series.
+    """Combine primary improvement + hard non-regression + regression diagnostics.
 
-    Rules (main.tex G={Faith,CitP}; audit E3/G3):
-      - any hard metric **reject** → overall reject
-      - overall **accept** only if every present hard metric is accept
-      - otherwise inconclusive (includes mixed accept+inconclusive)
-      - regression metric reject also blocks accept (forces reject)
+    main.tex: G hard gates require **no significant regression**; overall accept
+    also needs primary M significant improvement. Flat hard-gate metrics must
+    **pass** (not block accept) — audit E3 residual.
+
+    Rules:
+      - any reject (primary / non-regress / regression) → overall reject
+      - overall accept iff primary.state==accept AND every non-regress metric
+        present has state==accept (gate-pass under mode=non_regress)
+      - otherwise inconclusive
     """
-    hard = ["faith", "citp"]
-    present_hard = {m: per_metric[m] for m in hard if m in per_metric}
-    if not present_hard:
-        return ABDecision(
-            state="inconclusive",
-            reason="no hard-gate metric series available",
-            primary_metric=primary_metric,
-        )
-
     details: dict[str, Any] = {
         "per_metric": {k: v.to_dict() for k, v in per_metric.items()},
-        "hard_metrics": list(present_hard.keys()),
+        "primary_metric": primary_metric,
+        "non_regress_metrics": list(non_regress_metrics),
+        "regression_metrics": list(regression_metrics),
     }
 
-    rejects = [m for m, d in present_hard.items() if d.state == "reject"]
-    # Regression diagnostics (e.g. CRec): reject blocks; does not alone accept.
+    primary = per_metric.get(primary_metric)
+    if primary is None:
+        return ABDecision(
+            state="inconclusive",
+            reason=f"primary metric {primary_metric!r} missing",
+            primary_metric=primary_metric,
+            details=details,
+        )
+
+    rejects: list[str] = []
+    if primary.state == "reject":
+        rejects.append(primary_metric)
+    for m in non_regress_metrics:
+        d = per_metric.get(m)
+        if d is not None and d.state == "reject":
+            rejects.append(m)
     for m in regression_metrics:
         d = per_metric.get(m)
         if d is not None and d.state == "reject":
             rejects.append(m)
+
     if rejects:
-        primary = present_hard.get(primary_metric) or next(iter(present_hard.values()))
         return ABDecision(
             state="reject",
-            reason=f"hard/regression reject on: {', '.join(rejects)}",
+            reason=f"reject on: {', '.join(rejects)}",
             primary_metric=primary_metric,
             delta_mean=primary.delta_mean,
             ci=primary.ci,
             self_noise=primary.self_noise,
-            effective_n=min(d.effective_n for d in present_hard.values()),
+            effective_n=primary.effective_n,
             details=details,
         )
 
-    accepts = [m for m, d in present_hard.items() if d.state == "accept"]
-    if len(accepts) == len(present_hard):
-        primary = present_hard.get(primary_metric) or next(iter(present_hard.values()))
+    non_regress_ok = True
+    non_regress_states: dict[str, str] = {}
+    for m in non_regress_metrics:
+        d = per_metric.get(m)
+        if d is None:
+            continue
+        non_regress_states[m] = d.state
+        if d.state != "accept":
+            non_regress_ok = False
+
+    if primary.state == "accept" and non_regress_ok:
         return ABDecision(
             state="accept",
-            reason=f"all hard gates accept: {', '.join(sorted(accepts))}",
+            reason=(
+                f"primary {primary_metric} improved; non-regress gates pass "
+                f"{non_regress_states or '{}'}"
+            ),
             primary_metric=primary_metric,
             delta_mean=primary.delta_mean,
             ci=primary.ci,
             self_noise=primary.self_noise,
-            effective_n=min(d.effective_n for d in present_hard.values()),
+            effective_n=primary.effective_n,
             details=details,
         )
 
-    states = {m: d.state for m, d in present_hard.items()}
-    primary = present_hard.get(primary_metric) or next(iter(present_hard.values()))
     return ABDecision(
         state="inconclusive",
-        reason=f"hard-gate mix {states} (accept requires every hard metric accept)",
+        reason=(
+            f"primary={primary.state}; non_regress={non_regress_states} "
+            "(need primary improve + hard gates non-regress pass)"
+        ),
         primary_metric=primary_metric,
         delta_mean=primary.delta_mean,
         ci=primary.ci,
         self_noise=primary.self_noise,
-        effective_n=min(d.effective_n for d in present_hard.values()),
+        effective_n=primary.effective_n,
         details=details,
     )
 
@@ -354,12 +378,19 @@ def ab_decide(
     effective_n: int | None = None,
     judge_drop_rate: float = 0.0,
     degraded_to_trend: bool = False,
+    mode: Literal["improve", "non_regress"] = "improve",
 ) -> ABDecision:
     """Three-state A/B decision via paired bootstrap + self-noise floor.
 
-    accept:       CI entirely above +epsilon (and improvement > self-noise)
-    reject:       CI entirely below -delta (regression)
-    inconclusive: otherwise, or n/drop gates, or improvement < self-noise
+    mode=improve (primary M):
+      accept:       CI entirely above +epsilon (and improvement > self-noise)
+      reject:       CI entirely below -delta (regression)
+      inconclusive: otherwise / n/drop / |Δ|≤noise / exploratory CI
+
+    mode=non_regress (hard gate G / regression diagnostic):
+      reject:       significant regression (CI entirely below -delta)
+      accept:       no significant regression proven (including flat / mild Δ)
+      inconclusive: n/drop gates or exploratory CI width (cannot hard-pass)
     """
     n = len(baseline_values)
     eff = effective_n if effective_n is not None else n
@@ -368,6 +399,7 @@ def ab_decide(
         "delta": delta,
         "judge_drop_rate": judge_drop_rate,
         "degraded_to_trend": degraded_to_trend,
+        "mode": mode,
     }
 
     if n == 0 or eff < MIN_EFFECTIVE_N:
@@ -398,7 +430,62 @@ def ab_decide(
         noise = self_noise_bound(baseline_repeat_a, baseline_repeat_b)
     details["self_noise"] = noise
 
-    # Improvement smaller than baseline self-noise → inconclusive.
+    # Significant regression always rejects in both modes.
+    if ci.high < -delta:
+        return ABDecision(
+            state="reject",
+            reason=f"CI [{ci.low:.3f}, {ci.high:.3f}] entirely below -δ={delta}",
+            primary_metric=primary_metric,
+            delta_mean=ci.mean,
+            ci=ci,
+            self_noise=noise,
+            effective_n=eff,
+            details=details,
+        )
+
+    if mode == "non_regress":
+        # Flat / mild change = hard-gate pass (no significant regression).
+        if abs(ci.mean) <= noise and noise > 0:
+            return ABDecision(
+                state="accept",
+                reason=(
+                    f"non-regress pass: |Δ|={abs(ci.mean):.4f} ≤ self-noise="
+                    f"{noise:.4f} (no significant change)"
+                ),
+                primary_metric=primary_metric,
+                delta_mean=ci.mean,
+                ci=ci,
+                self_noise=noise,
+                effective_n=eff,
+                details=details,
+            )
+        if ci.exploratory:
+            return ABDecision(
+                state="inconclusive",
+                reason=f"non-regress: CI width={ci.width:.3f} > 0.1 → cannot hard-pass",
+                primary_metric=primary_metric,
+                delta_mean=ci.mean,
+                ci=ci,
+                self_noise=noise,
+                effective_n=eff,
+                details=details,
+            )
+        # No significant regression proven.
+        return ABDecision(
+            state="accept",
+            reason=(
+                f"non-regress pass: CI [{ci.low:.3f}, {ci.high:.3f}] "
+                f"not entirely below -δ={delta}"
+            ),
+            primary_metric=primary_metric,
+            delta_mean=ci.mean,
+            ci=ci,
+            self_noise=noise,
+            effective_n=eff,
+            details=details,
+        )
+
+    # --- mode == improve ---
     if abs(ci.mean) <= noise and noise > 0:
         return ABDecision(
             state="inconclusive",
@@ -425,7 +512,6 @@ def ab_decide(
             details=details,
         )
 
-    # Accept: lower bound > epsilon (significant improvement).
     if ci.low > epsilon:
         return ABDecision(
             state="accept",
@@ -438,24 +524,11 @@ def ab_decide(
             details=details,
         )
 
-    # Reject: upper bound < -delta (significant regression).
-    if ci.high < -delta:
-        return ABDecision(
-            state="reject",
-            reason=f"CI [{ci.low:.3f}, {ci.high:.3f}] entirely below -δ={delta}",
-            primary_metric=primary_metric,
-            delta_mean=ci.mean,
-            ci=ci,
-            self_noise=noise,
-            effective_n=eff,
-            details=details,
-        )
-
     return ABDecision(
         state="inconclusive",
         reason=(
-            f"CI [{ci.low:.3f}, {ci.high:.3f}] crosses decision thresholds "
-            f"(ε={epsilon}, δ={delta})"
+            f"CI [{ci.low:.3f}, {ci.high:.3f}] does not clear +ε={epsilon} "
+            f"(and not below -δ={delta})"
         ),
         primary_metric=primary_metric,
         delta_mean=ci.mean,

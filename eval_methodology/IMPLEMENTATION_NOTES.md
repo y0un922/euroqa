@@ -1,8 +1,10 @@
 # Implementation Notes (MVP)
 
-## Audit response (codex 2/5 → fixes)
+## Audit response (codex 2/5 → 4/5 → residuals closed)
 
-Codex must-fix items were verified correct and addressed in code:
+Codex must-fix items were verified correct and addressed in code.
+HelloAGENTS re-verify of `be90591`: B2/C1/C4/C5/D2/D3/E2/F3/G3 pass; A1 smoke pass
+with live index. Residuals D4/E3 closed in follow-up commit:
 
 | ID | Issue | Fix |
 |---|---|---|
@@ -12,10 +14,10 @@ Codex must-fix items were verified correct and addressed in code:
 | C5 | review only disputes | **all** items written to `review/gold_min_evidence_review_*.md` |
 | D2 | citation drop kept Faith | full question drop nulls Faith **and** CitP; aggregate excludes dropped |
 | D3 | silent regex JSON salvage | regex fallback `ok=False` → CLIJudgeError; Claude `--no-session-persistence` |
-| D4 | cache model placeholder | cache key uses resolved model id (env + CLI banner/envelope) |
+| D4 | cache miss under `codex-unresolved` | pin resolved model (process+disk); lookup uses pin; provisional alias write-once |
 | E2 | no per-question Δ | report §4.1 paired delta tables |
-| E3 | Faith-only final decision | `merge_hard_gate_decisions(Faith, CitP)` + CRec regression reject |
-| F3 | trivial accept/reject tests only | added CI-crossing inconclusive + merge tests |
+| E3 | Faith-only / flat hard-gate blocks | primary `improve` + hard `non_regress` (flat = pass); merge rejects only on reject |
+| F3 | trivial accept/reject tests only | CI-crossing + merge + non_regress flat tests |
 | G3 | gate bypass paths | closed by B2 + E3 |
 
 ## Still blocked for live A1 / G1 (environment)

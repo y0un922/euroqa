@@ -111,14 +111,60 @@ def _extract_json_object(text: str, *, allow_regex_fallback: bool = False) -> Pa
     )
 
 
+# Process + disk pin so cache keys use the real model after first resolution
+# (audit D4: avoid lookup under codex-unresolved while store under real id).
+_PINNED_MODELS: dict[str, str] = {}
+
+
+def _pins_path() -> Path:
+    from eval_methodology.mvp.paths import CACHE_DIR
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return CACHE_DIR / "resolved_models.json"
+
+
+def _load_disk_pins() -> dict[str, str]:
+    path = _pins_path()
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in data.items() if v}
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+
+
+def pin_resolved_model(family: str, model_id: str) -> None:
+    """Remember the actual model id for a judge family (process + disk)."""
+    if not model_id or "unresolved" in model_id or model_id.endswith("-failed"):
+        return
+    _PINNED_MODELS[family] = model_id
+    pins = _load_disk_pins()
+    if pins.get(family) == model_id:
+        return
+    pins[family] = model_id
+    try:
+        _pins_path().write_text(
+            json.dumps(pins, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        pass
+
+
 def resolve_codex_model_id(explicit: str | None = None) -> str:
-    """Best-effort model id from explicit arg or env (no network probe)."""
+    """Model id: explicit → env → pinned (disk/process) → unresolved placeholder."""
     if explicit:
         return explicit
     for env_key in ("CODEX_MODEL", "OPENAI_MODEL", "MVP_CODEX_MODEL"):
         val = os.environ.get(env_key, "").strip()
         if val:
             return val
+    if "codex" in _PINNED_MODELS:
+        return _PINNED_MODELS["codex"]
+    disk = _load_disk_pins()
+    if disk.get("codex"):
+        _PINNED_MODELS["codex"] = disk["codex"]
+        return disk["codex"]
     return "codex-unresolved"
 
 
@@ -129,6 +175,12 @@ def resolve_claude_model_id(explicit: str | None = None) -> str:
         val = os.environ.get(env_key, "").strip()
         if val:
             return val
+    if "claude" in _PINNED_MODELS:
+        return _PINNED_MODELS["claude"]
+    disk = _load_disk_pins()
+    if disk.get("claude"):
+        _PINNED_MODELS["claude"] = disk["claude"]
+        return disk["claude"]
     return "claude-unresolved"
 
 
@@ -197,6 +249,7 @@ def run_codex_json(
         m = re.search(r"model[=:\s]+([A-Za-z0-9._/-]+)", raw, re.I)
         if m:
             resolved_model = m.group(1)
+    pin_resolved_model("codex", resolved_model)
     data["_resolved_model"] = resolved_model
     data["_family"] = "codex"
     data["_parse_source"] = parsed.source
@@ -263,6 +316,7 @@ def run_claude_json(
         )
 
     data = dict(parsed.data)
+    pin_resolved_model("claude", resolved_model)
     data["_resolved_model"] = resolved_model
     data["_family"] = "claude"
     data["_parse_source"] = parsed.source

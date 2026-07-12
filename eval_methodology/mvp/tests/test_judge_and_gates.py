@@ -122,6 +122,43 @@ def test_cache_key_changes_with_model_and_order():
     assert k1 != k3  # model id in key
 
 
+def test_model_pin_closes_unresolved_cache_gap(tmp_path, monkeypatch):
+    """After pin, resolve returns real id so second lookup hits same key (D4)."""
+    from eval_methodology.mvp.metrics.judges import cli_backend as cb
+    from eval_methodology.mvp.metrics.judges.cache import JudgeCache
+
+    monkeypatch.setattr(cb, "_PINNED_MODELS", {})
+    monkeypatch.setattr(cb, "_pins_path", lambda: tmp_path / "resolved_models.json")
+
+    assert cb.resolve_codex_model_id() == "codex-unresolved"
+    cb.pin_resolved_model("codex", "gpt-5.3-codex")
+    assert cb.resolve_codex_model_id() == "gpt-5.3-codex"
+
+    cache = JudgeCache(root=tmp_path / "jcache")
+    chunks = [{"chunk_id": "a", "content": "x"}]
+    key = make_cache_key(
+        family="codex",
+        model_id=cb.resolve_codex_model_id(),
+        question="q",
+        answer="a",
+        context_chunks=chunks,
+        citations=[],
+    )
+    cache.set(key, {"output": {"claim_verdicts": [], "citation_verdicts": []}, "model_id": "gpt-5.3-codex"})
+    # New process simulation: clear memory pin, reload from disk
+    monkeypatch.setattr(cb, "_PINNED_MODELS", {})
+    key2 = make_cache_key(
+        family="codex",
+        model_id=cb.resolve_codex_model_id(),
+        question="q",
+        answer="a",
+        context_chunks=chunks,
+        citations=[],
+    )
+    assert key2 == key
+    assert cache.get(key2) is not None
+
+
 def test_gold_review_packet_covers_all(tmp_path, monkeypatch):
     from eval_methodology.mvp.dataset import build_gold as bg
 

@@ -143,11 +143,13 @@ def test_merge_hard_gates_faith_accept_citp_reject_is_reject():
         baseline_values=[0.5] * 16,
         candidate_values=[0.9] * 16,
         effective_n=16,
+        mode="improve",
     )
     citp = ab_decide(
         baseline_values=[0.9] * 16,
         candidate_values=[0.4] * 16,
         effective_n=16,
+        mode="non_regress",
     )
     assert faith.state == "accept"
     assert citp.state == "reject"
@@ -157,16 +159,51 @@ def test_merge_hard_gates_faith_accept_citp_reject_is_reject():
     assert final.state == "reject"
 
 
-def test_merge_hard_gates_both_accept():
+def test_merge_hard_gates_faith_improve_citp_flat_is_accept():
+    """CitP flat must non-regress pass, not block overall accept (E3 residual)."""
     faith = ab_decide(
         baseline_values=[0.5] * 16,
         candidate_values=[0.9] * 16,
         effective_n=16,
+        mode="improve",
+    )
+    citp = ab_decide(
+        baseline_values=[0.7] * 16,
+        candidate_values=[0.7] * 16,  # exactly flat
+        effective_n=16,
+        mode="non_regress",
+    )
+    assert faith.state == "accept"
+    assert citp.state == "accept"
+    final = merge_hard_gate_decisions(
+        {"faith": faith, "citp": citp}, primary_metric="faith"
+    )
+    assert final.state == "accept"
+
+
+def test_non_regress_flat_is_accept_not_inconclusive():
+    d = ab_decide(
+        baseline_values=[0.7] * 16,
+        candidate_values=[0.7] * 16,
+        effective_n=16,
+        mode="non_regress",
+    )
+    assert d.state == "accept"
+    assert "non-regress" in d.reason
+
+
+def test_merge_hard_gates_both_improve_accept():
+    faith = ab_decide(
+        baseline_values=[0.5] * 16,
+        candidate_values=[0.9] * 16,
+        effective_n=16,
+        mode="improve",
     )
     citp = ab_decide(
         baseline_values=[0.5] * 16,
         candidate_values=[0.9] * 16,
         effective_n=16,
+        mode="non_regress",
     )
     final = merge_hard_gate_decisions(
         {"faith": faith, "citp": citp}, primary_metric="faith"
@@ -174,20 +211,21 @@ def test_merge_hard_gates_both_accept():
     assert final.state == "accept"
 
 
-def test_merge_hard_gates_accept_plus_inconclusive_is_inconclusive():
+def test_merge_hard_gates_primary_inconclusive_blocks_accept():
     faith = ab_decide(
-        baseline_values=[0.5] * 16,
-        candidate_values=[0.9] * 16,
-        effective_n=16,
-    )
-    # Near-zero change → inconclusive
-    citp = ab_decide(
         baseline_values=[0.7] * 16,
         candidate_values=[0.71] * 16,
         effective_n=16,
+        mode="improve",
     )
-    assert faith.state == "accept"
-    assert citp.state == "inconclusive"
+    citp = ab_decide(
+        baseline_values=[0.7] * 16,
+        candidate_values=[0.7] * 16,
+        effective_n=16,
+        mode="non_regress",
+    )
+    assert faith.state == "inconclusive"
+    assert citp.state == "accept"
     final = merge_hard_gate_decisions(
         {"faith": faith, "citp": citp}, primary_metric="faith"
     )

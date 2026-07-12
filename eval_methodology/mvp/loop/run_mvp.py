@@ -236,11 +236,18 @@ def run_mvp(
 
             per_metric_decisions = {}
             paired_deltas: dict[str, list[dict[str, Any]]] = {}
-            for metric in ("faith", "citp", "crec"):
+            metric_modes = {
+                "faith": "improve",  # primary M
+                "citp": "non_regress",  # hard gate G
+                "crec": "non_regress",  # regression diagnostic
+            }
+            for metric, mode in metric_modes.items():
                 b_vals, c_vals, ids = paired_series(b_pq, c_pq, metric)
                 if not b_vals:
                     continue
-                rep_a, rep_b = _repeat_series(metric) if metric in ("faith", "citp") else ([], [])
+                rep_a, rep_b = (
+                    _repeat_series(metric) if metric in ("faith", "citp") else ([], [])
+                )
                 dec = ab_decide(
                     baseline_values=b_vals,
                     candidate_values=c_vals,
@@ -250,6 +257,7 @@ def run_mvp(
                     effective_n=len(b_vals),
                     judge_drop_rate=drop,
                     degraded_to_trend=degraded,
+                    mode=mode,  # type: ignore[arg-type]
                 )
                 per_metric_decisions[metric] = dec
                 paired_deltas[metric] = [
@@ -267,6 +275,7 @@ def run_mvp(
             final = merge_hard_gate_decisions(
                 per_metric_decisions,
                 primary_metric="faith",
+                non_regress_metrics=("citp",),
                 regression_metrics=("crec",),
             )
             payload["decision"] = final.to_dict()
