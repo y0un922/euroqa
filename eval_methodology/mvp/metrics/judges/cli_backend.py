@@ -299,11 +299,17 @@ def run_claude_json(
         raise CLIJudgeError(f"claude timed out after {timeout_s}s") from exc
 
     raw = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-    # Prefer outer envelope model id.
+    # Prefer outer envelope model id (field varies by CLI version).
     try:
         outer = json.loads(proc.stdout or "")
-        if isinstance(outer, dict) and outer.get("model"):
-            resolved_model = str(outer["model"])
+        if isinstance(outer, dict):
+            if outer.get("model"):
+                resolved_model = str(outer["model"])
+            else:
+                usage = outer.get("modelUsage") or outer.get("model_usage")
+                if isinstance(usage, dict) and usage:
+                    # e.g. {"glm-5.2:cloud[1m]": {...}}
+                    resolved_model = str(next(iter(usage.keys())))
     except json.JSONDecodeError:
         pass
 

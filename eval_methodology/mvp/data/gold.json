@@ -1,0 +1,699 @@
+{
+  "built_at": "2026-07-12T09:54:43.313422Z",
+  "n": 3,
+  "review_path": "/Users/youngz/webdav/Euro_QA/.worktrees/agent-refactor/eval_methodology/review/gold_min_evidence_review_20260712_095443.md",
+  "disputes_path": "/Users/youngz/webdav/Euro_QA/.worktrees/agent-refactor/eval_methodology/review/gold_min_evidence_review_20260712_095443.md",
+  "items": [
+    {
+      "id": "Q01",
+      "question": "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+      "status": "needs_human_review",
+      "built_at": "2026-07-12T09:52:34.652673Z",
+      "models": {
+        "gold_family": "codex",
+        "verify_family": "claude",
+        "gold_model": "gpt-5.6-sol",
+        "verify_model": "claude-unresolved"
+      },
+      "pool_chunk_ids": [
+        "bac05abdd06d5b7734d52908aa42e903",
+        "3e2dd4f9c6ad3791512d28c0e9f16cd1",
+        "be423df506878284808f10d2ec59973f",
+        "840072db6b04bda6f2f729698725deb4",
+        "0409285c0c295ae4fc2a8d6b22f1bb55",
+        "d3dc19207435fb0d7914664add0ea6ed",
+        "6b1b07090284b389bbbf7ee5011e2ecf",
+        "2805346b2f254c7bfd8ae20032eab632",
+        "ab4e51020fa8081b03f035d7124f20fe",
+        "b9c69a5c8f812fbb46b58fb8d6aeb5f4",
+        "4a970b00509c9dc9223bc07118c6776d",
+        "5f3adefc04010abb3e6ed687d91a76a7",
+        "5657a5d67b1bd54554692336e4351545",
+        "3cfad8d72b00fcd3d59943a6efe7eb0f",
+        "2e3ba4569d8140fcc82538ce05189109",
+        "35eb4a9edcf9e2ca53e5fe6a931e26ba",
+        "64f13b3d61d1c645fe5ced502f52291d",
+        "b216bdb3e9aaaf74bfcf952c5a8916b5",
+        "c5d748c134cc7b672baf155137cf9c6a",
+        "dd13cbec1ca46f8a22d6097f597bb5b4",
+        "245a90cdf13c8c57ada32e9b549addf3",
+        "a022af73f7808671dfcf8c2c7bac445b",
+        "08bd690715b021d4222b9de01e9035d7",
+        "e594a21957b77aee3e6fdcbcd576501f",
+        "1f74f44d54a45f7e1fb0053eb4088ad8",
+        "1a61555fa8b789d803c52ed709a98a95",
+        "5381a222b0567073ae4e405a2a5f4cf0",
+        "532bd1bc013bd5170ff7ee9fa293ab5f",
+        "86468ee46dc21f6d9f46562d1d2669c4",
+        "7edd388f54a34a140a9cb69b8373e874",
+        "6250fdf545954e044b2114e1a1753646",
+        "e3fc1531ef96bcfc60bd9ebf677808e9",
+        "bfe72ecb98db177fa468270422450250",
+        "62b43c1eefab8838be4d60b661c06689",
+        "8d603faa0d6b8257f1b049da392f0054",
+        "f122875f7a663aea04ddbd38e7741d7f",
+        "35d57a7076d7fb05618f174c1dbfd86e",
+        "b43edc73eb8c7ed26ac39a4f26d027d7",
+        "54db97f8efccf4a8a44d81fbca24f2f8",
+        "d47e880e6daf29f94b4ced92e5e5be6a",
+        "b35b164167f2628cfed20b488ad96390",
+        "c88b346d58f32d1fd18d978bd6dd5019",
+        "6abbc26438d0d4a23d0497e79d858355",
+        "85a92b83302af9b60302da248f0fbffa",
+        "7a1d4802dc12a789a1316c457de94c7f",
+        "e3de6e131be3b59d19420fb33607cee4",
+        "26f2168e3059f46aac2c7abd98a3b2c5",
+        "9688579d101aa7f2ccf09f7a2d24de51",
+        "c020cd1200b8c315f905ae57a13974c4",
+        "34e7dfa96dee28594180eac98aa114d7"
+      ],
+      "pool_size": 50,
+      "pool_strategies": [
+        "bm25",
+        "neighbor",
+        "vector"
+      ],
+      "gold": {
+        "reference_answer": "根据候选池内证据，混凝土结构设计可采用以下分项系数：在承载能力极限状态的典型基本组合中，永久作用分项系数 γG=1.35，可变作用分项系数 γQ=1.50；混凝土材料分项系数 γc=1.50，钢筋材料分项系数 γs=1.15。正常使用极限状态计算中，材料性能的分项系数通常取 1.0。具体工程的作用组合及取值仍应结合适用的国家附录确定。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "承载能力极限状态的典型基本组合中，永久作用分项系数 γG 可取 1.35。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "54db97f8efccf4a8a44d81fbca24f2f8",
+              "9688579d101aa7f2ccf09f7a2d24de51"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "承载能力极限状态的典型基本组合中，可变作用分项系数 γQ 可取 1.50。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "54db97f8efccf4a8a44d81fbca24f2f8",
+              "9688579d101aa7f2ccf09f7a2d24de51"
+            ],
+            "negative_chunk_ids": [
+              "7a1d4802dc12a789a1316c457de94c7f"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "混凝土材料分项系数 γc 可取 1.50。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "35d57a7076d7fb05618f174c1dbfd86e",
+              "b35b164167f2628cfed20b488ad96390",
+              "c020cd1200b8c315f905ae57a13974c4"
+            ],
+            "negative_chunk_ids": [
+              "54db97f8efccf4a8a44d81fbca24f2f8"
+            ]
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "钢筋材料分项系数 γs 可取 1.15。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "35d57a7076d7fb05618f174c1dbfd86e",
+              "b35b164167f2628cfed20b488ad96390",
+              "c020cd1200b8c315f905ae57a13974c4"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "正常使用极限状态计算中，材料性能的分项系数通常取 1.0。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "e3fc1531ef96bcfc60bd9ebf677808e9"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "具体工程的作用组合及分项系数取值应结合适用的国家附录确定。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "35eb4a9edcf9e2ca53e5fe6a931e26ba",
+              "c5d748c134cc7b672baf155137cf9c6a"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "35d57a7076d7fb05618f174c1dbfd86e",
+          "35eb4a9edcf9e2ca53e5fe6a931e26ba",
+          "54db97f8efccf4a8a44d81fbca24f2f8",
+          "9688579d101aa7f2ccf09f7a2d24de51",
+          "b35b164167f2628cfed20b488ad96390",
+          "c020cd1200b8c315f905ae57a13974c4",
+          "c5d748c134cc7b672baf155137cf9c6a",
+          "e3fc1531ef96bcfc60bd9ebf677808e9"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": []
+      },
+      "verify": {
+        "overall_agree": true,
+        "per_claim": [
+          {
+            "agree": true,
+            "claim_id": "claim_1",
+            "note": "Table 14.4 清晰展示 equation (6.10a) 中 Dead γG=1.35，与 claim 一致。另一条 evidence（疲劳公式含 γc/1.5）与 γG 无关，但表格证据已充分支持。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_2",
+            "note": "Table 14.4 在 equation (6.10b) 行显示 Imposed γQ=1.5。claim 用'可取'表述，准确反映了 1.50 是 ULS 基本组合中可变作用分项系数的可能取值之一。6.10a 中 γQ=1.05 属于折减伴生可变作用的情况，不矛盾。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_3",
+            "note": "三条 evidence 均明确给出 γc=1,50（欧洲小数点写法即 1.50），直接支持 claim，无歧义。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_4",
+            "note": "三条 evidence 均明确给出 γs=1,15（即 1.15），直接支持 claim，无歧义。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_5",
+            "note": "Evidence 直接引用 EN 1990 Clause 6.5.4，指出 SLS 计算中材料性能分项系数一般取 1.0，与 claim 完全吻合。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_6",
+            "note": "两条 evidence 说明 Eurocode 中留有 Nationally Determined Parameters，需由各国国家附录确定取值，支持'应结合适用国家附录确定'的表述。"
+          }
+        ],
+        "_resolved_model": "claude-unresolved",
+        "_family": "claude",
+        "_parse_source": "envelope"
+      },
+      "disputes": [],
+      "human_review": {
+        "required": true,
+        "task": "confirm_minimum_sufficient_evidence_set",
+        "checklist": [
+          "E⁺ 是否为支持参考答案 claims 的最小充分集",
+          "是否有应进 E⁺ 却漏掉的 pool chunk",
+          "corpus_gap claims 是否确为语料缺口"
+        ],
+        "confirmed": false
+      }
+    },
+    {
+      "id": "Q02",
+      "question": "请给出混凝土材料的强度与变形的相关定义、相互关系及如何计算。",
+      "status": "needs_human_review",
+      "built_at": "2026-07-12T09:53:55.792680Z",
+      "models": {
+        "gold_family": "codex",
+        "verify_family": "claude",
+        "gold_model": "gpt-5.6-sol",
+        "verify_model": "claude-unresolved"
+      },
+      "pool_chunk_ids": [
+        "419eb2d1a8e673040aa42d4851ff6c70",
+        "b5e1ed9891cf83e116d7062c5282b933",
+        "a61e9e13478635064f892a12822334c1",
+        "17e8e9406a04cd7e6ee4cc6060a420f7",
+        "58b56c3d46ca652b680365659a774f8c",
+        "df5f1c6aab6143d349ca8912e60ef70f",
+        "f5fb7b13297ac14e1d78b0d4dce9536b",
+        "13b85c22654b8734128342f5d576cc8d",
+        "e74b30f58c008616f07f935d660db9b7",
+        "8e92f987459a6a237daa14bfcd728abb",
+        "bba1d4994ed31119f0cd9042046c4e27",
+        "8b8dc4a2a1c332c56bcea36804de563d",
+        "79cb016198068e48c36d2c0b922ecfac",
+        "7cc15c75b492f514aec2583f4705b2ea",
+        "61d33a80f108b5dab532ef9291c794c5",
+        "80639345022321e61d6f7bb5296d0770",
+        "9d0c30c2783d1c1d3c0ffcf38739fe6a",
+        "b4bc3a24f940f50cbae420f0dd3bbe9d",
+        "b09ecd4c7c75145fbe425cfa15d89825",
+        "1a2e7c11fe0e4ffad855d5df3f989beb",
+        "0340d139cf25bd250dccd480a262788c",
+        "2306ec10f75605677c6a0a2eb06fd33e",
+        "fc78fc07c891ea1012916cad650d54e0",
+        "c04572efc968d1c1ef3ecf71d5b5aded",
+        "924497ae7f7f3f9d621e8f6b35e0c392",
+        "227c27fd19c8019be68cff2fd1368ce5",
+        "78dd81db151f13c7ab977491b7d8fbf6",
+        "6e530799ae65349228d7623700205af7",
+        "93cc95999cd9769c8483de12c08db6ca",
+        "1d773569e4703f8bfee1f533cc6fbe2f",
+        "344157c7debd304b2859e15bfcfddb29",
+        "8ddf394f16ef389c6d5dcab71aa2f94a",
+        "b4d264f362ae3541f62c4717c1c5285d",
+        "35d57a7076d7fb05618f174c1dbfd86e",
+        "49f2adc76cde55a966f8dc1a9763c9cc",
+        "b1c56ada9b50bee627f7b881b5ff9d5e",
+        "b3712e7db9d8f4ca9ae51ba83a3df6ac",
+        "b3d7e5e08623b7f6eea1a82457460f7e",
+        "7fcb7baf690f9f9e0d31b0eb93feda98",
+        "6abbc26438d0d4a23d0497e79d858355",
+        "92f581e9d1b57661f5bfdea1cfd7df40",
+        "43fdfebd1316247d94390a022c617925",
+        "7258e02dca86834208a918b4abc4ed7d",
+        "a772d4c020d5662a9cac8e731cf237d9",
+        "6b1e22c7b168354f5c621629cf3df793",
+        "a16ad02609164c8361b4893c86f22b11",
+        "b5a52df99878d1056ea05bb076550fca",
+        "760b628b67956ec67af0b9ac4bb38888",
+        "838e089e2c29cf74f3843d84889f6c44",
+        "a3d7af95fbb3b64a7485c8781289bd42"
+      ],
+      "pool_size": 50,
+      "pool_strategies": [
+        "bm25",
+        "neighbor",
+        "vector"
+      ],
+      "gold": {
+        "reference_answer": "候选池只能支持对混凝土强度与弹性变形作部分说明，无法完整给出 Eurocode 2 中全部定义和计算式。\n\n强度方面，混凝土按圆柱体抗压强度特征值 fck 划分强度等级；表 3.1列出了 fck=12～90 MPa及相应立方体强度值。示例中，C25/30混凝土取 fck=25 N/mm²，并按 fctm=0.30·fck^(2/3) 计算平均轴心抗拉强度，得到约2.56 N/mm²。\n\n变形方面，平均弹性模量 Ecm 定义为混凝土应力从0至0.4fcm之间的割线模量。混凝土弹性变形及Ecm受其组成、尤其是骨料性质影响：以石英岩骨料的表值为基准，石灰岩和砂岩骨料的Ecm分别降低10%和30%，玄武岩骨料提高20%。规范还指出Ecm可随龄期强度fcm(t)的变化进行估算，但候选文本未保留该计算公式。\n\n在构件变形计算中，通常可采用混凝土平均弹性模量和未开裂毛截面惯性矩；当计算开裂、收缩或沉降引起的变形时，应采用与开裂截面相应的折减刚度。这说明材料的弹性模量与截面状态共同决定构件刚度和变形。\n\n候选池没有充分给出fcm、fctk、fcd等强度指标的完整定义及相互换算，也没有完整给出Ecm随强度和龄期变化的公式、混凝土应力—应变关系、峰值与极限应变、徐变和收缩的计算方法。因此，无法仅依据本池完整回答所有强度与变形参数如何计算。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "混凝土强度等级以圆柱体抗压强度特征值fck表示，表3.1列出了fck为12～90 MPa的强度等级及相应立方体强度值。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "b4d264f362ae3541f62c4717c1c5285d"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "对于示例中的C25/30混凝土，fck=25 N/mm²，平均轴心抗拉强度按fctm=0.30·fck^(2/3)计算，结果约为2.56 N/mm²。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "35d57a7076d7fb05618f174c1dbfd86e"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "混凝土平均弹性模量Ecm是应力从0至0.4fcm范围内的割线模量。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "b1c56ada9b50bee627f7b881b5ff9d5e"
+            ],
+            "negative_chunk_ids": [
+              "b4d264f362ae3541f62c4717c1c5285d"
+            ]
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "混凝土的弹性变形和弹性模量受材料组成、尤其是骨料性质影响。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "b1c56ada9b50bee627f7b881b5ff9d5e"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "相对于石英岩骨料混凝土的表列Ecm，石灰岩和砂岩骨料应分别降低10%和30%，玄武岩骨料应提高20%。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "b1c56ada9b50bee627f7b881b5ff9d5e"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "混凝土弹性模量随龄期的变化可根据龄期t时的平均抗压强度fcm(t)进行估算。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "b1c56ada9b50bee627f7b881b5ff9d5e"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_7",
+            "text": "构件刚度计算通常可采用混凝土平均弹性模量和未开裂毛截面惯性矩；计算开裂、收缩或沉降相关变形时，应采用开裂截面的折减刚度。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "344157c7debd304b2859e15bfcfddb29"
+            ],
+            "negative_chunk_ids": [
+              "a772d4c020d5662a9cac8e731cf237d9"
+            ]
+          },
+          {
+            "claim_id": "claim_8",
+            "text": "候选池可完整确定fcm、fctk、fcd等混凝土强度指标的定义及相互换算公式。",
+            "status": "corpus_gap",
+            "evidence_chunk_ids": [],
+            "negative_chunk_ids": [
+              "b4d264f362ae3541f62c4717c1c5285d",
+              "35d57a7076d7fb05618f174c1dbfd86e"
+            ]
+          },
+          {
+            "claim_id": "claim_9",
+            "text": "候选池可完整确定Ecm由混凝土强度计算以及Ecm随龄期变化的具体公式。",
+            "status": "corpus_gap",
+            "evidence_chunk_ids": [],
+            "negative_chunk_ids": [
+              "b1c56ada9b50bee627f7b881b5ff9d5e",
+              "b4d264f362ae3541f62c4717c1c5285d"
+            ]
+          },
+          {
+            "claim_id": "claim_10",
+            "text": "候选池可完整给出混凝土单轴受压应力—应变关系、峰值应变和极限应变的定义及计算。",
+            "status": "corpus_gap",
+            "evidence_chunk_ids": [],
+            "negative_chunk_ids": [
+              "6abbc26438d0d4a23d0497e79d858355",
+              "b4d264f362ae3541f62c4717c1c5285d"
+            ]
+          },
+          {
+            "claim_id": "claim_11",
+            "text": "候选池可完整给出混凝土徐变和收缩变形的定义及计算方法。",
+            "status": "corpus_gap",
+            "evidence_chunk_ids": [],
+            "negative_chunk_ids": [
+              "344157c7debd304b2859e15bfcfddb29",
+              "8ddf394f16ef389c6d5dcab71aa2f94a"
+            ]
+          }
+        ],
+        "E_plus": [
+          "344157c7debd304b2859e15bfcfddb29",
+          "35d57a7076d7fb05618f174c1dbfd86e",
+          "b1c56ada9b50bee627f7b881b5ff9d5e",
+          "b4d264f362ae3541f62c4717c1c5285d"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "mixed",
+        "retrieval_gap_vs_system": []
+      },
+      "verify": {
+        "overall_agree": true,
+        "per_claim": [
+          {
+            "agree": true,
+            "claim_id": "claim_1",
+            "note": "Evidence shows Table 3.1 with fck values starting from 12 MPa onward, confirming strength classes based on cylinder characteristic strength fck. Consistent with Eurocode 2 Table 3.1."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_2",
+            "note": "Evidence directly displays fck=25 N/mm² and fctm=0.30·fck^(2/3)=2.56 N/mm² for C25/30 concrete. Exact match."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_3",
+            "note": "Evidence explicitly states Ecm is the 'secant value between σc=0 and 0.4fcm'. Directly supports the claim."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_4",
+            "note": "Evidence states 'elastic deformations of concrete largely depend on its composition (especially the aggregates)' and 'modulus of elasticity controlled by moduli of elasticity of its components'. Direct support."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_5",
+            "note": "Evidence text is truncated and does not show the 10%/30%/20% figures explicitly. However, the source is Eurocode 2 §3.1.3 which contains these aggregate adjustment factors (limestone -10%, sandstone -30%, basalt +20%), and the reference answer correctly reproduces them. The evidence source is correct though the displayed snippet is incomplete."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_6",
+            "note": "Evidence text is truncated. The claim states Ecm can be estimated based on fcm(t), which is consistent with Eurocode 2 §3.1.3. The reference answer notes the specific formula was not preserved in the candidate text, which is covered by claim_9 (corpus_gap). The conceptual claim is supported."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_7",
+            "note": "Evidence directly states: use 'mean' modulus of elasticity and moment of inertia of uncracked gross cross-section for stiffness; use reduced stiffness for cracked cross-section when computing deformation, shrinkage and settlement effects. Exact match."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_8",
+            "note": "Corpus_gap correctly identified. No evidence for complete definitions and conversions of fcm, fctk, fcd. Reference answer confirms this gap."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_9",
+            "note": "Corpus_gap correctly identified. No evidence for Ecm calculation formula from strength or age-dependent variation. Reference answer explicitly notes '候选文本未保留该计算公式'."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_10",
+            "note": "Corpus_gap correctly identified. No evidence for stress-strain relationship, peak strain, or ultimate strain definitions. Reference answer confirms this gap."
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_11",
+            "note": "Corpus_gap correctly identified. No evidence for creep and shrinkage calculation methods. Reference answer confirms this gap."
+          }
+        ],
+        "_resolved_model": "claude-unresolved",
+        "_family": "claude",
+        "_parse_source": "envelope"
+      },
+      "disputes": [],
+      "human_review": {
+        "required": true,
+        "task": "confirm_minimum_sufficient_evidence_set",
+        "checklist": [
+          "E⁺ 是否为支持参考答案 claims 的最小充分集",
+          "是否有应进 E⁺ 却漏掉的 pool chunk",
+          "corpus_gap claims 是否确为语料缺口"
+        ],
+        "confirmed": false
+      }
+    },
+    {
+      "id": "Q03",
+      "question": "有哪些因素会对混凝土的徐变与收缩产生影响?",
+      "status": "needs_human_review",
+      "built_at": "2026-07-12T09:54:43.311636Z",
+      "models": {
+        "gold_family": "codex",
+        "verify_family": "claude",
+        "gold_model": "gpt-5.6-sol",
+        "verify_model": "claude-unresolved"
+      },
+      "pool_chunk_ids": [
+        "11aa2ea6f1a2b96e6c8372e96a475f49",
+        "419eb2d1a8e673040aa42d4851ff6c70",
+        "b5e1ed9891cf83e116d7062c5282b933",
+        "a61e9e13478635064f892a12822334c1",
+        "17e8e9406a04cd7e6ee4cc6060a420f7",
+        "58b56c3d46ca652b680365659a774f8c",
+        "df5f1c6aab6143d349ca8912e60ef70f",
+        "f5fb7b13297ac14e1d78b0d4dce9536b",
+        "13b85c22654b8734128342f5d576cc8d",
+        "e74b30f58c008616f07f935d660db9b7",
+        "8e92f987459a6a237daa14bfcd728abb",
+        "bba1d4994ed31119f0cd9042046c4e27",
+        "8b8dc4a2a1c332c56bcea36804de563d",
+        "79cb016198068e48c36d2c0b922ecfac",
+        "7cc15c75b492f514aec2583f4705b2ea",
+        "61d33a80f108b5dab532ef9291c794c5",
+        "80639345022321e61d6f7bb5296d0770",
+        "9d0c30c2783d1c1d3c0ffcf38739fe6a",
+        "b4bc3a24f940f50cbae420f0dd3bbe9d",
+        "b09ecd4c7c75145fbe425cfa15d89825",
+        "1a2e7c11fe0e4ffad855d5df3f989beb",
+        "0340d139cf25bd250dccd480a262788c",
+        "2306ec10f75605677c6a0a2eb06fd33e",
+        "fc78fc07c891ea1012916cad650d54e0",
+        "c04572efc968d1c1ef3ecf71d5b5aded",
+        "924497ae7f7f3f9d621e8f6b35e0c392",
+        "227c27fd19c8019be68cff2fd1368ce5",
+        "78dd81db151f13c7ab977491b7d8fbf6",
+        "6e530799ae65349228d7623700205af7",
+        "93cc95999cd9769c8483de12c08db6ca",
+        "eb8cc418a1026d54d4c8fcd40f3bb009",
+        "9813f6efefbe0aaf2de8372ff3cd06ab",
+        "38aa169478df9a081effd396beb31679",
+        "b1c56ada9b50bee627f7b881b5ff9d5e",
+        "ac0899a186b92b4dd6171b5cb7aa3117",
+        "bb3c322a3a0937199dce5ba0aedf29be",
+        "aa45b2e105b062bd3daeb9e404be0d1f",
+        "46fb42200cb222d4b108234d690a6403",
+        "80de044b0438e37bc169fe2479a43d45",
+        "ad4cdde0af53b6447694577452b5f413",
+        "92f581e9d1b57661f5bfdea1cfd7df40",
+        "7258e02dca86834208a918b4abc4ed7d",
+        "652253fc8e0ff4fa2d86f3516daddf8b",
+        "b3712e7db9d8f4ca9ae51ba83a3df6ac",
+        "342958a7f61599b5d407f269eceaaefc",
+        "ff403b9dd90939d20549b5fb404e0a1a",
+        "1532a3d15d65db3ab6ffb873c48d797d",
+        "2d8bd5261785f5d1f94ccc762c5d5863",
+        "d7fdd466c9e851fd035050949ae3dc6d",
+        "aab340556b0211e8fefa60084d8a0955"
+      ],
+      "pool_size": 50,
+      "pool_strategies": [
+        "bm25",
+        "neighbor",
+        "vector"
+      ],
+      "gold": {
+        "reference_answer": "根据候选池中的 Eurocode 2 条文，混凝土徐变与收缩主要受环境湿度、构件尺寸以及混凝土组成影响。徐变还受首次加载时混凝土的龄期（成熟度）、荷载持续时间和荷载大小影响；当加载时压应力较高时，还需考虑徐变的非线性。对于收缩，干燥收缩还受构件尺寸、形状和温度影响；基本收缩则与水胶比及混凝土强度有关。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "环境湿度会影响混凝土的徐变与收缩。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "eb8cc418a1026d54d4c8fcd40f3bb009",
+              "38aa169478df9a081effd396beb31679",
+              "bb3c322a3a0937199dce5ba0aedf29be"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "构件尺寸会影响混凝土的徐变与收缩。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "eb8cc418a1026d54d4c8fcd40f3bb009",
+              "38aa169478df9a081effd396beb31679"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "混凝土组成会影响混凝土的徐变与收缩。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "eb8cc418a1026d54d4c8fcd40f3bb009",
+              "38aa169478df9a081effd396beb31679"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "首次施加荷载时混凝土的龄期或成熟度会影响徐变。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "eb8cc418a1026d54d4c8fcd40f3bb009",
+              "38aa169478df9a081effd396beb31679"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "荷载的持续时间会影响混凝土徐变。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "eb8cc418a1026d54d4c8fcd40f3bb009"
+            ],
+            "negative_chunk_ids": [
+              "38aa169478df9a081effd396beb31679"
+            ]
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "荷载或压应力的大小会影响混凝土徐变，高压应力下还需考虑徐变的非线性。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "eb8cc418a1026d54d4c8fcd40f3bb009",
+              "38aa169478df9a081effd396beb31679"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_7",
+            "text": "干燥收缩受构件尺寸、形状和温度影响。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bb3c322a3a0937199dce5ba0aedf29be",
+              "ad4cdde0af53b6447694577452b5f413"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_8",
+            "text": "基本收缩与水灰比有关，并因而与混凝土强度有关。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bb3c322a3a0937199dce5ba0aedf29be"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "38aa169478df9a081effd396beb31679",
+          "ad4cdde0af53b6447694577452b5f413",
+          "bb3c322a3a0937199dce5ba0aedf29be",
+          "eb8cc418a1026d54d4c8fcd40f3bb009"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": []
+      },
+      "verify": {
+        "overall_agree": true,
+        "per_claim": [
+          {
+            "agree": true,
+            "claim_id": "claim_1",
+            "note": "Evidence明确指出'Creep and shrinkage of the concrete depend on the ambient humidity'，NOTE 1也提到环境气候条件对徐变和收缩有显著影响。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_2",
+            "note": "Evidence明确指出'depend on...the dimensions of the element'，且NOTE 2提到干燥收缩受size and shape影响。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_3",
+            "note": "Evidence明确指出'depend on...the composition of the concrete'。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_4",
+            "note": "Evidence指出'Creep is also influenced by the maturity of the concrete when the load is first applied'以及'age of concrete at the time of loading'。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_5",
+            "note": "Evidence指出'depends on the duration and magnitude of the loading'。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_6",
+            "note": "Evidence提到'magnitude of the loading'，且38aa1694提到'When the compressive stress at time t0 exceeds 0.45 fck(t0)...'，这是Eurocode 2中徐变非线性考虑的触发条件。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_7",
+            "note": "Evidence NOTE 2明确指出'The drying shrinkage strain...is affected by the size and shape, and the temperature of the member'。claim成立。"
+          },
+          {
+            "agree": true,
+            "claim_id": "claim_8",
+            "note": "Evidence被截断，可见部分提到'basic shrinkage strain develops during hardening of the concrete: the major p...'，根据Eurocode 2 Annex B NOTE 2的完整内容，基本收缩与水灰比及混凝土强度相关。evidence虽截断但上下文一致，claim成立。注：参考答案用'水胶比'，claim用'水灰比'，均为同一概念的不同译法，非事实错误。"
+          }
+        ],
+        "_resolved_model": "claude-unresolved",
+        "_family": "claude",
+        "_parse_source": "envelope"
+      },
+      "disputes": [],
+      "human_review": {
+        "required": true,
+        "task": "confirm_minimum_sufficient_evidence_set",
+        "checklist": [
+          "E⁺ 是否为支持参考答案 claims 的最小充分集",
+          "是否有应进 E⁺ 却漏掉的 pool chunk",
+          "corpus_gap claims 是否确为语料缺口"
+        ],
+        "confirmed": false
+      }
+    }
+  ]
+}
