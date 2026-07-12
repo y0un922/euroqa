@@ -1,0 +1,663 @@
+{
+  "version": "mvp-v1-20260613",
+  "split_version": "mvp-v1-20260613",
+  "n": 31,
+  "counts": {
+    "dev": 16,
+    "test": 9,
+    "holdout": 6
+  },
+  "items": [
+    {
+      "id": "Q01",
+      "question": "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q02",
+      "question": "请给出混凝土材料的强度与变形的相关定义、相互关系及如何计算。",
+      "existing_correctness": "基本正确",
+      "existing_completeness": "不完整，未给出混凝土抗拉强度的相关内容。",
+      "existing_hallucination": "无",
+      "existing_verdict": "B— \na.混凝土强度部分的答案实际上介绍的是混凝土强度等级的相关定义与计算，主要设计混凝土抗压强度，未涉及混凝土抗拉强度内容；\nb,应力应变本构模型应至少给出相应公式的具体形式，现在呈现的内容不直观。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "mixed",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q03",
+      "question": "有哪些因素会对混凝土的徐变与收缩产生影响?",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "holdout",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q04",
+      "question": "钢筋的主要特性有哪些?并给出相应总结。",
+      "existing_correctness": "正确",
+      "existing_completeness": "基本完整，但未给出预应力钢筋的相关特性。",
+      "existing_hallucination": "无",
+      "existing_verdict": "B —\n完全未提及预应力钢筋松弛特性等内容，如认为预应力钢筋相对比较特殊，最好在答案中提及或给出进一步问题链接；",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "mixed",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q05",
+      "question": "请问都有那些环境暴露等级?",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q06",
+      "question": "保护层都与什么因素相关，该怎么计算?",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q07",
+      "question": "结构分析的目的是什么?",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q08",
+      "question": "在哪些部位当线性应变分布的假设不成立时，可能需要进行局部分析?",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整-补充EN 1992-1-1中第5.6.4和5.7节相关内容，能够提炼出Discontinuity regions就更好了。",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "holdout",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q09",
+      "question": "根据性质和功能，结构构件包括哪些类型?",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q10",
+      "question": "什么是单向板?",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q11",
+      "question": "欧标的截面计算的基本假设前提是什么？",
+      "existing_correctness": "基本正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "有-欧标体系的通用基本假设与本问题无关。",
+      "existing_verdict": "B —删除后面欧标体系的通用基本假设",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "unknown",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q12",
+      "question": "混凝土受压区应变-应力分布假设是什么？",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q13",
+      "question": "混凝土压碎应变限值是多少？",
+      "existing_correctness": "直接结论以及依据说明等正确",
+      "existing_completeness": "完整，但是呈现方式略有缺陷：",
+      "existing_hallucination": "无",
+      "existing_verdict": "B\na.可以设置延续问题链以来让使用者细化/具体化其提问，例如：\n“C35标号的混凝土的极限压碎应变εcu3是多少”；\nb.是否可以做到图表呈现，使得回答更加清晰",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "holdout",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q14",
+      "question": "极限受力状态下混凝土受压区高度限值为多少？",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q15",
+      "question": "弯矩重分布限值为多少？",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q16",
+      "question": "fcd 如何计算",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q17",
+      "question": "截面计算中材料分项安全系数为多少？",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整\n应注意目前数据库输入的规范版本为EN1990-2002，规范说明性附录B和C的分项系数设计与可靠度依据并非强制性条文。\n后续需持续关注新版EN1990中的要求。",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q18",
+      "question": "混凝土抗压强度标准值、设计值与平均强度之间是什么关系？",
+      "existing_correctness": "正确",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": null,
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "unknown",
+        "confidence": "high",
+        "stratum": "v=unknown|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q19",
+      "question": "钢筋的锚固长度与搭接长度受哪些因素影响？",
+      "existing_correctness": "正确",
+      "existing_completeness": "基本完整\n（可能问题本身略有缺陷，直接提问“如何计算钢筋的锚固长度”或“如何计算钢筋的搭接长度”可能能够得到更为有条理以及清晰的答复）",
+      "existing_hallucination": "无",
+      "existing_verdict": "A/B — 可直接使用或是否可以提示修改提问以便智能体更加清晰的回答，例如“如何计算钢筋的锚固长度”，这样可以呈现计算公式、公式说明等，使得回答更加清晰。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "holdout",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q20",
+      "question": "什么情况下需要考虑二阶效应？",
+      "existing_correctness": "基本准确，长细比公式中w直接翻译为配筋率未给计算公式，实际上此参数代表“mechanical reinforcement ratio”，与常规面积配筋率不一样；",
+      "existing_completeness": "不完整。未提5.2节几何缺陷相关内容；",
+      "existing_hallucination": "无",
+      "existing_verdict": "B — 公式表达应完整，补充几何缺陷规定。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "unknown",
+        "completeness": "mixed",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=unknown"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q21",
+      "question": "受弯构件正截面承载力计算的一般步骤是什么？",
+      "existing_correctness": "不正确。系统给出消极声明，宣称“根据当前检索结果无法确定”。",
+      "existing_completeness": "遗漏。虽然规范未提供类似教材的显式步骤，但其结果应包含承载力验算所依附的强制性力学假定与限制条件。系统完全未能提取出：1）EN 1992-1-1 第 6.1节条规定所有计算基础和假设。2）Table 3.1 规定的混凝土极限弯曲压应变限值以及高强混凝土的脆性应变折减公式。3）第 3.1.7 条规定的混凝土应力应变分布模型和等效矩形应力块设计参数；4）未提及第5.6.2（2）受压区高度限制等关键要求和假设。",
+      "existing_hallucination": "无",
+      "existing_verdict": "C — 不可用，需重新生成。修正点：需引导AI穿透“步骤”二字，检索并组装第 6.1 节与 3.1.7 节截面设计的底层力学假设作为回答核心。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "mixed",
+        "completeness": "negative",
+        "hallucination_signal": "positive",
+        "verdict": "fail",
+        "confidence": "high",
+        "stratum": "v=fail|c=mixed"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q22",
+      "question": "后张法预应力损失如何计算",
+      "existing_correctness": "正确。",
+      "existing_completeness": "基本完整。提到的公式未直接表达，用户需再根据其引用去原文查看。",
+      "existing_hallucination": "无",
+      "existing_verdict": "B — 应直接表达引用公式。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q23",
+      "question": "预应力在各类极限状态下的影响是什么",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q24",
+      "question": "剪应力一般验证程序是怎样的",
+      "existing_correctness": "正确。",
+      "existing_completeness": "不完整。仅给出了作用小于抗力这一宏观的公式，斜截面抗剪、冲切等具体抗力计算公式均未直接给出。未提6.2.4节水平剪力流验证。未提6.2.5节冷缝抗剪验证",
+      "existing_hallucination": "无",
+      "existing_verdict": "B — 补充具体公式，补充除斜截面和冲切之外涉及剪力的验证。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "mixed",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q25",
+      "question": "单向板的设计步骤包括哪些",
+      "existing_correctness": "正确。",
+      "existing_completeness": "完整，但逻辑框架存在缺陷。系统在首段消极宣称“现有证据不足以提供完整步骤”。然而其下文列出的配筋构造、挠度跨高比控制以及剪切豁免条件，恰恰构成了欧标体系下单向板设计的核心流程。缺乏将这些条文反向串联为工程实操流程的综合推理能力。",
+      "existing_hallucination": "无",
+      "existing_verdict": "B — 删除首段关于无法提供的消极声明。将其后续叙述的步骤重新整合。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "borderline",
+        "confidence": "high",
+        "stratum": "v=borderline|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q26",
+      "question": "单向板构造配筋有什么规定",
+      "existing_correctness": "正确。",
+      "existing_completeness": "基本完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用，但公式表达不完整，需要配合查阅规范原文。",
+      "question_type": "当前检索证据来源于 EN1992-1-1:2004 版本。若项目强制要求使用 2023 版（BSEN1992-1-1-2023），需核实新版是否有修订，当前证据未包含 2023 版原文。",
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q27",
+      "question": "单向板分布筋的配置有什么规定",
+      "existing_correctness": "正确。",
+      "existing_completeness": "基本完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用，但公式表达不完整，需要配合查阅规范原文。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q28",
+      "question": "构件在哪些情况下无需设计抗剪力钢筋",
+      "existing_correctness": "正确。",
+      "existing_completeness": "基本完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用，但公式表达不完整，需要配合查阅规范原文。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "holdout",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q29",
+      "question": "需要设计剪力筋的构件有什么特征",
+      "existing_correctness": "正确。",
+      "existing_completeness": "基本完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用，但公式表达不完整，需要配合查阅规范原文。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "holdout",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q30",
+      "question": "结构抗扭转设计程序是怎样的",
+      "existing_correctness": "正确。",
+      "existing_completeness": "基本完整",
+      "existing_hallucination": "无",
+      "existing_verdict": "A — 可直接使用，但公式表达不完整，需要配合查阅规范原文。",
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "positive",
+        "hallucination_signal": "positive",
+        "verdict": "pass",
+        "confidence": "high",
+        "stratum": "v=pass|c=positive"
+      },
+      "split": "test",
+      "gold": null,
+      "gold_status": null
+    },
+    {
+      "id": "Q31",
+      "question": "其他通用问题：",
+      "existing_correctness": "网页没正确显示LaTex格式公式",
+      "existing_completeness": null,
+      "existing_hallucination": null,
+      "existing_verdict": null,
+      "question_type": null,
+      "source": "excel",
+      "labels": {
+        "correctness": "positive",
+        "completeness": "unknown",
+        "hallucination_signal": "unknown",
+        "verdict": "unknown",
+        "confidence": "medium",
+        "stratum": "v=unknown|c=positive"
+      },
+      "split": "dev",
+      "gold": null,
+      "gold_status": null
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claims", "citations"],
+  "properties": {
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit_id", "text", "citation_ids"],
+        "properties": {
+          "unit_id": { "type": "string" },
+          "text": { "type": "string" },
+          "citation_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["citation_id", "ref_label", "linked_claim_ids", "source_hint"],
+        "properties": {
+          "citation_id": { "type": "string" },
+          "ref_label": { "type": "string" },
+          "linked_claim_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "source_hint": { "type": "string" }
+        }
+      }
+    }
+  }
+}

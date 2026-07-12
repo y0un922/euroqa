@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "overall_agree",
+    "per_claim"
+  ],
+  "properties": {
+    "overall_agree": {
+      "type": "boolean"
+    },
+    "per_claim": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "agree",
+          "note"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string"
+          },
+          "agree": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

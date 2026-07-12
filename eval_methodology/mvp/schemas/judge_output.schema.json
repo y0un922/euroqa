@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claim_verdicts", "citation_verdicts"],
+  "properties": {
+    "claim_verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit_id", "supported"],
+        "properties": {
+          "unit_id": { "type": "string" },
+          "supported": { "type": "boolean" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "citation_verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["citation_id", "valid"],
+        "properties": {
+          "citation_id": { "type": "string" },
+          "valid": { "type": "boolean" },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

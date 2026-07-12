@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reference_answer",
+    "claims"
+  ],
+  "properties": {
+    "reference_answer": {
+      "type": "string"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "text",
+          "status",
+          "evidence_chunk_ids",
+          "negative_chunk_ids"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "corpus_gap"
+            ]
+          },
+          "evidence_chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "negative_chunk_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
