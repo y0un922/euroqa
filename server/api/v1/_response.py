@@ -13,8 +13,12 @@ from structlog.contextvars import get_contextvars
 from server.agents.evidence import EvidenceBundle
 from server.api.v1._progress import _progress_event
 from server.config import ServerConfig
-from server.core.generation import generate_answer, generate_answer_stream
+from server.core.generation import (
+    _build_retrieval_context,
+    _build_sources_from_chunks,
+)
 from server.core.generation import postprocess_citations
+from server.models.schemas import Chunk
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
 from shared.spot_check import SpotCheckRecorder, get_current_recorder
 
@@ -308,6 +312,48 @@ def _bundle_metadata(bundle: EvidenceBundle, key: str) -> object:
     return value
 
 
+def _ref_ordered_chunks(bundle: EvidenceBundle) -> list[Chunk]:
+    chunks = bundle.citable_chunks()
+    bundle.ensure_ref_ids(chunks)
+    return sorted(
+        chunks,
+        key=lambda chunk: _ref_index(bundle.ref_ids_by_chunk_id.get(chunk.chunk_id)),
+    )
+
+
+def _ref_index(label: str | None) -> int:
+    if not label:
+        return 10**9
+    try:
+        return int(label.rsplit("-", 1)[1])
+    except (IndexError, ValueError):
+        return 10**9
+
+
+def _sources_from_bundle(bundle: EvidenceBundle) -> list[Source]:
+    if not bundle.has_rag_evidence:
+        return []
+    chunks = _ref_ordered_chunks(bundle)
+    return _build_sources_from_chunks(chunks, prioritized_chunks=chunks)
+
+
+def _retrieval_context_from_bundle(bundle: EvidenceBundle) -> RetrievalContext:
+    if not bundle.has_rag_evidence:
+        return RetrievalContext()
+    return _build_retrieval_context(
+        bundle.chunks,
+        bundle.parent_chunks,
+        guide_chunks=bundle.guide_chunks,
+        guide_example_chunks=bundle.guide_example_chunks,
+        ref_chunks=bundle.ref_chunks,
+        scores=bundle.scores,
+        resolved_refs=bundle.resolved_refs,
+        unresolved_refs=bundle.unresolved_refs,
+        slot_results=bundle.slot_results,
+        unresolved_slots=bundle.unresolved_slots,
+    )
+
+
 async def _build_query_response(
     *,
     req: QueryRequest,
@@ -320,64 +366,25 @@ async def _build_query_response(
     generate_answer_fn: Callable[..., Awaitable[QueryResponse]] | None = None,
 ) -> tuple[QueryResponse, str]:
     """Build the non-streaming query response and answer mode."""
-    if not bundle.has_rag_evidence:
-        return (
-            QueryResponse(
-                answer=agent_reply,
-                sources=[],
-                related_refs=[],
-                confidence="high",
-                conversation_id=conv.conversation_id,
-                degraded=False,
-                usage=None,
-                elapsed_ms=None,
-                retrieval_context=RetrievalContext(),
-                question_type=None,
-                engineering_context=None,
-                groundedness=None,
-            ),
-            "direct",
-        )
-
-    answer_fn = generate_answer_fn or generate_answer
-    response = await answer_fn(
-        question=req.question,
-        chunks=bundle.chunks,
-        parent_chunks=bundle.parent_chunks,
-        scores=bundle.scores,
-        glossary_terms=bundle.glossary_hits,
-        conversation_history=_conversation_history(
-            conv=conv,
-            req=req,
-            config=config,
-            uses_external_session=uses_external_session,
-        ),
-        config=runtime_config,
-        ref_chunks=bundle.ref_chunks,
-        guide_chunks=bundle.guide_chunks,
-        guide_example_chunks=bundle.guide_example_chunks,
-        groundedness=bundle.groundedness,
-        resolved_refs=bundle.resolved_refs,
-        unresolved_refs=bundle.unresolved_refs,
-        slot_results=bundle.slot_results,
-        unresolved_slots=bundle.unresolved_slots,
+    del generate_answer_fn, runtime_config, config, uses_external_session
+    sources = _sources_from_bundle(bundle)
+    normalized_answer = postprocess_citations(agent_reply, len(sources))
+    groundedness = bundle.groundedness if bundle.has_rag_evidence else None
+    response = QueryResponse(
+        answer=normalized_answer,
+        sources=sources,
+        related_refs=[],
+        confidence=_confidence_from_groundedness(groundedness),
+        conversation_id=conv.conversation_id,
+        degraded=False,
+        usage=None,
+        elapsed_ms=None,
+        retrieval_context=_retrieval_context_from_bundle(bundle),
         question_type=_bundle_metadata(bundle, "question_type"),
         engineering_context=_bundle_metadata(bundle, "engineering_context"),
-        intent_label=_bundle_metadata(bundle, "intent_label"),
+        groundedness=groundedness,
     )
-    response = response.model_copy(
-        update={
-            "conversation_id": conv.conversation_id,
-            "groundedness": bundle.groundedness,
-            "question_type": response.question_type
-            or _bundle_metadata(bundle, "question_type"),
-            "engineering_context": response.engineering_context
-            or _bundle_metadata(bundle, "engineering_context"),
-            "usage": _response_usage(response),
-            "elapsed_ms": _response_elapsed_ms(response),
-        }
-    )
-    return response, _answer_mode_from_groundedness(response.groundedness)
+    return response, _answer_mode_from_groundedness(groundedness)
 
 
 def _build_direct_agent_payload(
@@ -387,25 +394,27 @@ def _build_direct_agent_payload(
     groundedness: str | None = None,
 ) -> dict[str, object]:
     """Build the external payload for direct agent responses."""
-    answer_mode = "direct"
-    confidence = "high"
+    effective_groundedness = groundedness or (
+        bundle.groundedness if bundle.has_rag_evidence else None
+    )
+    sources = _sources_from_bundle(bundle)
+    answer_mode = (
+        _answer_mode_from_groundedness(effective_groundedness)
+        if bundle.has_rag_evidence
+        else "direct"
+    )
+    confidence = _confidence_from_groundedness(effective_groundedness)
     return {
-        "answer": agent_reply,
-        "sources": [],
+        "answer": postprocess_citations(agent_reply, len(sources)),
+        "sources": [source.model_dump(mode="json") for source in sources],
         "related_refs": [],
         "confidence": confidence,
-        "retrieval_context": {
-            "chunks": [],
-            "parent_chunks": [],
-            "guide_chunks": [],
-            "guide_example_chunks": [],
-            "ref_chunks": [],
-            "resolved_refs": [],
-            "unresolved_refs": [],
-        },
-        "question_type": None,
-        "engineering_context": None,
-        "groundedness": groundedness,
+        "retrieval_context": _retrieval_context_from_bundle(bundle).model_dump(
+            mode="json"
+        ),
+        "question_type": _bundle_metadata(bundle, "question_type"),
+        "engineering_context": _bundle_metadata(bundle, "engineering_context"),
+        "groundedness": effective_groundedness,
         "answerMode": answer_mode,
         "tool_trace": bundle.tool_trace,
     }
@@ -422,6 +431,7 @@ async def _stream_direct_agent_events(
     uses_external_session: bool,
     request_started_at: float | None = None,
     usage: dict[str, int] | None = None,
+    emit_answer_chunk: bool = True,
 ) -> AsyncIterator[dict[str, str]]:
     """Yield stream events for direct agent responses."""
     payload = _build_direct_agent_payload(agent_reply=agent_reply, bundle=bundle)
@@ -432,26 +442,30 @@ async def _stream_direct_agent_events(
                 stage="direct",
                 status="completed",
                 title="生成回复",
-                summary="Agent 已生成直接回复。",
+                summary="Agent 已生成最终回复。",
                 started_at=started_at,
-                facts={"needs_rag": False, "tool_calls": len(bundle.tool_trace)},
+                facts={
+                    "needs_rag": bundle.has_rag_evidence,
+                    "tool_calls": len(bundle.tool_trace),
+                },
             ),
             ensure_ascii=False,
         ),
     }
-    yield {
-        "event": "chunk",
-        "data": json.dumps(
-            {"text": agent_reply, "done": False},
-            ensure_ascii=False,
-        ),
-    }
+    if emit_answer_chunk:
+        yield {
+            "event": "chunk",
+            "data": json.dumps(
+                {"text": str(payload.get("answer") or agent_reply), "done": False},
+                ensure_ascii=False,
+            ),
+        }
     data = _external_done_payload(
         payload,
-        question_type=None,
-        groundedness=None,
+        question_type=payload.get("question_type"),
+        groundedness=payload.get("groundedness"),
         title=None,
-        answer_mode="direct",
+        answer_mode=str(payload.get("answerMode") or "direct"),
     )
     data["usage"] = usage or _response_usage()
     data["elapsed_ms"] = _response_elapsed_ms(
@@ -464,12 +478,15 @@ async def _stream_direct_agent_events(
             conv.conversation_id,
             req.question,
             str(data.get("answer") or ""),
-            sources=[],
-            related_refs=[],
+            sources=data.get("sources", []),
+            related_refs=data.get("relatedRefs", []),
             retrieval_context=data.get("retrievalContext")
             or data.get("retrieval_context"),
-            question_type=None,
-            answer_mode="direct",
+            question_type=data.get("questionType"),
+            engineering_context=data.get("engineeringContext")
+            or data.get("engineering_context"),
+            answer_mode=data.get("answerMode"),
+            groundedness=data.get("groundedness"),
             tool_trace=bundle.tool_trace,
             response_payload=data,
         )
@@ -478,119 +495,6 @@ async def _stream_direct_agent_events(
         "event": "done",
         "data": json.dumps(data, ensure_ascii=False),
     }
-
-
-async def _stream_rag_answer_events(
-    *,
-    req: QueryRequest,
-    runtime_config: ServerConfig,
-    config: ServerConfig,
-    conv_mgr: object,
-    conv: object,
-    bundle: EvidenceBundle,
-    uses_external_session: bool,
-    request_started_at: float | None = None,
-    generate_answer_stream_fn: Callable[..., AsyncIterator[tuple[str, dict]]]
-    | None = None,
-) -> AsyncIterator[tuple[str, str, str | None]]:
-    """Yield generation stream events and the final groundedness."""
-    generate_t0 = time.perf_counter()
-    answer_parts: list[str] = []
-    reasoning_parts: list[str] = []
-    answer_stream_fn = generate_answer_stream_fn or generate_answer_stream
-    async for event_type, data in answer_stream_fn(
-        question=req.question,
-        chunks=bundle.chunks,
-        parent_chunks=bundle.parent_chunks,
-        scores=bundle.scores,
-        glossary_terms=bundle.glossary_hits,
-        conversation_history=_conversation_history(
-            conv=conv,
-            req=req,
-            config=config,
-            uses_external_session=uses_external_session,
-        ),
-        config=runtime_config,
-        ref_chunks=bundle.ref_chunks,
-        guide_chunks=bundle.guide_chunks,
-        guide_example_chunks=bundle.guide_example_chunks,
-        groundedness=bundle.groundedness,
-        resolved_refs=bundle.resolved_refs,
-        unresolved_refs=bundle.unresolved_refs,
-        slot_results=bundle.slot_results,
-        unresolved_slots=bundle.unresolved_slots,
-        question_type=_bundle_metadata(bundle, "question_type"),
-        engineering_context=_bundle_metadata(bundle, "engineering_context"),
-        intent_label=_bundle_metadata(bundle, "intent_label"),
-    ):
-        if event_type == "reasoning":
-            text = data.get("text") if isinstance(data, dict) else None
-            if isinstance(text, str):
-                reasoning_parts.append(text)
-        if event_type == "chunk":
-            text = data.get("text") if isinstance(data, dict) else None
-            if isinstance(text, str):
-                answer_parts.append(text)
-        final_groundedness = None
-        if event_type == "done":
-            logger.info(
-                "generate_end",
-                duration_ms=int((time.perf_counter() - generate_t0) * 1000),
-            )
-            answer_text = data.get("answer") if isinstance(data, dict) else None
-            if not isinstance(answer_text, str):
-                answer_text = "".join(answer_parts)
-            num_sources = len(data.get("sources", [])) if isinstance(data, dict) else 0
-            normalized_answer = postprocess_citations(answer_text, num_sources)
-            title = None
-            thinking = "".join(reasoning_parts)
-            final_groundedness = bundle.groundedness
-            data = {
-                **data,
-                "groundedness": bundle.groundedness,
-                "normalized_answer": normalized_answer,
-            }
-            if "question_type" not in data:
-                data["question_type"] = _bundle_metadata(bundle, "question_type")
-            if "engineering_context" not in data:
-                data["engineering_context"] = _bundle_metadata(
-                    bundle,
-                    "engineering_context",
-                )
-            if thinking:
-                data["thinking"] = thinking
-            data = _external_done_payload(
-                data,
-                question_type=data.get("question_type"),
-                groundedness=bundle.groundedness,
-                title=title,
-            )
-            data["usage"] = data.get("usage") or _response_usage()
-            data["elapsed_ms"] = _response_elapsed_ms(
-                started_at=request_started_at or generate_t0
-            )
-            data["request_id"] = get_contextvars().get("request_id", "")
-            if uses_external_session:
-                title = await _add_conversation_turn(
-                    conv_mgr,
-                    conv.conversation_id,
-                    req.question,
-                    normalized_answer,
-                    sources=data.get("sources", []),
-                    related_refs=data.get("relatedRefs", []),
-                    retrieval_context=data.get("retrievalContext")
-                    or data.get("retrieval_context"),
-                    question_type=data.get("questionType"),
-                    engineering_context=data.get("engineeringContext")
-                    or data.get("engineering_context"),
-                    answer_mode=data.get("answerMode"),
-                    groundedness=data.get("groundedness"),
-                    thinking=thinking or None,
-                    tool_trace=bundle.tool_trace,
-                    response_payload=data,
-                )
-                data["title"] = title
-        yield event_type, json.dumps(data, ensure_ascii=False), final_groundedness
 
 
 def _record_agent_spot_check(

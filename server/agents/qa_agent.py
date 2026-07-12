@@ -4,7 +4,7 @@ import json
 import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 from agents import Agent, ModelSettings, RawResponsesStreamEvent, Runner
@@ -15,64 +15,87 @@ from openai import AsyncOpenAI
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
-from server.agents.tools.lookup_glossary import lookup_glossary
-from server.agents.tools.agentic_retrieve import (
-    list_sources,
-    lookup_object,
-    open_chunk,
-    retrieve_agentic,
-)
+from server.agents.tools.search import lookup_object, search
 from server.config import ServerConfig
 from shared.spot_check import merge_spot_check_usage
 
 logger = structlog.get_logger(__name__)
 
-_QA_AGENT_INSTRUCTIONS = """你是欧洲结构设计规范（Eurocode, EN 199x 系列）的专家问答助手。
+_QA_AGENT_INSTRUCTIONS = """你是 Eurocode（EN 199x 系列）结构设计规范的中文问答专家。
 
-## 工具
-- retrieve_agentic(query, top_k=8): 搜索规范知识库。它会先进行查询理解和 source 元数据检查，再按问题复杂度使用单个或多个 evidence slots 调用混合检索。适用于简单定义、单个参数、单个条款、复合问题、表/公式/条款、多参数族，以及需要同时覆盖不同规范来源的问题。top_k 控制每个证据槽返回给回答生成的候选证据数量，允许范围 3-12。
-- list_sources(): 查看当前知识库 source 清单。仅当你需要先判断有哪些文档/元数据可用时调用。
-- lookup_object(label, source="", top_k=3): 按明确的 Table/Figure/Expression/Annex/Clause 标签查找对象内容。适用于用户点名某个表、公式、图或条款，或 retrieve_agentic 后仍缺少某个对象时。
-- open_chunk(chunk_id, neighbors=1): 打开已知 chunk_id 的上下文。仅在已有工具结果提供 chunk_id 且需要补充上下文时调用。
-- lookup_glossary(term): 查询术语表。传入术语，返回翻译和定义。
+系统通常已经为你预检索了相关证据，证据会以【预检索证据】给出，并由后端分配稳定的 [Ref-N] 编号。
+如果同时提供【回答大纲】，它是基于同一批证据生成的结构规划。
 
-## 行为准则
-- 用户问 Eurocode、EN 199x、结构设计规范、承载力、荷载组合、材料分项系数、构造限值等规范相关问题时，必须调用 retrieve_agentic 搜索证据。
-- 简单定义、单个参数、单个条款查询，也调用 retrieve_agentic；该工具会在内部使用单槽检索。
-- 复合问题更应调用 retrieve_agentic，例如同时问"作用和材料"、"表和公式"、"ULS 和 SLS"、"多个构件/多个规范来源"、"总结相关分项系数/限值/组合规则"；该工具会在内部拆分多个 evidence slots。
-- 用户寒暄、闲聊、或问与规范无关的问题时，直接自然语言回复，不调用工具。
-- 用户追问且当前对话历史已经足够回答时，可以直接回复。
-- 用户追问但需要新的规范证据、其他条文、表格、公式或参数时，再次调用 retrieve_agentic。
-- 问题过于模糊且无法形成有效检索查询时，直接礼貌反问，请用户补充规范号、构件类型、参数名称或设计场景。
-- retrieve_agentic 返回 0 条结果时，可以换查询角度重试 1 次；仍为 0 则直接告知暂未找到相关条文，并请用户补充信息。
-- retrieve_agentic 已返回 groundedness=grounded 的结果时，不要再次调用检索工具。已有证据充足，直接简要说明找到了什么即可。
-- 对一个问题，最多调用 retrieve_agentic 2 次。不要为了"换角度多查"而反复检索。
-- 根据问题复杂度设置 top_k：简单定义或单个参数问题用 4-6；一般规范解释用 6-8；复杂综合总结、对比或多要点问题用 8-12。不要超过 12。
-- 调用 retrieve_agentic 时，query 应尽量保留用户当前问题的原始措辞；只有用户使用代词或省略了历史中明确出现的关键语境时，才补成自包含问题。
-- 不要把用户问题改写成关键词串；不要补入用户当前问题或明确历史中没有出现的规范号、章节号、表号或公式号。
+## 工作方式
+- 先阅读【预检索证据】与【回答大纲】，再组织最终回答。
+- 用中文回答，按大纲 sections 顺序展开；每段先给结论，再展开依据、公式或推导。
+- 面向甲方汇报/技术说明场景，回答不要过短；在已有 [Ref-N] 证据覆盖的范围内，适当展开条款含义、适用条件、计算路径、工程注意点和边界例外，让答案更完整、更可交付。
+- 扩充只能围绕已经出现的引用证据展开；证据中出现相关条款、表格、公式、限制或例外时，即使大纲没有逐项列出，也可以纳入对应段落说明，但必须贴近这些 [Ref-N]。
+- 只能引用已出现的 [Ref-N] 证据编号；不要自造引用编号。
+- 公式用 LaTeX。
+- 计算类问题必须给出计算步骤，并对照大纲中的 calculation_steps 展开。
+- 收尾前对照大纲 self_check 自检；不要输出自检过程，只输出最终答案。
+- 如果证据不足以完整回答，明确说明缺失部分，不要编造规范内容，也不要把片段算例包装成通用完整流程；若缺口具体且可定位，优先用工具补证后再回答。
+- 直接输出最终答案；不要输出分析过程、思考步骤、草稿、回答结构规划或“我需要...”这类内部说明。
 
-## 重要原则
-- 不要编造规范内容
-- 优先检索，但 retrieve_agentic 返回 grounded 结果后立即停止检索
-- 如果调用检索工具且找到了相关证据，简要说明找到了什么即可；系统会基于证据生成详细回答。
-- 如果没有调用 retrieve_agentic，你的回复就是最终回答，请直接、清晰地回复用户。
-- 不要输出 JSON、action 字段或路由指令；只用自然语言回复。
+## 按问题类型组织回答
+- 定义类问题：给出参数-符号-含义-关系表格，再补必要说明。
+- 关系类问题：覆盖参数之间的协同变化，尤其是本构关系（应力-应变 σ-ε）以及设计参数随强度的折减；证据里有矩形应力块关系时，应说明 fck≤50 取 λ=0.8、η=1.0，fck>50 按 λ=0.8-(fck-50)/400、η=1.0-(fck-50)/200 折减；证据没有时明确说明该关系缺少证据。
+- 计算类问题：必须给出可复现的数值算例，结构为给定输入 → 分步代入公式 → 数值结果；不要只给泛泛的计算步骤。
 
-## 常见错误（禁止）
-- ❌ 用户问"EN 1992-1-1 表 2.1N 的材料分项系数是什么？" → 不调用 retrieve_agentic 直接回答。
-- ❌ retrieve_agentic 返回 0 条 → 编造条文编号或参数值。
-- ❌ 输出 {"action": "retrieve"} 或 {"action": "compose_rag"}。
+## 工具（仅用于纠正性补证）
+- search(query, top_k=8): 仅当预检索证据与大纲暴露出具体缺口时使用。
+- lookup_object(label, top_k=3): 精确查找 Table/Figure/Expression/Annex/Clause。
+
+## 限制
+- 证据充足时直接回答，不调工具。
+- 不做泛化检索；常规补检索已经由前置小模型闭环完成。
+- 不要输出 JSON、action 字段或路由指令；只输出最终自然语言答案。
 """
 
 _CITATION_RE = re.compile(r"\[Ref-\d+\]")
-_RAG_TOOL_NAMES = {"retrieve", "retrieve_agentic"}
+
+
+class EuroQAChatCompletionsModel(OpenAIChatCompletionsModel):
+    """Chat Completions model with provider-specific compatibility fixes."""
+
+    def __init__(
+        self,
+        *args: Any,
+        drop_empty_tool_call_messages: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._drop_empty_tool_call_messages = drop_empty_tool_call_messages
+
+    async def _fetch_response(self, *args: Any, **kwargs: Any) -> Any:
+        if not self._drop_empty_tool_call_messages:
+            return await super()._fetch_response(*args, **kwargs)
+
+        args_list = list(args)
+        if len(args_list) >= 2:
+            args_list[1] = _drop_empty_messages_between_tool_call_and_output(
+                args_list[1]
+            )
+            args = tuple(args_list)
+        elif "input" in kwargs:
+            kwargs["input"] = _drop_empty_messages_between_tool_call_and_output(
+                kwargs["input"]
+            )
+        return await super()._fetch_response(*args, **kwargs)
 
 
 @dataclass(frozen=True)
 class AgentStreamEvent:
     """User-facing summary of one internal agent streaming event."""
 
-    kind: Literal["thinking", "tool_calling", "tool_result", "commentary"]
+    kind: Literal[
+        "thinking",
+        "tool_calling",
+        "tool_result",
+        "commentary",
+        "answer_delta",
+    ]
     tool_name: str | None = None
     tool_args: dict[str, object] | None = None
     tool_result: str | None = None
@@ -112,27 +135,94 @@ def _aggregate_streamed_usage(result: object) -> dict[str, int] | None:
     return totals or None
 
 
+def _uses_deepseek_agent_endpoint(config: ServerConfig) -> bool:
+    model = config.resolved_agent_llm_model.lower()
+    base_url = config.resolved_agent_llm_base_url.lower()
+    return "deepseek" in model or "api.deepseek.com" in base_url
+
+
+def _agent_model_extra_body(config: ServerConfig) -> dict[str, object]:
+    if _uses_deepseek_agent_endpoint(config):
+        return {"thinking": {"type": "disabled"}}
+    return {"enable_thinking": config.llm_enable_thinking}
+
+
+def _drop_empty_messages_between_tool_call_and_output(input_items: object) -> object:
+    if not isinstance(input_items, list):
+        return input_items
+
+    filtered: list[object] = []
+    for index, item in enumerate(input_items):
+        if (
+            _is_empty_assistant_message(item)
+            and filtered
+            and _item_type(filtered[-1]) == "function_call"
+            and _next_item_type(input_items, index) == "function_call_output"
+        ):
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _next_item_type(items: list[object], index: int) -> str:
+    if index + 1 >= len(items):
+        return ""
+    return _item_type(items[index + 1])
+
+
+def _item_type(item: object) -> str:
+    item_type = _item_value(item, "type")
+    return str(item_type) if item_type else ""
+
+
+def _item_value(item: object, key: str) -> object:
+    if isinstance(item, Mapping):
+        return item.get(key)
+    return getattr(item, key, None)
+
+
+def _is_empty_assistant_message(item: object) -> bool:
+    if _item_type(item) != "message" or _item_value(item, "role") != "assistant":
+        return False
+    content = _item_value(item, "content")
+    if isinstance(content, str):
+        return content == ""
+    if isinstance(content, list):
+        return all(_content_part_is_empty_text(part) for part in content)
+    return content is None
+
+
+def _content_part_is_empty_text(part: object) -> bool:
+    part_type = _item_value(part, "type")
+    if part_type not in {"output_text", "refusal"}:
+        return False
+    key = "refusal" if part_type == "refusal" else "text"
+    value = _item_value(part, key)
+    return isinstance(value, str) and value == ""
+
+
 def build_qa_agent(config: ServerConfig) -> Agent[QADeps]:
     client = AsyncOpenAI(
         api_key=config.resolved_agent_llm_api_key,
         base_url=config.resolved_agent_llm_base_url,
         timeout=httpx.Timeout(config.agent_llm_timeout_seconds, connect=10.0),
     )
-    model = OpenAIChatCompletionsModel(
+    model = EuroQAChatCompletionsModel(
         model=config.resolved_agent_llm_model,
         openai_client=client,
+        drop_empty_tool_call_messages=_uses_deepseek_agent_endpoint(config),
     )
     return Agent[QADeps](
         name="eurocode-qa",
         model=model,
         tools=[
-            retrieve_agentic,
-            list_sources,
+            search,
             lookup_object,
-            open_chunk,
-            lookup_glossary,
         ],
-        model_settings=ModelSettings(temperature=0.1),
+        model_settings=ModelSettings(
+            temperature=0.1,
+            extra_body=_agent_model_extra_body(config),
+        ),
         instructions=_QA_AGENT_INSTRUCTIONS,
     )
 
@@ -188,6 +278,13 @@ async def run_qa_agent_streamed(
     tool_args_by_call_id: dict[str, dict[str, object]] = {}
     async for event in result.stream_events():
         if isinstance(event, RawResponsesStreamEvent):
+            delta = _raw_response_text_delta(event)
+            if delta:
+                yield AgentStreamEvent(
+                    kind="answer_delta",
+                    summary=delta,
+                )
+                continue
             if not thinking_emitted:
                 thinking_emitted = True
                 yield AgentStreamEvent(
@@ -232,16 +329,6 @@ async def run_qa_agent_streamed(
                 tool_trace=_latest_tool_trace(deps.bundle.tool_trace, tool_name),
                 summary=_tool_result_summary(tool_name, output_text),
             )
-            if _should_short_circuit_after_rag_tool(tool_name, deps):
-                logger.info(
-                    "qa_agent_short_circuit_after_rag_tool",
-                    tool_name=tool_name,
-                    chunk_count=deps.bundle.chunk_count,
-                    groundedness=deps.bundle.groundedness,
-                    tool_trace_count=len(deps.bundle.tool_trace),
-                )
-                yield (_fallback_agent_reply(deps), deps.bundle, None)
-                return
 
     final_output = str(result.final_output or "")
     usage = _aggregate_streamed_usage(result)
@@ -262,6 +349,23 @@ def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:
                 cleaned = _CITATION_RE.sub("", previous_answer).strip()
                 input_items.append({"role": "assistant", "content": cleaned})
     input_items.append({"role": "user", "content": question})
+    if deps.bundle.has_rag_evidence:
+        input_items.append(
+            {
+                "role": "user",
+                "content": f"【预检索证据】\n{_format_evidence_context(deps.bundle)}",
+            }
+        )
+    if deps.bundle.outline:
+        input_items.append(
+            {
+                "role": "user",
+                "content": (
+                    "【回答大纲】\n"
+                    f"{json.dumps(deps.bundle.outline, ensure_ascii=False)}"
+                ),
+            }
+        )
     return input_items
 
 
@@ -272,11 +376,40 @@ def _fallback_agent_reply(deps: QADeps) -> str:
     return "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
 
 
-def _should_short_circuit_after_rag_tool(
-    tool_name: str | None,
-    deps: QADeps,
-) -> bool:
-    return bool(tool_name in _RAG_TOOL_NAMES and deps.bundle.has_rag_evidence)
+def _raw_response_text_delta(event: RawResponsesStreamEvent) -> str:
+    data = getattr(event, "data", None)
+    if isinstance(data, Mapping):
+        event_type = str(data.get("type") or "")
+    else:
+        event_type = str(getattr(data, "type", "") or "")
+    if event_type != "response.output_text.delta":
+        return ""
+    for attr in ("delta", "text"):
+        value = getattr(data, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    if isinstance(data, Mapping):
+        value = data.get("delta") or data.get("text")
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def _format_evidence_context(bundle: EvidenceBundle) -> str:
+    chunks = bundle.citable_chunks()
+    bundle.ensure_ref_ids(chunks)
+    if not chunks:
+        return "（当前没有可引用证据）"
+    lines: list[str] = []
+    for chunk in chunks:
+        ref = bundle.ref_label_for(chunk)
+        meta = chunk.metadata
+        section = " > ".join(meta.section_path) if meta.section_path else "unknown"
+        page = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "unknown"
+        object_label = f" | {meta.object_label}" if meta.object_label else ""
+        lines.append(f"[{ref}] {meta.source} | {section} | p.{page}{object_label}")
+        lines.append(chunk.content)
+    return "\n\n".join(lines)
 
 
 def _raw_item_payload(item: object) -> object:
@@ -327,16 +460,16 @@ def _tool_arguments(item: object) -> str:
 
 
 def _tool_calling_summary(tool_name: str | None, arguments: str) -> str:
-    if tool_name == "retrieve":
+    if tool_name == "search":
         query = _argument_value(arguments, "query")
         if query:
             return f"正在搜索规范知识库：「{query[:50]}」..."
         return "正在搜索规范知识库..."
-    if tool_name == "lookup_glossary":
-        term = _argument_value(arguments, "term")
-        if term:
-            return f"正在查询术语：「{term[:50]}」..."
-        return "正在查询术语表..."
+    if tool_name == "lookup_object":
+        label = _argument_value(arguments, "label")
+        if label:
+            return f"正在精确查找规范对象：「{label[:50]}」..."
+        return "正在精确查找规范对象..."
     if tool_name:
         return f"正在调用 {tool_name}..."
     return "正在调用工具..."
@@ -344,14 +477,14 @@ def _tool_calling_summary(tool_name: str | None, arguments: str) -> str:
 
 def _tool_result_summary(tool_name: str | None, output: str) -> str:
     first_line = output.splitlines()[0].strip() if output else ""
-    if tool_name == "retrieve":
+    if tool_name == "search":
         if first_line:
             return first_line[:120]
         return "规范检索完成。"
-    if tool_name == "lookup_glossary":
+    if tool_name == "lookup_object":
         if first_line:
             return first_line[:120]
-        return "术语查询完成。"
+        return "规范对象查找完成。"
     return "工具执行完成。"
 
 

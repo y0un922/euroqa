@@ -23,14 +23,27 @@ class EvidenceBundle:
     unresolved_refs: list[str] = field(default_factory=list)
     slot_results: list[dict[str, Any]] = field(default_factory=list)
     unresolved_slots: list[str] = field(default_factory=list)
+    retrieval_attempts: list[dict[str, Any]] = field(default_factory=list)
+    ref_ids_by_chunk_id: dict[str, str] = field(default_factory=dict)
     tool_trace: list[dict] = field(default_factory=list)
+    outline: dict[str, Any] | None = None
     question_type: str | None = None
     engineering_context: object | None = None
     intent_label: str | None = None
 
-    def add_retrieval(self, result: RetrievalResult) -> None:
+    def add_retrieval(
+        self,
+        result: RetrievalResult,
+        *,
+        query: str | None = None,
+    ) -> None:
         """Merge one retrieval result into the bundle, deduplicating by chunk_id."""
-        self.chunks = _merge_chunks(self.chunks, result.chunks)
+        self.chunks, self.scores = _merge_chunks_and_scores(
+            self.chunks,
+            self.scores,
+            result.chunks,
+            result.scores,
+        )
         self.parent_chunks = _merge_chunks(self.parent_chunks, result.parent_chunks)
         self.guide_chunks = _merge_chunks(self.guide_chunks, result.guide_chunks)
         self.guide_example_chunks = _merge_chunks(
@@ -38,7 +51,6 @@ class EvidenceBundle:
             result.guide_example_chunks,
         )
         self.ref_chunks = _merge_chunks(self.ref_chunks, result.ref_chunks)
-        self.scores.extend(result.scores)
         self.groundedness = _stronger_groundedness(
             self.groundedness,
             result.groundedness,
@@ -48,6 +60,18 @@ class EvidenceBundle:
             self.unresolved_refs,
             result.unresolved_refs,
         )
+        if query is not None:
+            max_score = max(result.scores) if result.scores else None
+            self.retrieval_attempts.append(
+                {
+                    "query": query,
+                    "chunk_ids": [chunk.chunk_id for chunk in result.chunks],
+                    "chunk_count": len(result.chunks),
+                    "max_score": max_score,
+                    "groundedness": result.groundedness,
+                }
+            )
+        self.ensure_ref_ids(self.citable_chunks())
 
     def add_glossary_hit(self, term: str, definition: str) -> None:
         """Record a glossary hit from the lookup tool."""
@@ -73,6 +97,33 @@ class EvidenceBundle:
     def chunk_count(self) -> int:
         return len(self.chunks)
 
+    def citable_chunks(self) -> list[Chunk]:
+        """Return chunks that may be cited in answer text, preserving bundle order."""
+        return _merge_chunks(
+            [],
+            [
+                *self.chunks,
+                *self.parent_chunks,
+                *self.ref_chunks,
+                *self.guide_chunks,
+                *self.guide_example_chunks,
+            ],
+        )
+
+    def ensure_ref_ids(self, chunks: list[Chunk]) -> None:
+        """Assign stable Ref-N labels to chunks that may be exposed to the agent."""
+        for chunk in chunks:
+            if chunk.chunk_id in self.ref_ids_by_chunk_id:
+                continue
+            self.ref_ids_by_chunk_id[chunk.chunk_id] = (
+                f"Ref-{len(self.ref_ids_by_chunk_id) + 1}"
+            )
+
+    def ref_label_for(self, chunk: Chunk) -> str:
+        """Return a stable citation label for a chunk, assigning one if needed."""
+        self.ensure_ref_ids([chunk])
+        return self.ref_ids_by_chunk_id[chunk.chunk_id]
+
 
 def _merge_chunks(existing: list[Chunk], incoming: list[Chunk]) -> list[Chunk]:
     seen = {chunk.chunk_id for chunk in existing}
@@ -83,6 +134,28 @@ def _merge_chunks(existing: list[Chunk], incoming: list[Chunk]) -> list[Chunk]:
         merged.append(chunk)
         seen.add(chunk.chunk_id)
     return merged
+
+
+def _merge_chunks_and_scores(
+    existing_chunks: list[Chunk],
+    existing_scores: list[float],
+    incoming_chunks: list[Chunk],
+    incoming_scores: list[float],
+) -> tuple[list[Chunk], list[float]]:
+    """Merge chunks while keeping scores aligned with newly retained chunks."""
+    seen = {chunk.chunk_id for chunk in existing_chunks}
+    merged_chunks = list(existing_chunks)
+    merged_scores = list(existing_scores)
+    for index, chunk in enumerate(incoming_chunks):
+        if chunk.chunk_id in seen:
+            continue
+        seen.add(chunk.chunk_id)
+        merged_chunks.append(chunk)
+        if index < len(incoming_scores):
+            merged_scores.append(incoming_scores[index])
+        else:
+            merged_scores.append(0.0)
+    return merged_chunks, merged_scores
 
 
 def _merge_strings(existing: list[str], incoming: list[str]) -> list[str]:

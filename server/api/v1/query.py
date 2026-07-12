@@ -29,7 +29,6 @@ from server.api.v1._response import (
     _build_query_response,
     _record_agent_spot_check,
     _stream_direct_agent_events,
-    _stream_rag_answer_events,
 )
 from server.deps import (
     get_config,
@@ -57,8 +56,10 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 _TOOL_TITLES = {
-    "retrieve": "检索规范知识库",
-    "lookup_glossary": "查询术语表",
+    "prefetch_retrieve": "预检索规范证据",
+    "evidence_assessment": "判断证据覆盖度",
+    "search": "补充检索规范知识库",
+    "lookup_object": "精确查找规范对象",
 }
 
 
@@ -288,6 +289,7 @@ async def query_stream(
                 )
                 agent_t0 = time.perf_counter()
                 agent_result: AgentResult | None = None
+                answer_streamed = False
                 tool_step_queue: asyncio.Queue[ToolSubStep] = asyncio.Queue(maxsize=100)
 
                 class QueueToolProgress:
@@ -319,12 +321,13 @@ async def query_stream(
                     async for item in _merge_agent_and_tool_progress(
                         agent_items(),
                         tool_step_queue,
-                        timeout_seconds=runtime_config.agent_timeout_seconds,
                     ):
                         if isinstance(item, ToolSubStep):
                             yield _tool_progress_sse_event(item, started_at)
                             continue
                         if isinstance(item, AgentProgress):
+                            if item.event.kind == "answer_delta":
+                                answer_streamed = True
                             for event in _agent_progress_sse_events(
                                 item,
                                 started_at=started_at,
@@ -355,7 +358,8 @@ async def query_stream(
                     tool_calls=len(bundle.tool_trace),
                     duration_ms=int((time.perf_counter() - agent_t0) * 1000),
                 )
-                final_mode = "rag" if agent_result.needs_rag else "direct"
+                final_mode = "agentic_rag" if agent_result.needs_rag else "direct"
+                final_groundedness = bundle.groundedness if bundle.has_rag_evidence else None
                 _record_agent_spot_check(recorder, bundle)
                 summary, facts = _agent_stage_summary(bundle)
                 yield _progress_sse_event(
@@ -367,66 +371,36 @@ async def query_stream(
                     facts=facts,
                 )
 
-                if not agent_result.needs_rag:
-                    async for event in _stream_direct_agent_events(
-                        req=req,
-                        conv_mgr=conv_mgr,
-                        conv=conv,
-                        agent_reply=agent_reply,
-                        bundle=bundle,
+                if agent_result.needs_rag:
+                    logger.info(
+                        "retrieve_end",
+                        chunk_count=len(bundle.chunks),
+                        ref_chunk_count=len(bundle.ref_chunks),
+                        groundedness=bundle.groundedness,
+                    )
+                    summary, facts = _retrieval_summary(bundle)
+                    yield _progress_sse_event(
+                        stage="retrieving",
+                        status="completed",
+                        title="检索规范条文",
+                        summary=summary,
                         started_at=started_at,
-                        uses_external_session=uses_external_session(req),
-                        request_started_at=started_at,
-                        usage=agent_result.usage,
-                    ):
-                        yield event
-                    return
+                        facts=facts,
+                    )
 
-                logger.info(
-                    "retrieve_end",
-                    chunk_count=len(bundle.chunks),
-                    ref_chunk_count=len(bundle.ref_chunks),
-                    groundedness=bundle.groundedness,
-                )
-                summary, facts = _retrieval_summary(bundle)
-                yield _progress_sse_event(
-                    stage="retrieving",
-                    status="completed",
-                    title="检索规范条文",
-                    summary=summary,
-                    started_at=started_at,
-                    facts=facts,
-                )
-
-                yield _progress_sse_event(
-                    stage="generating",
-                    status="running",
-                    title="生成回答",
-                    summary="正在基于检索证据组织回答...",
-                    started_at=started_at,
-                    facts={
-                        "evidence_count": len(bundle.chunks) + len(bundle.ref_chunks),
-                        "guide_count": len(bundle.guide_chunks),
-                        "example_count": len(bundle.guide_example_chunks),
-                    },
-                )
-
-                async for event_type, data, groundedness in _stream_rag_answer_events(
+                async for event in _stream_direct_agent_events(
                     req=req,
-                    runtime_config=runtime_config,
-                    config=config,
                     conv_mgr=conv_mgr,
                     conv=conv,
+                    agent_reply=agent_reply,
                     bundle=bundle,
+                    started_at=started_at,
                     uses_external_session=uses_external_session(req),
                     request_started_at=started_at,
+                    usage=agent_result.usage,
+                    emit_answer_chunk=not answer_streamed,
                 ):
-                    if groundedness is not None:
-                        final_groundedness = groundedness
-                    yield {
-                        "event": event_type,
-                        "data": data,
-                    }
+                    yield event
         except asyncio.TimeoutError:
             logger.error("stream_request_timeout", error_type="timeout")
             yield _error_sse_event(
@@ -466,6 +440,17 @@ def _agent_progress_sse_events(
 ) -> list[dict[str, str]]:
     """Convert one agent progress item to SSE payloads."""
     event = item.event
+    if event.kind == "answer_delta" and event.summary:
+        return [
+            {
+                "event": "chunk",
+                "data": json.dumps(
+                    {"text": event.summary, "done": False},
+                    ensure_ascii=False,
+                ),
+            }
+        ]
+
     if event.kind == "thinking":
         return [
             _progress_sse_event(
@@ -481,6 +466,11 @@ def _agent_progress_sse_events(
         stage = _tool_stage(event.tool_name)
         summary = event.summary or "正在调用工具..."
         return [
+            _agent_tool_progress_sse_event(
+                event,
+                status="running",
+                started_at=started_at,
+            ),
             _progress_sse_event(
                 stage=stage,
                 status="running",
@@ -494,6 +484,11 @@ def _agent_progress_sse_events(
 
     if event.kind == "tool_result":
         return [
+            _agent_tool_progress_sse_event(
+                event,
+                status="completed",
+                started_at=started_at,
+            ),
             _progress_sse_event(
                 stage=_tool_stage(event.tool_name),
                 status="completed",
@@ -508,6 +503,33 @@ def _agent_progress_sse_events(
         return [_commentary_sse_event(event.summary, started_at)]
 
     return []
+
+
+def _agent_tool_progress_sse_event(
+    event,
+    *,
+    status: str,
+    started_at: float,
+) -> dict[str, str]:
+    tool_name = event.tool_name or "agent_tool"
+    facts = _tool_progress_facts(event)
+    tool_args = facts.get("tool_args")
+    round_no = tool_args.get("round") if isinstance(tool_args, dict) else None
+    suffix = f"_{round_no}" if round_no is not None else ""
+    step_id = f"{tool_name}{suffix}"
+    return _tool_progress_sse_event(
+        ToolSubStep(
+            tool_name=tool_name,
+            step_id=step_id,
+            status=status,
+            title=_tool_title(tool_name),
+            summary=event.summary or "",
+            metadata=facts,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            parent_step_id=None,
+        ),
+        started_at,
+    )
 
 
 async def _merge_agent_and_tool_progress(

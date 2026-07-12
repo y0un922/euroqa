@@ -1108,180 +1108,70 @@ def _persist_parse_options(request: DocumentParseRequest, config) -> None:
 
 ---
 
-### Scenario: Agent Tool-Call Invariants and Dispatch-Layer Guards
+### Scenario: Agentic RAG Deterministic Prefetch and Agent Synthesis
 
 #### 1. Scope / Trigger
 
-- Trigger: any change to `server/agents/qa_agent.py` decision schema, agent prompt, `EvidenceBundle` semantics, agent tools that mutate the bundle, or the agent dispatch path in `server/api/v1/query.py`.
-- Reason: structured agent decisions (`AgentDecision`) carry an `action` value that downstream code (generation, citation, answerMode mapping) interprets as a promise about tool side effects. When the agent emits `action="compose_rag"` but skips the `retrieve` tool, the bundle stays empty, the generator falls into `groundedness="not_grounded"`, and the user sees a misleading "no evidence" answer that hides a behavior bug. The conversation-history shortcut (LLM treating a prior assistant answer as a substitute for re-retrieving) is the dominant trigger.
+- Trigger: any change to `server/agents/decompose.py`, `server/agents/orchestrator.py`, `server/agents/qa_agent.py`, `server/agents/tools/search.py`, `EvidenceBundle`, `/api/v1/query`, or `/api/v1/query/stream`.
+- Reason: the system uses deterministic Agentic RAG orchestration: small-model decompose, pure-code parallel retrieval, rule judge, then OpenAI Agents SDK synthesis. The agent is not a pipeline trigger and the old `retrieve_agentic` / `generate_answer_stream` path must not be reintroduced.
 
 #### 2. Signatures
 
-- Agent decision: `AgentDecision(action: Literal["compose_rag","chat","clarify"], direct_reply: str | None)`.
-- Evidence bundle: `EvidenceBundle(chunks, parent_chunks, guide_chunks, guide_example_chunks, ref_chunks, scores, glossary_hits, groundedness, resolved_refs, unresolved_refs, tool_trace)`.
-- Retrieve tool: `@function_tool retrieve(ctx, query) -> str` (writes `bundle.add_retrieval(result)` and appends `{"tool": "retrieve", ...}` to `bundle.tool_trace`).
-- Dispatch guard: `_ensure_retrieve_called_for_compose_rag(*, decision, bundle, deps, question, conversation_id) -> AgentDecision`.
-- Agent runner: `run_qa_agent(agent, question, deps, max_turns=5) -> tuple[AgentDecision, EvidenceBundle]`.
+- Decompose node: `decompose_query(question, conversation_history, glossary, config) -> DecomposedQuery`.
+- Retrieval node: `HybridRetriever.retrieve([sub_query], original_query=rewritten_question, filters=merged_filters, requested_objects=..., top_k=...)`.
+- Judge state: `EvidenceBundle.retrieval_attempts: list[dict]` with `query`, `chunk_ids`, `chunk_count`, `max_score`, and `groundedness`.
+- Agent tools: `search(ctx, query, top_k=8) -> str` and `lookup_object(ctx, label, top_k=3) -> str`.
+- Agent runner: `run_qa_agent(...)-> tuple[str, EvidenceBundle, usage]` and streamed variant yielding answer deltas plus progress events.
 
 #### 3. Contracts
 
-- `action="compose_rag"` is a contract that the agent gathered evidence this turn. The dispatch layer must validate this contract before invoking generation.
-- The source of truth for "did the agent call a tool this turn" is `bundle.tool_trace`, not `bundle.is_empty`. `tool_trace` distinguishes "tool not called" (no entry) from "tool called and returned zero chunks" (entry with `chunk_count=0`). These two cases require different remediation.
-- If `decision.action == "compose_rag"` and no `retrieve` entry exists in `bundle.tool_trace`, the dispatch must force one `_retrieve_impl(RunContextWrapper(deps), question)` call before continuing.
-- If the recovery retrieval still yields `bundle.is_empty`, the dispatch must downgrade the decision to `AgentDecision(action="clarify", direct_reply=<explicit hint>)` rather than emit `answerMode="fallback"` with zero sources. The hint must instruct the user to supply a规范号, 构件类型, or 参数名称.
-- The guard must emit `structlog` warning `agent_compose_rag_without_retrieve` with `conversation_id` and `question` fields whenever it fires.
-- Both `/query` and `/query/stream` must call the same guard helper. Asymmetric patching of one path but not the other is forbidden.
-- Agent prompt rules that gate tool-call obligations must use硬性 / 必须 language at the top of the instructions, not 适用于 / 先调用 buried in section-level guidance. Soft language is structurally insufficient when the SDK's structured-output mode allows tool-free returns.
-- Agent prompt must explicitly forbid skipping `retrieve` because conversation history already contains a prior assistant answer to the same question. This is the most common trigger of the bug.
-- Do not set `ModelSettings(tool_choice="required")` as a remedy; it breaks the legitimate `chat` and `clarify` paths that must not call tools.
+- The request path is `DECOMPOSE -> RETRIEVE -> JUDGE -> SYNTHESIZE`. Do not call a retrieval tool that contains its own LLM planner.
+- `decompose_query` may use a small model, but it only rewrites/translates/splits queries and detects chitchat. It must not infer source types, intent labels, clause numbers, or evidence slots.
+- Retrieval is pure code and must call `HybridRetriever.retrieve`; do not split vector/BM25/rerank/parent/cross-reference responsibilities into agent-facing tools.
+- `sources_filter`, selected `kb_ids`, and `domain` are permission boundaries. Retry logic and agent tools must always preserve these filters.
+- Judge logic must track sub-query coverage through `EvidenceBundle.retrieval_attempts`; do not infer coverage from the merged chunk list alone.
+- `[Ref-N]` labels are assigned by `EvidenceBundle.ref_ids_by_chunk_id`; the agent can only cite labels that were provided in prefetched evidence or tool output.
+- The API response treats the agent final output as the answer. Do not route RAG answers through `generate_answer` or `generate_answer_stream`.
+- Agent tools are for corrective retrieval only. The prompt should tell the model to answer directly when prefetched evidence is sufficient and to call `search` only for concrete gaps.
 
 #### 4. Validation & Error Matrix
 
-- `decision.action != "compose_rag"` -> guard is a no-op; return decision unchanged.
-- `decision.action == "compose_rag"` and `any(t["tool"] == "retrieve" for t in bundle.tool_trace)` -> guard is a no-op; trust the agent.
-- `decision.action == "compose_rag"` and no `retrieve` in `tool_trace` -> log warning, call `_retrieve_impl` once with the original `req.question`.
-- After recovery: `bundle.is_empty` is `True` -> downgrade to `clarify` with hint.
-- After recovery: `bundle.is_empty` is `False` -> keep `compose_rag`, let `groundedness` flow naturally to `cautious` or `standard`.
-- `_retrieve_impl` raises during recovery -> log `agent_compose_rag_recovery_retrieve_failed` and treat as still-empty (downgrade to clarify).
-- The dispatch helper `_run_agent_dispatch` must return `(decision, bundle, conv, deps)` (4-tuple) so both call sites can pass `deps` into the guard.
+- Decompose returns malformed JSON -> fall back to `sub_queries=[sanitized_question]`.
+- Chitchat -> skip deterministic retrieval and let the agent answer directly.
+- Some sub-queries return zero chunks -> retry only uncovered sub-queries with a larger `top_k`, preserving required filters.
+- Agent calls `search` during synthesis -> append evidence to the same bundle and assign new stable `[Ref-N]` labels before returning tool output.
+- No evidence after retry -> still run synthesis so the agent can explicitly state the evidence gap.
+- Streamed responses must forward agent final-output deltas as `event: chunk` and build the final `done` payload from `EvidenceBundle`.
 
-#### 5. Good/Base/Bad Cases
+#### 5. Tests Required
 
-- Good: turn-3 of a repeat-question session. Agent (with hardened prompt) calls `retrieve` even though history has the answer; bundle has 16 chunks; `answerMode="cautious"`; guard never fires.
-- Base: turn-1 of any session. Agent calls `retrieve` naturally; same path as Good.
-- Base: empty-retrieval case where agent calls `retrieve` and gets zero results legitimately; `bundle.tool_trace` has `chunk_count=0` entry; guard is no-op; `answerMode="fallback"` is the honest representation.
-- Bad: dispatch trusts `decision.action == "compose_rag"` and feeds `bundle.chunks=[]` into `generate_answer_stream`. User sees `answerMode="fallback"` with retrieval that actually would have returned 16 chunks. This is the bug class.
-- Bad: using `bundle.is_empty` instead of `tool_trace` to detect the skip. The agent might have called retrieve and gotten zero results, which is a legitimate state that does not need recovery — only the "no call at all" case does.
-- Bad: prompt that says "compose_rag 适用于明确的规范相关问题。先调用 retrieve 收集证据..." — soft language. The LLM treats it as recommendation, not requirement.
+- Unit tests for decompose fallback and normalized query output.
+- Unit tests for `EvidenceBundle` score alignment, retrieval provenance, and stable `[Ref-N]` assignment.
+- API tests must assert `agent_reply` is the final answer and sources/retrieval context are derived from the bundle.
+- Concurrency tests should patch `dispatch_agent_streamed`, not deleted generation functions.
+- Run `ruff check server tests/server` and `pytest tests/server -q` after structural changes.
 
-#### 6. Tests Required
-
-- Unit test: `decision.action="compose_rag"` with empty `tool_trace` and a fake `_retrieve_impl` that populates the bundle -> guard returns `compose_rag`, bundle non-empty.
-- Unit test: `decision.action="compose_rag"` with empty `tool_trace` and a fake `_retrieve_impl` that returns zero chunks -> guard returns `AgentDecision(action="clarify", direct_reply=...)`.
-- Unit test: `decision.action="chat"` and `decision.action="compose_rag"` with `tool_trace` already containing `retrieve` -> guard is no-op, returns original decision identity.
-- Prompt assertion test: `_QA_AGENT_INSTRUCTIONS` contains the literal strings `"必须先调用 retrieve"` and `"硬性"` so prompt softening regressions fail in CI.
-- Regression test: agent run with `Runner.run` returning `compose_rag` and empty bundle exposes the buggy state without recovery (anchors the bug class for future readers).
-- End-to-end manual: same `sessionId` runs `Q1 (规范问题) → Q2 (你好) → Q3 (= Q1)`. Turn-3 `done` event must have `answerMode != "fallback"` and non-empty `retrievalContext.chunks`.
-
-#### 7. Wrong vs Correct
+#### 6. Wrong vs Correct
 
 ##### Wrong
 
 ```python
-# Dispatch trusts the agent's structural output without validating tool side effects.
-decision, bundle, conv = await _run_agent_dispatch(...)
-if decision.action == "compose_rag":
-    async for event in generate_answer_stream(chunks=bundle.chunks, ...):
-        ...
+# Reintroduces a hidden LLM pipeline inside the tool.
+result = await retrieve_agentic(ctx, query)
+answer = await generate_answer_stream(chunks=result.chunks)
 ```
 
 ##### Correct
 
 ```python
-# Validate the compose_rag contract before generation.
-decision, bundle, conv, deps = await _run_agent_dispatch(...)
-decision = await _ensure_retrieve_called_for_compose_rag(
-    decision=decision,
-    bundle=bundle,
-    deps=deps,
-    question=req.question,
-    conversation_id=conv.conversation_id,
-)
-if decision.action == "compose_rag":
-    async for event in generate_answer_stream(chunks=bundle.chunks, ...):
-        ...
-```
-
-##### Wrong
-
-```python
-# Soft prompt: LLM treats this as a hint, skips retrieve when history has prior answer.
-"""
-### action = "compose_rag"
-适用于明确的规范相关问题。先调用 retrieve 收集证据。
-"""
-```
-
-##### Correct
-
-```python
-# Hard prompt: explicit precondition + forbidden shortcut.
-"""
-## 硬性规则（违反将导致系统报错并被拦截）
-- 设置 action="compose_rag" 之前，本轮必须先调用 retrieve 工具至少一次
-- 不允许以"历史对话已有同样回答"为理由跳过 retrieve
-"""
-```
-
-##### Wrong
-
-```python
-# Conflating "tool not called" with "tool returned empty".
-if decision.action == "compose_rag" and bundle.is_empty:
-    await _retrieve_impl(...)  # double-retries the legitimate empty case
-```
-
-##### Correct
-
-```python
-# tool_trace tells you whether the tool was invoked at all.
-retrieve_called = any(t.get("tool") == "retrieve" for t in bundle.tool_trace)
-if decision.action == "compose_rag" and not retrieve_called:
-    await _retrieve_impl(...)
-```
-
-### Scenario: Agentic Retrieval Must Wrap, Not Split, Hybrid Retrieval
-
-#### 1. Scope / Trigger
-
-- Trigger: any change to agentic search, evidence planning, retrieval tools, `HybridRetriever.retrieve`, or QA agent tool prompts.
-- Reason: vector search, BM25, RRF fusion, rerank, parent expansion, guide retrieval, and cross-reference closure are one quality-critical pipeline. Agentic planning should decide evidence slots and source/object hints outside that pipeline, not reimplement low-level retrieval stages in the agent layer.
-
-#### 2. Signatures
-
-- Main tool: `retrieve(ctx, query, top_k=8) -> str`.
-- Agentic tool: `retrieve_agentic(ctx, query, top_k=8) -> str`.
-- Planner: `plan_evidence(question, analysis, source_inventory, config) -> EvidencePlan`.
-- Source metadata tool: `HybridRetriever.list_sources(filters=None, size=100) -> list[dict]`.
-- Object/context tools: `HybridRetriever.lookup_object(label, filters=None, top_k=3)` and `HybridRetriever.open_chunk(chunk_id, neighbors=0)`.
-
-#### 3. Contracts
-
-- Do not expose separate `search_keyword` and `search_semantic` tools unless the feature explicitly reimplements fusion, rerank, parent expansion, and cross-reference closure at the same quality level.
-- `retrieve_agentic` may split a compound question into slots, but each slot must still call `retriever.retrieve(...)` rather than bypassing the hybrid pipeline.
-- Source inventory is metadata only. It may guide slot `source_hints`, but answer evidence must still come from retrieved chunks or object/chunk lookup tools.
-- Planner model settings must be independently configurable and fall back to the agent/main LLM config when unset.
-- If planning fails or agentic search is disabled, fall back to a single-slot retrieval path rather than adding question-specific query patches.
-- Remove per-question deterministic query hacks from query understanding. Query understanding should preserve LLM/rule analysis; coverage belongs in evidence planning.
-
-#### 4. Tests Required
-
-- Unit test planner fallback for compound questions when the planner LLM fails.
-- Unit test `retrieve_agentic` with multiple slots and assert each slot calls `retriever.retrieve(...)` with source/object hints.
-- Keep existing `retrieve` tests passing to prove the non-agentic path is unchanged.
-- Run retrieval core tests when adding retriever metadata/object helper methods.
-
-#### 5. Wrong vs Correct
-
-##### Wrong
-
-```python
-# Agent layer now owns low-level retrieval quality decisions.
-keyword_hits = await search_keyword(slot.query)
-vector_hits = await search_semantic(slot.query)
-return keyword_hits + vector_hits  # no RRF, rerank, parent, or cross-ref closure
-```
-
-##### Correct
-
-```python
-# Agentic layer plans the slot; HybridRetriever still owns retrieval quality.
-result = await retriever.retrieve(
-    slot.normalized_queries(),
-    filters=slot_filters,
-    requested_objects=slot.object_labels,
-    top_k=top_k,
-)
+decomposed = await decompose_query(question, history, glossary, config)
+results = await asyncio.gather(*[
+    retriever.retrieve([q], original_query=decomposed.rewritten_question, filters=filters)
+    for q in decomposed.sub_queries
+])
+for query, result in zip(decomposed.sub_queries, results, strict=True):
+    bundle.add_retrieval(result, query=query)
+agent_reply, bundle, usage = await run_qa_agent(agent, question, deps)
 ```
 
 ### Scenario: Query Response Telemetry

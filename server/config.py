@@ -41,6 +41,11 @@ class ServerConfig(BaseSettings):
     query_expansion_llm_base_url: str = ""
     query_expansion_llm_model: str = ""
 
+    decompose_llm_api_key: str = ""
+    decompose_llm_base_url: str = ""
+    decompose_llm_model: str = ""
+    decompose_llm_timeout_seconds: float = 30.0
+
     agent_llm_api_key: str = ""
     agent_llm_base_url: str = ""
     agent_llm_model: str = ""
@@ -102,6 +107,7 @@ class ServerConfig(BaseSettings):
     request_deadline_seconds: int = 120
     agent_timeout_seconds: int = 60
     agent_llm_timeout_seconds: float = 30.0
+    outline_llm_timeout_seconds: float = 20.0
     agent_max_concurrency: int = 5
     agent_circuit_breaker_failure_threshold: int = 5
     agent_circuit_breaker_recovery_seconds: float = 30.0
@@ -127,6 +133,33 @@ class ServerConfig(BaseSettings):
     def resolved_agent_llm_model(self) -> str:
         """Return the agent-loop LLM model with main LLM fallback."""
         return self.agent_llm_model or self.llm_model
+
+    @property
+    def resolved_decompose_llm_api_key(self) -> str:
+        """Return decompose LLM API key with agent/main LLM fallback."""
+        return (
+            self.decompose_llm_api_key
+            or self.resolved_agent_llm_api_key
+            or self.llm_api_key
+        )
+
+    @property
+    def resolved_decompose_llm_base_url(self) -> str:
+        """Return decompose LLM base URL with agent/main LLM fallback."""
+        return (
+            self.decompose_llm_base_url
+            or self.resolved_agent_llm_base_url
+            or self.llm_base_url
+        )
+
+    @property
+    def resolved_decompose_llm_model(self) -> str:
+        """Return decompose LLM model with agent/main LLM fallback."""
+        return (
+            self.decompose_llm_model
+            or self.resolved_agent_llm_model
+            or self.llm_model
+        )
 
     @property
     def resolved_agentic_search_planner_api_key(self) -> str:

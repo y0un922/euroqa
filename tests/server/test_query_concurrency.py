@@ -90,18 +90,6 @@ def _event_data_by_type(response_text: str) -> dict[str, list[dict]]:
 
 @pytest.mark.asyncio
 async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
-    async def _fake_generate_answer_stream(**kwargs):
-        await asyncio.sleep(SINGLE_REQUEST_DELAY_SECONDS)
-        yield ("chunk", {"text": "ok"})
-        yield (
-            "done",
-            {
-                "answer": "ok",
-                "sources": [],
-                "related_refs": [],
-            },
-        )
-
     async def _fake_dispatch_agent(
         question,
         req,
@@ -114,9 +102,9 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
         conv = conv_mgr.get_or_create(req.session_id or req.conversation_id)
         bundle = EvidenceBundle()
         bundle.add_retrieval(await retriever.retrieve())
-        bundle.tool_trace.append({"tool": "retrieve", "chunk_count": 0})
+        bundle.tool_trace.append({"tool": "prefetch_retrieve", "chunk_count": 1})
         return AgentResult(
-            agent_reply="已检索到相关规范证据。",
+            agent_reply="ok [Ref-1]",
             bundle=bundle,
             conv=conv,
             deps=None,
@@ -131,14 +119,6 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
         deps.get_conversation_manager: lambda: _FakeConversationManager(),
         deps.get_glossary: lambda: {},
     }
-    monkeypatch.setattr(
-        "server.api.v1._response.generate_answer_stream",
-        _fake_generate_answer_stream,
-    )
-    monkeypatch.setattr(
-        "server.core.generation.generate_answer_stream",
-        _fake_generate_answer_stream,
-    )
     monkeypatch.setattr(
         "server.api.v1.query.dispatch_agent_streamed",
         _fake_dispatch_agent_streamed,
@@ -170,5 +150,5 @@ async def test_query_stream_handles_ten_concurrent_requests(monkeypatch):
         assert "done" in events
         done = events["done"][-1]
         assert done["code"] == 200
-        assert done["sources"] == []
+        assert done["sources"]
         assert done["answerMode"] == "fallback"

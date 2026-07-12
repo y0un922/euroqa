@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -12,6 +13,12 @@ from agents.exceptions import ModelBehaviorError
 from openai import APIConnectionError, APITimeoutError, InternalServerError
 import structlog
 
+from server.agents.decompose import (
+    DecomposedQuery,
+    assess_evidence,
+    decompose_query,
+    outline_answer,
+)
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.qa_agent import (
@@ -21,6 +28,11 @@ from server.agents.qa_agent import (
     run_qa_agent_streamed,
 )
 from server.agents.tool_progress import ToolProgressCallback
+from server.agents.tools._utils import (
+    base_filters,
+    limit_retrieval_result,
+    merge_retrieval_filters,
+)
 from server.circuit_breaker import AsyncCircuitBreaker, CircuitBreakerOpenError
 from server.config import ServerConfig
 from server.core.conversation import ConversationState
@@ -37,8 +49,13 @@ logger = structlog.get_logger(__name__)
 _qa_agents: dict[str, Agent[QADeps]] = {}
 _agent_semaphore: asyncio.Semaphore | None = None
 _agent_circuit_breaker: AsyncCircuitBreaker | None = None
-_AGENT_MAX_TURNS = 3
+_AGENT_MAX_TURNS = 4
 _DEGRADED_RAG_REPLY = "已检索到相关规范证据，正在整理回答。"
+_INITIAL_TOP_K = 8
+_ASSESSMENT_TOP_K = 8
+_MAX_SUPPLEMENT_ROUNDS = 2
+_ZERO_HIT_TOP_K_MULTIPLIER = 2
+_MAX_ASSESSMENT_EVIDENCE_CHARS = 12000
 
 
 @dataclass
@@ -137,6 +154,415 @@ def _build_agent_deps(
     )
 
 
+async def _prepare_evidence_for_agent(
+    *,
+    req: QueryRequest,
+    deps: QADeps,
+    glossary: dict[str, str],
+) -> None:
+    """Run route/decompose, corrective retrieval, and evidence assessment."""
+    async for _event in _prepare_evidence_for_agent_streamed(
+        req=req,
+        deps=deps,
+        glossary=glossary,
+    ):
+        pass
+
+
+async def _prepare_evidence_for_agent_streamed(
+    *,
+    req: QueryRequest,
+    deps: QADeps,
+    glossary: dict[str, str],
+) -> AsyncIterator[AgentProgress]:
+    """Run corrective prefetch and emit user-facing progress events."""
+    if getattr(deps.retriever, "retrieve", None) is None:
+        deps.bundle.tool_trace.append(
+            {"tool": "prefetch_retrieve", "skipped": True, "reason": "unsupported"}
+        )
+        return
+
+    yield AgentProgress(
+        event=AgentStreamEvent(
+            kind="thinking",
+            summary="正在判断问题是否需要检索，并生成检索子问题...",
+        )
+    )
+    history = (
+        list(deps.conversation_state.history)
+        if deps.conversation_state is not None
+        else []
+    )
+    decomposed = await decompose_query(
+        req.question,
+        history,
+        glossary,
+        deps.config,
+    )
+    deps.bundle.tool_trace.append(
+        {
+            "tool": "decompose",
+            "rewritten_question": decomposed.rewritten_question,
+            "sub_queries": decomposed.sub_queries,
+            "needs_retrieval": decomposed.needs_retrieval,
+            "is_chitchat": decomposed.is_chitchat,
+            "implicit_context": decomposed.implicit_context,
+            "requested_objects": decomposed.requested_objects,
+            "filters": decomposed.filters,
+        }
+    )
+    yield AgentProgress(
+        event=AgentStreamEvent(
+            kind="commentary",
+            summary=_decompose_summary(decomposed),
+        )
+    )
+    if decomposed.is_chitchat or not decomposed.needs_retrieval:
+        yield AgentProgress(
+            event=AgentStreamEvent(
+                kind="commentary",
+                summary="该问题无需规范检索，直接组织回答。",
+            )
+        )
+        return
+
+    attempted_queries: list[str] = []
+    yield _prefetch_calling_progress(decomposed.sub_queries, _INITIAL_TOP_K, 1)
+    await _retrieve_decomposed_queries(
+        deps=deps,
+        decomposed=decomposed,
+        top_k=_INITIAL_TOP_K,
+    )
+    attempted_queries.extend(_new_queries(decomposed.sub_queries, attempted_queries))
+    yield _prefetch_result_progress(deps.bundle, decomposed.sub_queries, 1)
+
+    zero_hit_queries = _zero_hit_queries(deps.bundle, decomposed.sub_queries)
+    if zero_hit_queries:
+        zero_hit = DecomposedQuery(
+            rewritten_question=decomposed.rewritten_question,
+            sub_queries=zero_hit_queries,
+            implicit_context=decomposed.implicit_context,
+            needs_retrieval=True,
+            is_chitchat=False,
+            requested_objects=decomposed.requested_objects,
+            filters=decomposed.filters,
+        )
+        zero_hit_top_k = _INITIAL_TOP_K * _ZERO_HIT_TOP_K_MULTIPLIER
+        yield _prefetch_calling_progress(zero_hit.sub_queries, zero_hit_top_k, 1)
+        await _retrieve_decomposed_queries(
+            deps=deps,
+            decomposed=zero_hit,
+            top_k=zero_hit_top_k,
+        )
+        yield _prefetch_result_progress(deps.bundle, zero_hit.sub_queries, 1)
+
+    for round_no in range(1, _MAX_SUPPLEMENT_ROUNDS + 1):
+        yield AgentProgress(
+            event=AgentStreamEvent(
+                kind="tool_calling",
+                tool_name="evidence_assessment",
+                tool_args={
+                    "arguments": json.dumps(
+                        {
+                            "round": round_no,
+                            "previous_queries": attempted_queries,
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+                summary="正在判断现有证据是否足够回答...",
+            )
+        )
+        assessment = await assess_evidence(
+            question=req.question,
+            rewritten_question=decomposed.rewritten_question,
+            implicit_context=decomposed.implicit_context,
+            evidence_text=_format_assessment_evidence(deps.bundle),
+            previous_queries=attempted_queries,
+            config=deps.config,
+        )
+        deps.bundle.tool_trace.append(
+            {
+                "tool": "evidence_assessment",
+                "round": round_no,
+                "sufficient": assessment.sufficient,
+                "missing_queries": assessment.missing_queries,
+                "reason": assessment.reason,
+            }
+        )
+        yield AgentProgress(
+            event=AgentStreamEvent(
+                kind="tool_result",
+                tool_name="evidence_assessment",
+                tool_args={
+                    "arguments": json.dumps(
+                        {
+                            "round": round_no,
+                            "previous_queries": attempted_queries,
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+                tool_result=json.dumps(
+                    {
+                        "sufficient": assessment.sufficient,
+                        "missing_queries": assessment.missing_queries,
+                        "reason": assessment.reason,
+                    },
+                    ensure_ascii=False,
+                ),
+                tool_trace=_latest_tool_trace(
+                    deps.bundle.tool_trace,
+                    "evidence_assessment",
+                ),
+                summary=_assessment_summary(
+                    assessment.sufficient,
+                    assessment.missing_queries,
+                ),
+            )
+        )
+        if assessment.sufficient or not assessment.missing_queries:
+            break
+
+        followup_queries = _new_queries(assessment.missing_queries, attempted_queries)
+        if not followup_queries:
+            break
+        followup = DecomposedQuery(
+            rewritten_question=decomposed.rewritten_question,
+            sub_queries=followup_queries,
+            implicit_context=decomposed.implicit_context,
+            needs_retrieval=True,
+            is_chitchat=False,
+            requested_objects=decomposed.requested_objects,
+            filters=decomposed.filters,
+        )
+        supplement_round = round_no + 1
+        yield _prefetch_calling_progress(
+            followup.sub_queries,
+            _ASSESSMENT_TOP_K,
+            supplement_round,
+        )
+        await _retrieve_decomposed_queries(
+            deps=deps,
+            decomposed=followup,
+            top_k=_ASSESSMENT_TOP_K,
+        )
+        attempted_queries.extend(_new_queries(followup.sub_queries, attempted_queries))
+        yield _prefetch_result_progress(
+            deps.bundle, followup.sub_queries, supplement_round
+        )
+
+    if deps.bundle.has_rag_evidence:
+        yield AgentProgress(
+            event=AgentStreamEvent(
+                kind="thinking",
+                summary="正在构建回答大纲...",
+            )
+        )
+        deps.bundle.outline = await outline_answer(
+            question=req.question,
+            rewritten_question=decomposed.rewritten_question,
+            implicit_context=decomposed.implicit_context,
+            conversation_history=history,
+            evidence_text=_format_assessment_evidence(deps.bundle),
+            config=deps.config,
+        )
+        deps.bundle.tool_trace.append(
+            {
+                "tool": "answer_outline",
+                "success": bool(deps.bundle.outline),
+            }
+        )
+
+
+async def _retrieve_decomposed_queries(
+    *,
+    deps: QADeps,
+    decomposed: DecomposedQuery,
+    top_k: int,
+) -> None:
+    if not decomposed.sub_queries:
+        return
+    required_filters = base_filters(deps)
+    filters = merge_retrieval_filters(required_filters, decomposed.filters)
+    results = await asyncio.gather(
+        *[
+            deps.retriever.retrieve(
+                [query],
+                original_query=decomposed.rewritten_question,
+                filters=filters,
+                requested_objects=decomposed.requested_objects,
+                top_k=top_k,
+            )
+            for query in decomposed.sub_queries
+        ]
+    )
+    for query, result in zip(decomposed.sub_queries, results, strict=True):
+        limited = limit_retrieval_result(result, top_k)
+        deps.bundle.add_retrieval(limited, query=query)
+        deps.bundle.tool_trace.append(
+            {
+                "tool": "prefetch_retrieve",
+                "query": query,
+                "top_k": top_k,
+                "chunk_count": len(limited.chunks),
+                "max_score": max(limited.scores) if limited.scores else None,
+                "groundedness": limited.groundedness,
+            }
+        )
+
+
+def _prefetch_calling_progress(
+    queries: list[str],
+    top_k: int,
+    round_no: int,
+) -> AgentProgress:
+    return AgentProgress(
+        event=AgentStreamEvent(
+            kind="tool_calling",
+            tool_name="prefetch_retrieve",
+            tool_args={
+                "arguments": json.dumps(
+                    {
+                        "round": round_no,
+                        "queries": queries,
+                        "top_k": top_k,
+                    },
+                    ensure_ascii=False,
+                )
+            },
+            summary=_prefetch_calling_summary(queries, round_no),
+        )
+    )
+
+
+def _prefetch_result_progress(
+    bundle: EvidenceBundle,
+    queries: list[str],
+    round_no: int,
+) -> AgentProgress:
+    return AgentProgress(
+        event=AgentStreamEvent(
+            kind="tool_result",
+            tool_name="prefetch_retrieve",
+            tool_args={
+                "arguments": json.dumps(
+                    {"round": round_no, "queries": queries},
+                    ensure_ascii=False,
+                )
+            },
+            tool_result=_latest_prefetch_result_text(bundle, queries),
+            tool_trace=_latest_tool_trace(bundle.tool_trace, "prefetch_retrieve"),
+            summary=_prefetch_result_summary(bundle, queries),
+        )
+    )
+
+
+def _new_queries(queries: list[str], attempted_queries: list[str]) -> list[str]:
+    seen = {query.strip().lower() for query in attempted_queries if query.strip()}
+    new_items: list[str] = []
+    for query in queries:
+        key = query.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        new_items.append(query)
+    return new_items
+
+
+def _zero_hit_queries(bundle: EvidenceBundle, queries: list[str]) -> list[str]:
+    latest_by_query: dict[str, dict] = {}
+    query_keys = {query.strip().lower(): query for query in queries}
+    for attempt in bundle.retrieval_attempts:
+        query = str(attempt.get("query") or "")
+        key = query.strip().lower()
+        if key in query_keys:
+            latest_by_query[key] = attempt
+    return [
+        query
+        for key, query in query_keys.items()
+        if int(latest_by_query.get(key, {}).get("chunk_count") or 0) == 0
+    ]
+
+
+def _format_assessment_evidence(bundle: EvidenceBundle) -> str:
+    chunks = bundle.citable_chunks()
+    bundle.ensure_ref_ids(chunks)
+    lines: list[str] = []
+    for chunk in chunks:
+        ref = bundle.ref_label_for(chunk)
+        meta = chunk.metadata
+        section = " > ".join(meta.section_path) if meta.section_path else "unknown"
+        page = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "unknown"
+        label = f" | {meta.object_label}" if meta.object_label else ""
+        preview = chunk.content[:1200].replace("\n", " ").strip()
+        lines.append(f"[{ref}] {meta.source} | {section} | p.{page}{label}")
+        if preview:
+            lines.append(preview)
+        if len("\n".join(lines)) >= _MAX_ASSESSMENT_EVIDENCE_CHARS:
+            break
+    return "\n".join(lines)
+
+
+def _decompose_summary(decomposed: DecomposedQuery) -> str:
+    if decomposed.is_chitchat or not decomposed.needs_retrieval:
+        return "小模型判断无需检索。"
+    queries = "；".join(decomposed.sub_queries[:4])
+    return f"已解构为 {len(decomposed.sub_queries)} 个检索子问题：{queries}"
+
+
+def _prefetch_calling_summary(queries: list[str], round_no: int) -> str:
+    preview = "；".join(queries[:3])
+    if len(queries) > 3:
+        preview += f"；等 {len(queries)} 个 query"
+    return f"第 {round_no} 轮并行检索：{preview}"
+
+
+def _prefetch_result_summary(bundle: EvidenceBundle, queries: list[str]) -> str:
+    query_set = set(queries)
+    attempts = [
+        attempt
+        for attempt in bundle.retrieval_attempts
+        if str(attempt.get("query")) in query_set
+    ]
+    chunk_count = sum(int(attempt.get("chunk_count") or 0) for attempt in attempts)
+    return f"本轮检索返回 {chunk_count} 条候选证据，累计 {bundle.chunk_count} 条去重证据。"
+
+
+def _latest_prefetch_result_text(bundle: EvidenceBundle, queries: list[str]) -> str:
+    query_set = set(queries)
+    attempts = [
+        {
+            "query": attempt.get("query"),
+            "chunk_count": attempt.get("chunk_count"),
+            "max_score": attempt.get("max_score"),
+            "groundedness": attempt.get("groundedness"),
+        }
+        for attempt in bundle.retrieval_attempts
+        if str(attempt.get("query")) in query_set
+    ]
+    return json.dumps(attempts, ensure_ascii=False)
+
+
+def _assessment_summary(sufficient: bool, missing_queries: list[str]) -> str:
+    if sufficient:
+        return "小模型判断证据已足够，开始组织最终回答。"
+    if not missing_queries:
+        return "小模型未生成新的缺口 query，基于当前证据组织回答。"
+    preview = "；".join(missing_queries[:3])
+    return f"证据仍有缺口，将补检索：{preview}"
+
+
+def _latest_tool_trace(
+    traces: list[dict],
+    tool_name: str,
+) -> dict[str, object] | None:
+    for trace in reversed(traces):
+        if trace.get("tool") == tool_name:
+            return trace
+    return None
+
+
 async def _run_agent_dispatch(
     *,
     req: QueryRequest,
@@ -156,6 +582,7 @@ async def _run_agent_dispatch(
         req=req,
         sources_filter=sources_filter,
     )
+    await _prepare_evidence_for_agent(req=req, deps=deps, glossary=glossary)
     agent = _get_or_build_agent(runtime_config)
     breaker = _get_agent_circuit_breaker(runtime_config)
     started_at = time.perf_counter()
@@ -284,6 +711,12 @@ async def dispatch_agent_streamed(
         sources_filter=sources_filter,
         tool_progress=tool_progress,
     )
+    async for progress in _prepare_evidence_for_agent_streamed(
+        req=req,
+        deps=deps,
+        glossary=glossary,
+    ):
+        yield progress
     agent = _get_or_build_agent(config)
     breaker = _get_agent_circuit_breaker(config)
     started_at = time.perf_counter()
@@ -297,6 +730,13 @@ async def dispatch_agent_streamed(
                 breaker_state=breaker.state,
                 streamed=True,
             )
+            if deps.bundle.has_rag_evidence:
+                yield AgentProgress(
+                    event=AgentStreamEvent(
+                        kind="thinking",
+                        summary="正在基于证据组织最终回答...",
+                    )
+                )
             async for item in run_qa_agent_streamed(
                 agent,
                 question,
@@ -319,17 +759,18 @@ async def dispatch_agent_streamed(
     try:
         await breaker._before_call()
         try:
-            async for item in stream_agent_with_limits():
-                if isinstance(item, AgentResult):
-                    logger.info(
-                        "agent_dispatch_completed",
-                        needs_rag=item.bundle.has_rag_evidence,
-                        tool_calls=len(item.bundle.tool_trace),
-                        duration_ms=int((time.perf_counter() - started_at) * 1000),
-                        breaker_state=breaker.state,
-                        streamed=True,
-                    )
-                yield item
+            async with asyncio.timeout(config.agent_timeout_seconds):
+                async for item in stream_agent_with_limits():
+                    if isinstance(item, AgentResult):
+                        logger.info(
+                            "agent_dispatch_completed",
+                            needs_rag=item.bundle.has_rag_evidence,
+                            tool_calls=len(item.bundle.tool_trace),
+                            duration_ms=int((time.perf_counter() - started_at) * 1000),
+                            breaker_state=breaker.state,
+                            streamed=True,
+                        )
+                    yield item
         except asyncio.TimeoutError:
             raise
         except Exception:

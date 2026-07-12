@@ -1,490 +1,205 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
-
-import pytest
-from agents import RunContextWrapper
 
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents.qa_agent import (
-    AgentStreamEvent,
     _QA_AGENT_INSTRUCTIONS,
+    _agent_model_extra_body,
     _build_input_items,
+    _drop_empty_messages_between_tool_call_and_output,
+    _raw_response_text_delta,
     build_qa_agent,
-    run_qa_agent,
-    run_qa_agent_streamed,
-)
-from server.agents.tools.retrieve import (
-    _clamp_top_k,
-    _format_retrieval_summary,
-    _retrieve_impl,
 )
 from server.config import ServerConfig
 from server.core.conversation import ConversationState
-from server.core.query_understanding import QueryAnalysis
 from server.core.retrieval import RetrievalResult
-from server.models.schemas import Chunk, ChunkMetadata, ElementType, QuestionType
+from server.models.schemas import Chunk, ChunkMetadata, ElementType
 
 
-class FakeRetriever:
-    def __init__(self, result: RetrievalResult | None = None) -> None:
-        self.result = result or RetrievalResult(chunks=[], parent_chunks=[], scores=[])
-        self.calls: list[dict] = []
-
-    async def retrieve(self, queries: list[str], **kwargs) -> RetrievalResult:
-        self.calls.append({"queries": queries, **kwargs})
-        return self.result
-
-
-def _make_deps(
-    *,
-    retriever: FakeRetriever | None = None,
-    bundle: EvidenceBundle | None = None,
-    glossary: dict[str, str] | None = None,
-) -> QADeps:
-    return QADeps(
-        config=ServerConfig(),
-        retriever=retriever or FakeRetriever(),
-        glossary=glossary or {},
-        bundle=bundle or EvidenceBundle(),
-    )
-
-
-def _make_chunk(chunk_id: str = "chunk-1") -> Chunk:
+def _make_chunk(chunk_id: str, content: str = "Design evidence") -> Chunk:
     return Chunk(
         chunk_id=chunk_id,
-        content="Design working life shall be specified according to EN 1990.",
-        embedding_text="Design working life EN 1990",
+        content=content,
+        embedding_text=content,
         metadata=ChunkMetadata(
-            source="EN 1990:2002",
-            source_title="Basis of structural design",
-            section_path=["2.3", "Design working life"],
-            page_numbers=[28],
-            page_file_index=[27],
-            clause_ids=["2.3"],
+            source="EN 1992-1-1",
+            document_id="EN1992",
+            source_title="EN 1992-1-1",
+            display_title="EN 1992-1-1",
+            section_path=["1", "1.1"],
+            page_numbers=[1],
+            page_file_index=[0],
+            clause_ids=["1.1"],
             element_type=ElementType.TEXT,
         ),
     )
 
 
-def _make_chunks(count: int, prefix: str = "chunk") -> list[Chunk]:
-    return [_make_chunk(f"{prefix}-{index}") for index in range(count)]
-
-
-async def _fake_runner_result(reply: str):
-    return SimpleNamespace(final_output=reply)
-
-
-@pytest.mark.asyncio
-async def test_chat_greeting():
-    deps = _make_deps()
-    reply = "你好，有什么欧标问题可以帮你？"
-
-    with patch(
-        "server.agents.qa_agent.Runner.run",
-        return_value=await _fake_runner_result(reply),
-    ):
-        result, bundle, _usage = await run_qa_agent(
-            agent=object(),
-            question="hi",
-            deps=deps,
-        )
-
-    assert result == reply
-    assert bundle.is_empty
-
-
-def test_qa_agent_instructions_forbid_json_actions():
-    assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS
-    assert '{"action": "retrieve"}' in _QA_AGENT_INSTRUCTIONS
-
-
-def test_build_qa_agent_does_not_configure_trace_processors():
-    with patch("agents.set_trace_processors") as set_trace_processors:
-        build_qa_agent(ServerConfig())
-
-    set_trace_processors.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_rag_eurocode_question():
-    chunk = _make_chunk()
-    retriever = FakeRetriever(
-        RetrievalResult(
-            chunks=[chunk],
-            parent_chunks=[],
-            scores=[0.93],
-            groundedness="grounded",
-        )
-    )
-    deps = _make_deps(retriever=retriever)
-    analysis = QueryAnalysis(
-        original_question="设计使用年限是什么？",
-        expanded_queries=["design working life"],
-        filters={"source": "EN 1990"},
-        question_type=QuestionType.RULE,
-        intent_label="definition",
-    )
-
-    async def fake_runner_run(_agent, _input, *, context, **_kwargs):
-        await _retrieve_impl(
-            RunContextWrapper(context),
-            "设计使用年限是什么？",
-        )
-        return SimpleNamespace(final_output="已检索到 EN 1990 的设计使用年限条文。")
-
-    with (
-        patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run),
-        patch("server.agents.tools.retrieve.analyze_query", return_value=analysis),
-    ):
-        result, bundle, _usage = await run_qa_agent(
-            agent=object(),
-            question="设计使用年限是什么？",
-            deps=deps,
-        )
-
-    assert "EN 1990" in result
-    assert not bundle.is_empty
-    assert bundle.has_rag_evidence
-    assert bundle.chunk_count == 1
-    assert bundle.groundedness == "grounded"
-    assert retriever.calls[0]["queries"] == ["design working life"]
-    assert retriever.calls[0]["filters"] == {"source": "EN 1990"}
-    assert retriever.calls[0]["top_k"] == 8
-
-
-@pytest.mark.asyncio
-async def test_retrieve_tool_accepts_top_k_and_trims_evidence():
-    chunks = _make_chunks(12)
-    parent_chunks = _make_chunks(8, prefix="parent")
-    guide_chunks = _make_chunks(6, prefix="guide")
-    guide_example_chunks = _make_chunks(5, prefix="example")
-    ref_chunks = _make_chunks(7, prefix="ref")
-    retriever = FakeRetriever(
-        RetrievalResult(
-            chunks=chunks,
-            parent_chunks=parent_chunks,
-            scores=[0.9 - index * 0.01 for index in range(len(chunks))],
-            guide_chunks=guide_chunks,
-            guide_example_chunks=guide_example_chunks,
-            ref_chunks=ref_chunks,
-            groundedness="grounded",
-        )
-    )
-    deps = _make_deps(retriever=retriever)
-    analysis = QueryAnalysis(
-        original_question="钢筋的主要特性有哪些？",
-        expanded_queries=["reinforcing steel properties"],
-        filters={},
-        question_type=QuestionType.RULE,
-        intent_label="summary",
-    )
-
-    with patch("server.agents.tools.retrieve.analyze_query", return_value=analysis):
-        summary = await _retrieve_impl(
-            RunContextWrapper(deps),
-            "钢筋的主要特性有哪些？",
-            top_k=5,
-        )
-
-    assert retriever.calls[0]["top_k"] == 5
-    assert deps.bundle.chunks == chunks[:5]
-    assert deps.bundle.parent_chunks == parent_chunks[:5]
-    assert deps.bundle.scores == [0.9 - index * 0.01 for index in range(5)]
-    assert deps.bundle.guide_chunks == guide_chunks[:2]
-    assert deps.bundle.guide_example_chunks == guide_example_chunks[:1]
-    assert deps.bundle.ref_chunks == ref_chunks[:2]
-    assert deps.bundle.tool_trace[-1]["top_k"] == 5
-    assert "检索到 5 个片段" in summary
-
-
-@pytest.mark.asyncio
-async def test_retrieve_tool_skips_when_bundle_is_already_grounded():
-    bundle = EvidenceBundle(chunks=[_make_chunk()])
-    bundle.groundedness = "grounded"
-    retriever = FakeRetriever()
-    deps = _make_deps(retriever=retriever, bundle=bundle)
-
-    with patch("server.agents.tools.retrieve.analyze_query") as analyze_query:
-        summary = await _retrieve_impl(
-            RunContextWrapper(deps),
-            "EN 1990 设计使用年限是什么？",
-            top_k=99,
-        )
-
-    analyze_query.assert_not_called()
-    assert retriever.calls == []
-    assert "跳过检索" in summary
-    assert "groundedness=grounded" in summary
-    assert "1 个片段" in summary
-    assert "个片段)。 请直接" in summary
-    assert deps.bundle.tool_trace[-1] == {
-        "tool": "retrieve",
-        "query": "EN 1990 设计使用年限是什么？",
-        "skipped": True,
-        "reason": "already_grounded",
-    }
-
-
-def test_format_retrieval_summary_includes_stop_instruction_and_previews():
-    chunk = _make_chunk()
-    chunk.content = "First line\nSecond line explains the design working life requirement."
-
-    summary = _format_retrieval_summary("grounded", [chunk])
-
-    assert "证据已充足" in summary
-    assert "无需再次检索" in summary
-    assert "摘要: First line Second line explains" in summary
-
-
-@pytest.mark.parametrize(
-    ("requested", "expected"),
-    [
-        (1, 3),
-        (4, 4),
-        (99, 12),
-        ("bad", 8),
-    ],
-)
-def test_retrieve_tool_clamps_top_k(requested, expected):
-    assert _clamp_top_k(requested) == expected
-
-
-def test_build_input_items_strips_citations_from_previous_answers():
-    deps = _make_deps()
-    deps.conversation_state = ConversationState(
-        conversation_id="conv-1",
-        history=[
-            {
-                "question": "上一轮问题",
-                "answer": "[Ref-1] " + "A" * 250 + " [Ref-22]",
-            }
-        ]
-    )
-
-    input_items = _build_input_items("当前问题 [Ref-2]", deps)
-
-    assert input_items == [
-        {"role": "user", "content": "上一轮问题"},
-        {"role": "assistant", "content": "A" * 250},
-        {"role": "user", "content": "当前问题 [Ref-2]"},
-    ]
-
-
-@pytest.mark.asyncio
-async def test_clarify_vague_question():
-    deps = _make_deps()
-    reply = "请补充规范号或构件类型。"
-
-    with patch(
-        "server.agents.qa_agent.Runner.run",
-        return_value=await _fake_runner_result(reply),
-    ):
-        result, bundle, _usage = await run_qa_agent(
-            agent=object(),
-            question="这个参数是多少",
-            deps=deps,
-        )
-
-    assert "补充" in result or "哪" in result
-    assert bundle.is_empty
-
-
-@pytest.mark.asyncio
-async def test_max_turns_with_evidence():
-    bundle = EvidenceBundle(chunks=[_make_chunk()])
-    deps = _make_deps(bundle=bundle)
-
-    async def fake_runner_run(_agent, _input, *, error_handlers, **_kwargs):
-        decision = error_handlers["max_turns"](object())
-        return SimpleNamespace(final_output=decision)
-
-    with patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run):
-        result, returned_bundle, _usage = await run_qa_agent(
-            agent=object(),
-            question="EN 1990 设计使用年限是什么？",
-            deps=deps,
-            max_turns=1,
-        )
-
-    assert result == "已检索到相关规范证据，正在整理回答。"
-    assert returned_bundle is bundle
-
-
-@pytest.mark.asyncio
-async def test_max_turns_without_evidence():
-    deps = _make_deps()
-
-    async def fake_runner_run(_agent, _input, *, error_handlers, **_kwargs):
-        decision = error_handlers["max_turns"](object())
-        return SimpleNamespace(final_output=decision)
-
-    with patch("server.agents.qa_agent.Runner.run", side_effect=fake_runner_run):
-        result, bundle, _usage = await run_qa_agent(
-            agent=object(),
-            question="EN 1990 设计使用年限是什么？",
-            deps=deps,
-            max_turns=1,
-        )
-
-    assert result == "抱歉，暂时查不到相关规范内容，请尝试换个问法或补充规范号。"
-    assert bundle.is_empty
-
-
-@pytest.mark.asyncio
-async def test_direct_reply_without_retrieve_exposes_empty_bundle():
-    """The agent can answer directly without creating RAG evidence."""
-    deps = _make_deps()
-    reply = "这个问题需要补充规范号或构件类型。"
-
-    with patch(
-        "server.agents.qa_agent.Runner.run",
-        return_value=await _fake_runner_result(reply),
-    ):
-        result, bundle, _usage = await run_qa_agent(
-            agent=object(),
-            question="混凝土分项系数是多少？",
-            deps=deps,
-        )
-
-    assert result == reply
-    assert bundle.is_empty
-    assert not any(entry.get("tool") == "retrieve" for entry in bundle.tool_trace)
-
-
-@pytest.mark.asyncio
-async def test_run_qa_agent_streamed_yields_tool_progress():
-    deps = _make_deps()
-
-    class _FakeStreamedRun:
-        final_output = "已检索到相关规范证据。"
-
-        async def stream_events(self):
-            from agents.stream_events import RunItemStreamEvent
-
-            yield RunItemStreamEvent(
-                name="tool_called",
-                item=SimpleNamespace(
-                    type="tool_call_item",
-                    tool_name="retrieve",
-                    call_id="call-1",
-                    raw_item={"arguments": '{"query": "design working life"}'},
-                ),
-            )
-            yield RunItemStreamEvent(
-                name="tool_output",
-                item=SimpleNamespace(
-                    type="tool_call_output_item",
-                    call_id="call-1",
-                    output="检索到 1 个片段。",
-                ),
-            )
-
-    with patch(
-        "server.agents.qa_agent.Runner.run_streamed",
-        return_value=_FakeStreamedRun(),
-    ):
-        events = [
-            item
-            async for item in run_qa_agent_streamed(
-                agent=object(),
-                question="设计使用年限是什么？",
-                deps=deps,
-            )
-        ]
-
-    assert isinstance(events[0], AgentStreamEvent)
-    assert events[0].kind == "tool_calling"
-    assert events[0].tool_name == "retrieve"
-    assert events[0].tool_args == {
-        "call_id": "call-1",
-        "arguments": '{"query": "design working life"}',
-    }
-    assert "design working life" in events[0].summary
-    assert isinstance(events[1], AgentStreamEvent)
-    assert events[1].kind == "tool_result"
-    assert events[1].tool_result == "检索到 1 个片段。"
-    assert events[-1] == ("已检索到相关规范证据。", deps.bundle, None)
-
-
-@pytest.mark.asyncio
-async def test_run_qa_agent_streamed_short_circuits_after_rag_tool_with_evidence():
-    deps = _make_deps()
-
-    class _FakeStreamedRun:
-        @property
-        def final_output(self):
-            raise AssertionError("final_output should not be read after short-circuit")
-
-        async def stream_events(self):
-            from agents.stream_events import RunItemStreamEvent
-
-            yield RunItemStreamEvent(
-                name="tool_called",
-                item=SimpleNamespace(
-                    type="tool_call_item",
-                    tool_name="retrieve_agentic",
-                    call_id="call-1",
-                    raw_item={"arguments": '{"query": "design working life"}'},
-                ),
-            )
-            deps.bundle.chunks = [_make_chunk()]
-            deps.bundle.groundedness = "partial"
-            deps.bundle.tool_trace.append(
-                {
-                    "tool": "retrieve_agentic",
-                    "query": "design working life",
-                    "chunk_count": 1,
-                    "groundedness": "partial",
-                }
-            )
-            yield RunItemStreamEvent(
-                name="tool_output",
-                item=SimpleNamespace(
-                    type="tool_call_output_item",
-                    call_id="call-1",
-                    output="检索到 1 个片段。",
-                ),
-            )
-            raise AssertionError("stream should stop immediately after RAG evidence")
-
-    with patch(
-        "server.agents.qa_agent.Runner.run_streamed",
-        return_value=_FakeStreamedRun(),
-    ):
-        events = [
-            item
-            async for item in run_qa_agent_streamed(
-                agent=object(),
-                question="设计使用年限是什么？",
-                deps=deps,
-            )
-        ]
-
-    assert len(events) == 3
-    assert isinstance(events[1], AgentStreamEvent)
-    assert events[1].kind == "tool_result"
-    assert events[-1] == ("已检索到相关规范证据，正在整理回答。", deps.bundle, None)
-
-
-def test_qa_agent_exposes_only_agentic_retrieval_tool():
+def test_qa_agent_exposes_only_lookup_tools():
     agent = build_qa_agent(ServerConfig())
     tool_names = {getattr(tool, "name", "") for tool in agent.tools}
 
-    assert "retrieve_agentic" in tool_names
-    assert "retrieve" not in tool_names
+    assert tool_names == {"search", "lookup_object"}
 
 
-def test_qa_agent_instructions_require_agentic_retrieve_for_eurocode_questions():
-    """Prompt-hardening: Eurocode questions should use the unified tool."""
-    assert "- retrieve(query" not in _QA_AGENT_INSTRUCTIONS
-    assert "必须调用 retrieve_agentic" in _QA_AGENT_INSTRUCTIONS
-    assert "retrieve_agentic 已返回 groundedness=grounded" in _QA_AGENT_INSTRUCTIONS
-    assert "最多调用 retrieve_agentic 2 次" in _QA_AGENT_INSTRUCTIONS
-    assert "top_k 控制每个证据槽返回给回答生成的候选证据数量" in (
-        _QA_AGENT_INSTRUCTIONS
+def test_agent_model_extra_body_uses_provider_specific_thinking_switch():
+    deepseek_config = ServerConfig(
+        agent_llm_base_url="https://api.deepseek.com/v1",
+        agent_llm_model="deepseek-v4-pro",
+        llm_enable_thinking=False,
     )
-    assert "简单定义或单个参数问题用 4-6" in _QA_AGENT_INSTRUCTIONS
-    assert "不要输出 JSON" in _QA_AGENT_INSTRUCTIONS
+    qwen_config = ServerConfig(
+        agent_llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        agent_llm_model="qwen3.6-flash",
+        llm_enable_thinking=False,
+    )
+
+    assert _agent_model_extra_body(deepseek_config) == {
+        "thinking": {"type": "disabled"}
+    }
+    assert _agent_model_extra_body(qwen_config) == {"enable_thinking": False}
+
+
+def test_qa_agent_instructions_use_prefetched_evidence_contract():
+    assert "【预检索证据】" in _QA_AGENT_INSTRUCTIONS
+    assert "【回答大纲】" in _QA_AGENT_INSTRUCTIONS
+    assert "只能引用已出现的 [Ref-N]" in _QA_AGENT_INSTRUCTIONS
+    assert "不做泛化检索" in _QA_AGENT_INSTRUCTIONS
+    assert "calculation_steps" in _QA_AGENT_INSTRUCTIONS
+    assert "self_check" in _QA_AGENT_INSTRUCTIONS
+    assert "retrieve_agentic" not in _QA_AGENT_INSTRUCTIONS
+    assert "generate_answer" not in _QA_AGENT_INSTRUCTIONS
+
+
+def test_build_input_items_includes_outline_after_prefetched_evidence():
+    bundle = EvidenceBundle()
+    chunk = _make_chunk("chunk-1", "fck is characteristic cylinder strength")
+    bundle.add_retrieval(
+        RetrievalResult(
+            chunks=[chunk],
+            parent_chunks=[],
+            scores=[0.9],
+            groundedness="partial",
+        ),
+        query="concrete strength definitions",
+    )
+    bundle.outline = {
+        "narrative_angle": "基于 EN 1992-1-1 解释强度定义",
+        "sections": [{"title": "强度定义", "bullets": ["说明 fck"], "ref_ids": ["Ref-1"]}],
+        "calculation_steps": [],
+        "self_check": ["只能使用已有引用"],
+    }
+    deps = QADeps(
+        config=ServerConfig(),
+        retriever=object(),
+        glossary={},
+        bundle=bundle,
+        conversation_state=ConversationState(conversation_id="conv-1", history=[]),
+    )
+
+    input_items = _build_input_items("混凝土强度定义？", deps)
+
+    assert input_items[-2]["content"].startswith("【预检索证据】")
+    assert "[Ref-1]" in input_items[-2]["content"]
+    assert input_items[-1]["content"].startswith("【回答大纲】")
+    assert "强度定义" in input_items[-1]["content"]
+
+
+def test_raw_response_text_delta_only_allows_final_output_text():
+    output_event = SimpleNamespace(
+        data=SimpleNamespace(type="response.output_text.delta", delta="最终答案")
+    )
+    reasoning_event = SimpleNamespace(
+        data=SimpleNamespace(type="response.reasoning_summary_text.delta", delta="分析")
+    )
+    other_event = SimpleNamespace(
+        data=SimpleNamespace(type="response.refusal.delta", delta="拒绝")
+    )
+    mapping_event = SimpleNamespace(
+        data={"type": "response.output_text.delta", "delta": "流式答案"}
+    )
+
+    assert _raw_response_text_delta(output_event) == "最终答案"
+    assert _raw_response_text_delta(mapping_event) == "流式答案"
+    assert _raw_response_text_delta(reasoning_event) == ""
+    assert _raw_response_text_delta(other_event) == ""
+
+
+def test_drop_empty_message_between_tool_call_and_tool_output():
+    tool_call = {"type": "function_call", "call_id": "call-1"}
+    empty_message = {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": ""}],
+    }
+    tool_output = {
+        "type": "function_call_output",
+        "call_id": "call-1",
+        "output": "result",
+    }
+
+    filtered = _drop_empty_messages_between_tool_call_and_output(
+        ["question", tool_call, empty_message, tool_output]
+    )
+
+    assert filtered == ["question", tool_call, tool_output]
+
+
+def test_drop_empty_message_keeps_real_or_unrelated_assistant_messages():
+    tool_call = {"type": "function_call", "call_id": "call-1"}
+    real_message = {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "visible"}],
+    }
+    empty_message = {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": ""}],
+    }
+    tool_output = {
+        "type": "function_call_output",
+        "call_id": "call-1",
+        "output": "result",
+    }
+
+    assert _drop_empty_messages_between_tool_call_and_output(
+        [tool_call, real_message, tool_output]
+    ) == [tool_call, real_message, tool_output]
+    assert _drop_empty_messages_between_tool_call_and_output(
+        [empty_message, tool_call, tool_output]
+    ) == [empty_message, tool_call, tool_output]
+
+
+def test_evidence_bundle_keeps_scores_aligned_and_assigns_refs():
+    first = _make_chunk("chunk-1", "first")
+    duplicate = _make_chunk("chunk-1", "duplicate")
+    second = _make_chunk("chunk-2", "second")
+    bundle = EvidenceBundle()
+
+    bundle.add_retrieval(
+        RetrievalResult(
+            chunks=[first],
+            parent_chunks=[],
+            scores=[0.9],
+            groundedness="partial",
+        ),
+        query="first query",
+    )
+    bundle.add_retrieval(
+        RetrievalResult(
+            chunks=[duplicate, second],
+            parent_chunks=[],
+            scores=[0.1, 0.8],
+            groundedness="partial",
+        ),
+        query="second query",
+    )
+
+    assert [chunk.chunk_id for chunk in bundle.chunks] == ["chunk-1", "chunk-2"]
+    assert bundle.scores == [0.9, 0.8]
+    assert bundle.ref_label_for(first) == "Ref-1"
+    assert bundle.ref_label_for(second) == "Ref-2"
+    assert bundle.retrieval_attempts[-1]["query"] == "second query"

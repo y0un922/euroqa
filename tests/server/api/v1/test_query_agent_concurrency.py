@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from openai import APITimeoutError
 
+from server.agents.decompose import DecomposedQuery, EvidenceAssessment
+from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents import orchestrator as orchestrator_module
 from server.config import ServerConfig
+from server.core.conversation import ConversationState
+from server.core.retrieval import RetrievalResult
 from server.errors import LLMUnavailableError
 from server.models.schemas import Chunk, ChunkMetadata, ElementType, QueryRequest
 
@@ -27,6 +31,16 @@ class _TimeoutAfterBody:
 
     async def __aexit__(self, exc_type, exc, tb):
         raise asyncio.TimeoutError
+
+
+class _FakeRetriever:
+    async def retrieve(self, *_args, **_kwargs):
+        return RetrievalResult(
+            chunks=[_make_chunk()],
+            parent_chunks=[],
+            scores=[0.8],
+            groundedness="partial",
+        )
 
 
 def _make_chunk() -> Chunk:
@@ -248,3 +262,148 @@ async def test_run_agent_dispatch_stream_timeout_returns_existing_evidence(
     assert result.agent_reply == "已检索到相关规范证据，正在整理回答。"
     assert result.bundle.has_rag_evidence
     assert result.bundle.groundedness == "grounded"
+
+
+@pytest.mark.asyncio
+async def test_prepare_evidence_streamed_emits_prefetch_tool_trace(monkeypatch):
+    async def fake_decompose_query(*_args, **_kwargs):
+        return DecomposedQuery(
+            rewritten_question="concrete partial factors",
+            sub_queries=["concrete partial factors"],
+            needs_retrieval=True,
+        )
+
+    async def fake_assess_evidence(*_args, **_kwargs):
+        return EvidenceAssessment(
+            sufficient=True,
+            missing_queries=[],
+            reason="covered",
+        )
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "decompose_query",
+        fake_decompose_query,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "assess_evidence",
+        fake_assess_evidence,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "outline_answer",
+        AsyncMock(return_value={}),
+    )
+    deps = QADeps(
+        config=ServerConfig(decompose_llm_model=""),
+        retriever=_FakeRetriever(),
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=ConversationState(conversation_id="conv-1", history=[]),
+    )
+
+    events = [
+        item.event
+        async for item in orchestrator_module._prepare_evidence_for_agent_streamed(
+            req=QueryRequest(question="材料分项系数？"),
+            deps=deps,
+            glossary={},
+        )
+    ]
+
+    prefetch_results = [
+        event
+        for event in events
+        if event.kind == "tool_result" and event.tool_name == "prefetch_retrieve"
+    ]
+    assert prefetch_results
+    assert prefetch_results[0].tool_trace["tool"] == "prefetch_retrieve"
+
+
+@pytest.mark.asyncio
+async def test_prepare_evidence_streamed_runs_bounded_assessments_before_stopping(
+    monkeypatch,
+):
+    async def fake_decompose_query(*_args, **_kwargs):
+        return DecomposedQuery(
+            rewritten_question="concrete partial factors",
+            sub_queries=["initial query"],
+            needs_retrieval=True,
+        )
+
+    assessment_calls = 0
+
+    async def fake_assess_evidence(*_args, **_kwargs):
+        nonlocal assessment_calls
+        assessment_calls += 1
+        return EvidenceAssessment(
+            sufficient=False,
+            missing_queries=["missing query"],
+            reason="needs one more search",
+        )
+
+    class RecordingRetriever:
+        def __init__(self):
+            self.calls = []
+
+        async def retrieve(self, queries, **kwargs):
+            self.calls.append((queries, kwargs["top_k"]))
+            return RetrievalResult(
+                chunks=[_make_chunk()],
+                parent_chunks=[],
+                scores=[0.8],
+                groundedness="partial",
+            )
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "decompose_query",
+        fake_decompose_query,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "assess_evidence",
+        fake_assess_evidence,
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "outline_answer",
+        AsyncMock(return_value={}),
+    )
+    retriever = RecordingRetriever()
+    deps = QADeps(
+        config=ServerConfig(decompose_llm_model=""),
+        retriever=retriever,
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=ConversationState(conversation_id="conv-1", history=[]),
+    )
+
+    events = [
+        item.event
+        async for item in orchestrator_module._prepare_evidence_for_agent_streamed(
+            req=QueryRequest(question="材料分项系数？"),
+            deps=deps,
+            glossary={},
+        )
+    ]
+
+    assessment_results = [
+        event
+        for event in events
+        if event.kind == "tool_result" and event.tool_name == "evidence_assessment"
+    ]
+    prefetch_results = [
+        event
+        for event in events
+        if event.kind == "tool_result" and event.tool_name == "prefetch_retrieve"
+    ]
+
+    assert assessment_calls == 2
+    assert len(assessment_results) == 2
+    assert len(prefetch_results) == 2
+    assert retriever.calls == [
+        (["initial query"], orchestrator_module._INITIAL_TOP_K),
+        (["missing query"], orchestrator_module._ASSESSMENT_TOP_K),
+    ]

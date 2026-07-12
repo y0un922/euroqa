@@ -1,10 +1,6 @@
 from server.config import ServerConfig
 
 
-def test_agentic_search_defaults_to_safe_single_slot_mode():
-    assert ServerConfig().agentic_search_enabled is False
-
-
 def test_agent_llm_config_falls_back_to_main_llm_config():
     config = ServerConfig(
         llm_api_key="main-key",
@@ -26,8 +22,29 @@ def test_agent_llm_config_uses_agent_specific_values():
         agent_llm_api_key="agent-key",
         agent_llm_base_url="https://agent.example/v1",
         agent_llm_model="agent-model",
+        decompose_llm_api_key="",
+        decompose_llm_base_url="",
+        decompose_llm_model="",
     )
 
     assert config.resolved_agent_llm_api_key == "agent-key"
     assert config.resolved_agent_llm_base_url == "https://agent.example/v1"
     assert config.resolved_agent_llm_model == "agent-model"
+
+
+def test_decompose_llm_config_falls_back_to_agent_then_main_config():
+    config = ServerConfig(
+        llm_api_key="main-key",
+        llm_base_url="https://main.example/v1",
+        llm_model="main-model",
+        agent_llm_api_key="agent-key",
+        agent_llm_base_url="https://agent.example/v1",
+        agent_llm_model="agent-model",
+        decompose_llm_api_key="",
+        decompose_llm_base_url="",
+        decompose_llm_model="",
+    )
+
+    assert config.resolved_decompose_llm_api_key == "agent-key"
+    assert config.resolved_decompose_llm_base_url == "https://agent.example/v1"
+    assert config.resolved_decompose_llm_model == "agent-model"
