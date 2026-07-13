@@ -79,10 +79,22 @@ def test_isolation_rejects_server_new_dirty_and_env_change():
 
 
 def test_crec_corpus_gap_ineligible():
-    score, eligible = crec_score([], ["c1", "c2"])
+    score, eligible = crec_score([], [{"content": "anything"}])
     assert score is None
     assert eligible is False
-    score2, eligible2 = crec_score(["c1", "c3"], ["c1", "c2"])
+    score2, eligible2 = crec_score(
+        [
+            {
+                "evidence_id": "e1",
+                "quote": "a sufficiently long required evidence quotation",
+            },
+            {
+                "evidence_id": "e2",
+                "quote": "a sufficiently long missing evidence quotation",
+            },
+        ],
+        [{"content": "prefix a sufficiently long required evidence quotation suffix"}],
+    )
     assert eligible2 is True
     assert abs(score2 - 0.5) < 1e-9
 
@@ -103,4 +115,4 @@ def test_claude_cli_includes_no_session_persistence():
 
     src = inspect.getsource(cb.run_claude_json)
     assert "--no-session-persistence" in src
-    assert "--bare" in src
+    assert "--bare" not in src

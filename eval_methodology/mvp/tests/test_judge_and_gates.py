@@ -13,15 +13,6 @@ from eval_methodology.mvp.metrics.e2e import aggregate, per_question_from_parts 
 from eval_methodology.mvp.metrics.judges.cli_backend import (  # noqa: E402
     _extract_json_object,
 )
-from eval_methodology.mvp.metrics.judges.dual_judge import DualJudgeResult  # noqa: E402
-from eval_methodology.mvp.metrics.schemas import (  # noqa: E402
-    CitationUnit,
-    ClaimUnit,
-    ExtractedUnits,
-    JudgeRawOutput,
-    ClaimVerdict,
-    CitationVerdict,
-)
 from eval_methodology.mvp.metrics.judges.cache import (  # noqa: E402
     make_cache_key,
 )
@@ -29,7 +20,7 @@ from eval_methodology.mvp.metrics.judges.cache import (  # noqa: E402
 
 def test_regex_fallback_is_not_ok():
     # Trailing garbage forces non-pure JSON; regex might salvage but ok=False.
-    text = "here is noise {\"claim_verdicts\": [], \"citation_verdicts\": []} trailing"
+    text = 'here is noise {"claim_verdicts": [], "citation_verdicts": []} trailing'
     parsed = _extract_json_object(text, allow_regex_fallback=True)
     assert parsed.source == "regex_fallback"
     assert parsed.ok is False
@@ -50,27 +41,32 @@ def test_citation_disagreement_full_drop_nulls_faith_in_aggregate():
         faith=0.9,  # would-be faith
         citp=None,
         judge_dropped=True,
-        e_plus=["c1"],
+        evidence_locators=[{"evidence_id": "e1", "quote": "supported text"}],
         context_chunk_ids=["c1"],
+        context_chunks=[{"chunk_id": "c1", "content": "supported text"}],
         unresolved_refs=[],
         resolved_refs=[],
     )
     assert pq.faith is None
     assert pq.citp is None
     assert pq.judge_dropped is True
-    agg = aggregate([pq] + [
-        per_question_from_parts(
-            question_id=f"Q{i:02d}",
-            faith=1.0,
-            citp=1.0,
-            judge_dropped=False,
-            e_plus=["c1"],
-            context_chunk_ids=["c1"],
-            unresolved_refs=[],
-            resolved_refs=[],
-        )
-        for i in range(2, 17)
-    ])
+    agg = aggregate(
+        [pq]
+        + [
+            per_question_from_parts(
+                question_id=f"Q{i:02d}",
+                faith=1.0,
+                citp=1.0,
+                judge_dropped=False,
+                evidence_locators=[{"evidence_id": "e1", "quote": "supported text"}],
+                context_chunk_ids=["c1"],
+                context_chunks=[{"chunk_id": "c1", "content": "supported text"}],
+                unresolved_refs=[],
+                resolved_refs=[],
+            )
+            for i in range(2, 17)
+        ]
+    )
     # Dropped Q01 excluded from faith mean n.
     assert agg.effective_n_faith == 15
     assert abs((agg.faith_mean or 0) - 1.0) < 1e-9
@@ -83,8 +79,18 @@ def test_retrieval_gap_ids_populated():
         faith=1.0,
         citp=1.0,
         judge_dropped=False,
-        e_plus=["e1", "e2", "e3"],
-        context_chunk_ids=["e1"],
+        evidence_locators=[
+            {"evidence_id": "e1", "quote": "first exact evidence"},
+            {"evidence_id": "e2", "quote": "second exact evidence"},
+            {"evidence_id": "e3", "quote": "third exact evidence"},
+        ],
+        context_chunk_ids=["chunk-any-id"],
+        context_chunks=[
+            {
+                "chunk_id": "chunk-any-id",
+                "content": "prefix first exact evidence suffix",
+            }
+        ],
         unresolved_refs=["Table 3.1"],
         resolved_refs=[],
     )
@@ -99,7 +105,10 @@ def test_cache_key_changes_with_model_and_order():
         model_id="gpt-5.3-codex",
         question="q",
         answer="a",
-        context_chunks=[{"chunk_id": "a", "content": "x"}, {"chunk_id": "b", "content": "y"}],
+        context_chunks=[
+            {"chunk_id": "a", "content": "x"},
+            {"chunk_id": "b", "content": "y"},
+        ],
         citations=[],
     )
     k2 = make_cache_key(
@@ -107,7 +116,10 @@ def test_cache_key_changes_with_model_and_order():
         model_id="gpt-5.3-codex",
         question="q",
         answer="a",
-        context_chunks=[{"chunk_id": "b", "content": "y"}, {"chunk_id": "a", "content": "x"}],
+        context_chunks=[
+            {"chunk_id": "b", "content": "y"},
+            {"chunk_id": "a", "content": "x"},
+        ],
         citations=[],
     )
     k3 = make_cache_key(
@@ -115,7 +127,10 @@ def test_cache_key_changes_with_model_and_order():
         model_id="other-model",
         question="q",
         answer="a",
-        context_chunks=[{"chunk_id": "a", "content": "x"}, {"chunk_id": "b", "content": "y"}],
+        context_chunks=[
+            {"chunk_id": "a", "content": "x"},
+            {"chunk_id": "b", "content": "y"},
+        ],
         citations=[],
     )
     assert k1 != k2  # ordered context content hash differs by order of list
@@ -144,7 +159,13 @@ def test_model_pin_closes_unresolved_cache_gap(tmp_path, monkeypatch):
         context_chunks=chunks,
         citations=[],
     )
-    cache.set(key, {"output": {"claim_verdicts": [], "citation_verdicts": []}, "model_id": "gpt-5.3-codex"})
+    cache.set(
+        key,
+        {
+            "output": {"claim_verdicts": [], "citation_verdicts": []},
+            "model_id": "gpt-5.3-codex",
+        },
+    )
     # New process simulation: clear memory pin, reload from disk
     monkeypatch.setattr(cb, "_PINNED_MODELS", {})
     key2 = make_cache_key(
@@ -162,14 +183,11 @@ def test_model_pin_closes_unresolved_cache_gap(tmp_path, monkeypatch):
 def test_gold_review_packet_covers_all(tmp_path, monkeypatch):
     from eval_methodology.mvp.dataset import build_gold as bg
 
-    monkeypatch.setattr(bg, "REVIEW_DIR", tmp_path)
     results = [
         {
             "id": "Q01",
             "question": "q1",
             "status": "needs_human_review",
-            "pool_size": 3,
-            "pool_strategies": ["bm25", "vector"],
             "gold": {
                 "reference_answer": "ans",
                 "claims": [
@@ -177,10 +195,18 @@ def test_gold_review_packet_covers_all(tmp_path, monkeypatch):
                         "claim_id": "c1",
                         "status": "supported",
                         "text": "t",
-                        "evidence_chunk_ids": ["x"],
+                        "evidence_ids": ["e1"],
                     }
                 ],
-                "E_plus": ["x"],
+                "evidence": [
+                    {
+                        "evidence_id": "e1",
+                        "document_path": "standard/standard.md",
+                        "section": "Clause 1",
+                        "quote": "The exact evidence quote from the standard.",
+                    }
+                ],
+                "E_plus": ["e1"],
                 "gold_claim_status": "supported",
             },
             "disputes": [],
@@ -188,9 +214,7 @@ def test_gold_review_packet_covers_all(tmp_path, monkeypatch):
         {
             "id": "Q02",
             "question": "q2",
-            "status": "needs_human_review_disputed",
-            "pool_size": 1,
-            "pool_strategies": ["bm25"],
+            "status": "review_not_converged",
             "gold": {
                 "reference_answer": "",
                 "claims": [],
@@ -200,8 +224,10 @@ def test_gold_review_packet_covers_all(tmp_path, monkeypatch):
             "disputes": [{"claim_id": "c1", "note": "nope"}],
         },
     ]
-    path = bg.write_human_review_packet(results)
+    path = bg.write_human_review_packet(results, review_dir=tmp_path)
     text = path.read_text(encoding="utf-8")
     assert "Q01" in text and "Q02" in text
     assert "最小充分证据集" in text
     assert "[DISPUTED]" in text
+    assert "standard/standard.md" in text
+    assert "The exact evidence quote from the standard." in text

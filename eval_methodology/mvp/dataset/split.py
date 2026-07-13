@@ -157,6 +157,7 @@ def assemble_dataset(
                 "split": id_to_split.get(item["id"], "unassigned"),
                 "gold": g.get("gold"),
                 "gold_status": g.get("status"),
+                "gold_human_review": g.get("human_review"),
             }
         )
 
@@ -179,7 +180,9 @@ def main(argv: list[str] | None = None) -> int:
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = build_split(args.labels)
-    args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    args.out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"wrote {args.out} counts={payload['counts']}")
 
     dataset = assemble_dataset(args.labels, args.out, args.gold)

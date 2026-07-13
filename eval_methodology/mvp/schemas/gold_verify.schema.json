@@ -3,32 +3,24 @@
   "additionalProperties": false,
   "required": [
     "overall_agree",
+    "reference_answer_accurate",
+    "minimum_sufficient_evidence",
     "per_claim"
   ],
   "properties": {
-    "overall_agree": {
-      "type": "boolean"
-    },
+    "overall_agree": {"type": "boolean"},
+    "reference_answer_accurate": {"type": "boolean"},
+    "minimum_sufficient_evidence": {"type": "boolean"},
     "per_claim": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "claim_id",
-          "agree",
-          "note"
-        ],
+        "required": ["claim_id", "agree", "note"],
         "properties": {
-          "claim_id": {
-            "type": "string"
-          },
-          "agree": {
-            "type": "boolean"
-          },
-          "note": {
-            "type": "string"
-          }
+          "claim_id": {"type": "string"},
+          "agree": {"type": "boolean"},
+          "note": {"type": "string"}
         }
       }
     }

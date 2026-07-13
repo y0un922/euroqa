@@ -2,23 +2,51 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
+
+MIN_EVIDENCE_QUOTE_CHARS = 20
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(unicodedata.normalize("NFKC", value).split())
+
+
+def _evidence_coverage(
+    evidence_locators: list[dict[str, Any]],
+    context_chunks: list[dict[str, Any]],
+) -> tuple[set[str], set[str]]:
+    context = [
+        _normalize_text(str(chunk.get("content") or "")) for chunk in context_chunks
+    ]
+    found: set[str] = set()
+    all_ids: set[str] = set()
+    for locator in evidence_locators:
+        evidence_id = str(locator.get("evidence_id") or "")
+        quote = _normalize_text(str(locator.get("quote") or ""))
+        if not evidence_id:
+            continue
+        all_ids.add(evidence_id)
+        if len(quote) >= MIN_EVIDENCE_QUOTE_CHARS and any(
+            quote in content for content in context
+        ):
+            found.add(evidence_id)
+    return all_ids, found
 
 
 def crec_score(
-    e_plus: list[str] | set[str],
-    context_chunk_ids: list[str] | set[str],
+    evidence_locators: list[dict[str, Any]],
+    context_chunks: list[dict[str, Any]],
 ) -> tuple[float | None, bool]:
-    """CRec = |E⁺ ∩ C| / |E⁺|.
+    """CRec = fraction of exact gold evidence quotes present in actual C.
 
-    Returns (score, eligible). corpus_gap items with empty E⁺ are ineligible
-    and must not enter the CRec denominator (MVP_PLAN §E.2).
+    Evidence is discovered independently from parsed Markdown, so matching uses
+    normalized verbatim quotes rather than application index chunk IDs.
     """
-    e = set(e_plus or [])
-    if not e:
+    all_ids, found = _evidence_coverage(evidence_locators, context_chunks)
+    if not all_ids:
         return None, False
-    c = set(context_chunk_ids or [])
-    return len(e & c) / len(e), True
+    return len(found) / len(all_ids), True
 
 
 def unresolved_ref_rate(
@@ -48,9 +76,9 @@ def mean_unresolved_ref_rate(results: list[dict[str, Any]]) -> float:
 
 
 def retrieval_gap_ids(
-    e_plus: list[str],
-    context_chunk_ids: list[str],
+    evidence_locators: list[dict[str, Any]],
+    context_chunks: list[dict[str, Any]],
 ) -> list[str]:
-    """E⁺ chunks missing from C — counted by CRec as misses."""
-    c = set(context_chunk_ids or [])
-    return sorted(eid for eid in e_plus if eid not in c)
+    """Gold evidence locators whose exact quotes are absent from C."""
+    all_ids, found = _evidence_coverage(evidence_locators, context_chunks)
+    return sorted(all_ids - found)

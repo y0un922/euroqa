@@ -10,7 +10,7 @@
 ## 技术栈
 - Python ≥3.12，包管理 `uv`，一切跑 `uv run`。FastAPI + pydantic v2 + pydantic-settings。
 - 后端入口 `server/main:app`，配置 `server/config.py`（`ServerConfig`，`env_prefix=""`，env 优先级高于 `.env`）。
-- 运行时依赖：Milvus + Elasticsearch 已在线（只读查询）；`codex` CLI 与 `claude` CLI 已安装（gold 生成与 judge 用，见下）。
+- 评估 sidecar 依赖既有 Milvus + Elasticsearch；**gold 构建不依赖二者**。`codex` CLI 与 `claude` CLI 已安装（gold 生成与 judge 用，见下）。
 
 ## 范围（只做这些，别扩张）
 - 候选旋钮 = **`retrieval_auto_cross_ref_closure` 从 off→on**（配置级，A 方案）。**不要**用 `vector_top_k/bm25_top_k/rerank_top_n` 当候选——见下方"坑 1"。
@@ -31,13 +31,13 @@
 1. **检索旋钮空转**：`server/agents/orchestrator.py:54` 的 `_INITIAL_TOP_K=8` 是硬编码常量，调 retriever 时传入；`server/core/retrieval.py:2035` 的 `_config_for_top_k` 把 `vector_top_k/bm25_top_k/rerank_top_n` 全钳到该值派生值。改这三个全局配置在 agent 主路径**无效**。本方案候选 `retrieval_auto_cross_ref_closure` 在 `retrieval.py:1887` 真接入且不被 `model_copy` 覆盖 → 真生效。`agentic_search_enabled` 是死开关（无消费方），别用。
 2. **候选预检门**（跑昂贵 judge 前先过）：① baseline 的 `unresolved_ref_rate` 或逐题引用缺口分析确实指向 L4；② off→on 后至少 3 题的有序 context chunk-ID 集合发生变化。任一不过 → 停候选、不进 judge。
 3. **CRec 的 C 不能用 in-proc retriever 算**（不复现 decompose/补检索/父块/截断）。C 取自 e2e 响应里 `EvidenceBundle.citable_chunks()` 保存的真 C（见 `server/core/generation/context.py:13`）。
-4. **gold 状态机三态**：独立高召回搜索找到支持证据 → `E⁺`；找不到任何证据 → `corpus_gap`（**不进 CRec 分母**）；找到但候选 C 未召回 → `retrieval_gap`（计入，正是 CRec 要暴露的）。报告须给 `CRec eligible n`。人工复核范围 = 确认最小充分证据集（不止模型分歧）。
+4. **gold 状态机**：Codex 直接阅读完整 `data/parsed` 找到证据并经 Claude 复审 → `E⁺`；找不到任何证据 → `corpus_gap`；模型复审不收敛 → `review_not_converged`；人工未确认最小充分证据集也不进 CRec。已确认 E⁺ 的 quote 未出现在候选 C → `retrieval_gap`。
 5. **两家 judge 必须对齐单元**：不能各自拆 claim 再比（分母/单元不同）。先做**固定 claim/citation 抽取步**产带 ID 的原子 claim + 引用单元 → 两家 judge 只判**同一组单元** → 定义逐单元一致与题级剔除规则。
 6. **bootstrap 阈值**：降级线是"有效 n **<15**"（不是 <16）；judge 剔除率 >30% 或有效 n<15 → 整轮降级为趋势参考。固定 bootstrap 随机种子。
 7. **基线自然波动**：基线×2（候选预算允许也×2）；基线自波动 = δ/ε 噪声下界，候选改善小于基线自波动判 inconclusive。
 
 ## gold 与 judge 的 CLI 用法
-- **gold 生成**：每题先高召回并集（多查询 BM25 + 向量 + 对象精确查找 + 父块/邻块扩展）→ `codex exec --skip-git-repo-check --ephemeral -s read-only --output-schema <schema.json>`（在临时目录跑）生成参考答案+原子 claims+gold evidence chunk_id+负样本 → `claude -p --json-schema <schema> --output-format json`（禁工具/会话持久化）反向核验。找不到证据的 claim 标 `corpus_gap` 保留。不一致写 `eval_methodology/review/disputes_*.md` 人工复核。
+- **gold 生成**：先将 `data/parsed/**/*.md` 复制到仓库外临时目录。`codex exec --ephemeral -s read-only --output-schema --add-dir <staged-corpus> -m gpt-5.6-terra -c model_reasoning_effort=\"low\"` 从另一个中立临时 cwd 启动，避免继承项目 `AGENTS.md`；gold CLI 单次超时为 900 秒，超时终止整个进程组。提示词明确使用挂载语料绝对路径，不假设 cwd 有语料，输出参考答案、原子 claims 和 `evidence_id/document_path/section/verbatim quote`，不得经过项目 RAG 或索引。随后 `claude -p --json-schema --output-format json --tools Read,Grep,Glob --no-session-persistence --add-dir <staged-corpus>` 也从中立临时 cwd 独立阅读同一仓库外副本，避免继承项目 `CLAUDE.md`。校验或审查失败则 Codex 完整返修、Claude 复审，最多两轮；仍失败不得进入 CRec。Claude 不使用 `--bare`，以兼容本机 OAuth 登录。
 - **judge**：每题每族**一次调用返回全指标**。用原生结构化输出：codex `--output-schema`（JSON Schema 文件），claude `--json-schema`/`--output-format json`。Pydantic 校验；解析失败重试 1 次再失败记缺测。**内容寻址缓存**从 MVP 起做，键 = 族+model id+prompt/schema 版本+question+answer+有序 context chunk 内容哈希+citations。
 - 跨族：codex（GPT 系）造 gold、claude（Anthropic 系）反验；judge 两族各打分，一致进硬门槛，分歧剔除计剔除率。报告记录实际 resolved model + 族。
 
@@ -46,7 +46,7 @@
 
 ## 实施顺序（每步独立可验证，逐步提交）
 1. **骨架 + 隔离验证** → `mvp/runner/sidecar.py --smoke`：起旁路后端、用 override 打 1 题 `/api/v1/query/stream`、关进程；断言主项目零新增脏动 + `.env` 哈希不变。**这步过了再继续。**
-2. **数据集** → `normalize_labels.py`（Excel→结构化标签，可信度高/低）+ `build_gold.py`（高召回+codex 生成+claude 反验+corpus_gap/retrieval_gap 标注）+ `split.py`（分层 dev16/test9/holdout6，固定划分绑代码版本）→ `dataset.json`；人工 spot-check 3 题。
+2. **数据集** → `normalize_labels.py` + `build_gold.py`（Codex 直读语料生成 → Claude 独立审查 → Codex 有界返修）+ `split.py`；人工确认全部题目的最小充分证据集。
 3. **judge 适配器** → `codex_judge.py`/`claude_judge.py` 对 1 题出 JSON，固定 claim 单元对齐，缓存就位。
 4. **指标** → `run_eval.py` 在 dev 上跑基线（sidecar 18080，×2）→ Faith/CitP/CRec/unresolved_ref_rate + 配对 bootstrap CI。
 5. **迭代** → `decision.py`：基线→LocateBottleneck（表 5）→候选预检门→ABDecide 三态。`tests/` 覆盖 accept/reject/inconclusive 三态单测（mock 指标字典）。

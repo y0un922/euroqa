@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,67 @@ from typing import Any
 
 class CLIJudgeError(RuntimeError):
     pass
+
+
+_PROCESS_GROUP_GRACE_S = 5.0
+
+
+def _terminate_process_group(
+    process: subprocess.Popen[str], *, grace_s: float = _PROCESS_GROUP_GRACE_S
+) -> tuple[str, str]:
+    """Terminate a CLI process group and drain pipes held by descendants."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return process.communicate()
+    try:
+        return process.communicate(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    return process.communicate()
+
+
+def _run_cli_process(
+    cmd: list[str], *, cwd: str | None, timeout_s: float
+) -> subprocess.CompletedProcess[str]:
+    """Run a CLI in its own process group and clean up descendants on timeout."""
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = _terminate_process_group(process)
+        raise subprocess.TimeoutExpired(
+            cmd=cmd,
+            timeout=timeout_s,
+            output=stdout or exc.output,
+            stderr=stderr or exc.stderr,
+        ) from exc
+    return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+
+
+def infer_model_family(model_id: str | None) -> str:
+    """Infer the provider family conservatively from a resolved model id."""
+    normalized = (model_id or "").lower()
+    if normalized.startswith(("gpt-", "o1", "o3", "o4")):
+        return "openai"
+    if "claude" in normalized:
+        return "anthropic"
+    if normalized.startswith("glm-"):
+        return "zhipu"
+    return "unknown"
 
 
 class ParseResult:
@@ -31,7 +93,9 @@ class ParseResult:
         self.error = error
 
 
-def _extract_json_object(text: str, *, allow_regex_fallback: bool = False) -> ParseResult:
+def _extract_json_object(
+    text: str, *, allow_regex_fallback: bool = False
+) -> ParseResult:
     """Parse CLI stdout as structured JSON.
 
     By default rejects regex `{...}` salvage (audit D3). Callers that want
@@ -191,6 +255,9 @@ def run_codex_json(
     workdir: Path | None = None,
     model: str | None = None,
     timeout_s: float = 300.0,
+    ignore_rules: bool = False,
+    add_dirs: tuple[Path, ...] = (),
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """codex exec --ephemeral -s read-only --output-schema ...
 
@@ -212,24 +279,29 @@ def run_codex_json(
         "--output-schema",
         str(schema_path),
     ]
+    if workdir:
+        cmd.extend(["-C", str(workdir.resolve())])
+    for directory in add_dirs:
+        cmd.extend(["--add-dir", str(directory.resolve())])
+    if ignore_rules:
+        cmd.append("--ignore-rules")
+    if reasoning_effort:
+        cmd.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
     if model:
         cmd.extend(["-m", model])
     cmd.append(prompt)
 
     cwd = str(workdir) if workdir else None
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=os.environ.copy(),
-        )
+        proc = _run_cli_process(cmd, cwd=cwd, timeout_s=timeout_s)
     except subprocess.TimeoutExpired as exc:
         raise CLIJudgeError(f"codex timed out after {timeout_s}s") from exc
 
     raw = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+    if proc.returncode != 0:
+        raise CLIJudgeError(
+            f"codex failed with rc={proc.returncode}; tail={raw[-800:]}"
+        )
     parsed = _extract_json_object(proc.stdout or "", allow_regex_fallback=True)
     if not parsed.ok or parsed.data is None or parsed.source == "regex_fallback":
         # Also try full raw (stdout+stderr) only as proper JSON, not regex.
@@ -263,8 +335,16 @@ def run_claude_json(
     model: str | None = None,
     timeout_s: float = 300.0,
     system_prompt: str | None = None,
+    workdir: Path | None = None,
+    tools: tuple[str, ...] = (),
+    add_dirs: tuple[Path, ...] = (),
+    permission_mode: str | None = None,
 ) -> dict[str, Any]:
-    """claude -p --json-schema --output-format json; tools off; no session persist."""
+    """Run Claude with native structured output and explicit filesystem access.
+
+    Judge calls keep the default empty tool set. Gold review calls opt in to the
+    read-only ``Read``, ``Grep``, and ``Glob`` tools for the parsed corpus.
+    """
     schema_path = schema_path.resolve()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     resolved_model = resolve_claude_model_id(model)
@@ -278,27 +358,32 @@ def run_claude_json(
         "--json-schema",
         json.dumps(schema, ensure_ascii=False),
         "--tools",
-        "",
-        "--bare",
+        ",".join(tools),
         "--no-session-persistence",
     ]
     if model:
         cmd.extend(["--model", model])
     if system_prompt:
         cmd.extend(["--system-prompt", system_prompt])
+    for directory in add_dirs:
+        cmd.extend(["--add-dir", str(directory.resolve())])
+    if permission_mode:
+        cmd.extend(["--permission-mode", permission_mode])
 
     try:
-        proc = subprocess.run(
+        proc = _run_cli_process(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            env=os.environ.copy(),
+            cwd=str(workdir) if workdir else None,
+            timeout_s=timeout_s,
         )
     except subprocess.TimeoutExpired as exc:
         raise CLIJudgeError(f"claude timed out after {timeout_s}s") from exc
 
     raw = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+    if proc.returncode != 0:
+        raise CLIJudgeError(
+            f"claude failed with rc={proc.returncode}; tail={raw[-800:]}"
+        )
     # Prefer outer envelope model id (field varies by CLI version).
     try:
         outer = json.loads(proc.stdout or "")

@@ -10,7 +10,7 @@ with live index. Residuals D4/E3 closed in follow-up commit:
 |---|---|---|
 | B2 | weak L4 (`urr>0`) + set-based context diff | L4 requires `urr ≥ 0.15`; context compare is **ordered sequence** |
 | C1 | `retrieval_gap` not wired | per-question `retrieval_gap_ids` in metrics + raw eval |
-| C4 | gold only fused retrieve | independent BM25 + vector + `lookup_object` + parent/sibling neighbors |
+| C4 | gold only fused retrieve | superseded: Codex directly reads full `data/parsed`; no RAG/index dependency |
 | C5 | review only disputes | **all** items written to `review/gold_min_evidence_review_*.md` |
 | D2 | citation drop kept Faith | full question drop nulls Faith **and** CitP; aggregate excludes dropped |
 | D3 | silent regex JSON salvage | regex fallback `ok=False` → CLIJudgeError; Claude `--no-session-persistence` |
@@ -28,7 +28,25 @@ Local Milvus after `start-search-stack` still has **no collection**. Smoke corre
 Milvus collection '<ServerConfig.milvus_collection>' does not exist ... Refusing to create indexes
 ```
 
-Until indexes are rebuilt **outside** MVP:
+The sidecar still needs an existing index. Gold generation does not; it only needs
+Markdown files under `data/parsed` plus authenticated Codex and Claude CLIs.
+
+The direct-corpus gold path was smoke-tested on one external fixture: Codex generated
+a schema-valid locator gold and Claude independently approved it (`n_errors=0`,
+`status=needs_human_review`). The run resolved Codex as `gpt-5.6-terra` and the model
+behind the Claude CLI as `glm-5.2:cloud[1m]`; artifacts therefore record CLI interface
+separately from the actual model family. Smoke outputs were written only under `/tmp`.
+Both CLI subprocesses bind stdin to `DEVNULL`, run in a dedicated process group, and
+terminate that group on timeout. Gold calls use a 900-second timeout; judge calls keep
+their 300-second default.
+
+A full 31-question run completed with `n_errors=0` and wrote
+`mvp/data/gold_cli_terra_20260713.json`. Of the 31 questions, 23 reached
+`needs_human_review` and 8 exhausted the two repair rounds as
+`review_not_converged`; none are CRec-eligible until explicit human confirmation.
+The all-question review packet is under `review/gold_cli_terra_20260713/`.
+
+Until indexes are rebuilt **outside** MVP, sidecar commands remain blocked:
 
 ```bash
 ./scripts/rebuild-indexes.sh   # or pipeline

@@ -19,8 +19,9 @@ def per_question_from_parts(
     faith: float | None,
     citp: float | None,
     judge_dropped: bool,
-    e_plus: list[str] | None,
+    evidence_locators: list[dict[str, Any]] | None,
     context_chunk_ids: list[str],
+    context_chunks: list[dict[str, Any]],
     unresolved_refs: list[str] | None,
     resolved_refs: list[str] | None,
     n_claims: int = 0,
@@ -28,13 +29,14 @@ def per_question_from_parts(
     gold_claim_status: str = "",
     notes: str = "",
 ) -> PerQuestionMetrics:
-    e_plus_list = list(e_plus or [])
+    locators = list(evidence_locators or [])
+    e_plus_list = [str(item.get("evidence_id") or "") for item in locators]
     # Full question drop nulls both hard metrics (defensive).
     if judge_dropped:
         faith = None
         citp = None
-    crec, eligible = crec_score(e_plus_list, context_chunk_ids)
-    gaps = retrieval_gap_ids(e_plus_list, context_chunk_ids)
+    crec, eligible = crec_score(locators, context_chunks)
+    gaps = retrieval_gap_ids(locators, context_chunks)
     return PerQuestionMetrics(
         question_id=question_id,
         faith=faith,
@@ -125,7 +127,7 @@ def run_dict_from_stream_and_judge(
     question_id: str,
     stream_result: dict[str, Any],
     judge_result: Any,
-    e_plus: list[str] | None,
+    evidence_locators: list[dict[str, Any]] | None,
     gold_claim_status: str = "",
 ) -> PerQuestionMetrics:
     return per_question_from_parts(
@@ -133,8 +135,9 @@ def run_dict_from_stream_and_judge(
         faith=judge_result.faith,
         citp=judge_result.citp,
         judge_dropped=judge_result.dropped,
-        e_plus=e_plus,
+        evidence_locators=evidence_locators,
         context_chunk_ids=stream_result.get("context_chunk_ids") or [],
+        context_chunks=stream_result.get("context_chunks") or [],
         unresolved_refs=stream_result.get("unresolved_refs"),
         resolved_refs=stream_result.get("resolved_refs"),
         n_claims=len(judge_result.units.claims),

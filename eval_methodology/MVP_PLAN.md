@@ -10,7 +10,7 @@
 | # | codex 意见 | 核实 | 裁定 | 处理 |
 |---|---|---|---|---|
 | 🔴1 | `vector_top_k` 30→50 被 prefetch 钳制无效 | 属实。`_config_for_top_k`(retrieval.py:2035) 把 vector/bm25/rerank_top_n 全钳到 `_INITIAL_TOP_K=8` 派生值 | **接受** | 换候选为 `retrieval_auto_cross_ref_closure` off→on（已核实 retrieval.py:1887 真接入，且 model_copy 不覆盖它→真生效） |
-| 🔴2 | CRec 的 gold（仅召回池）与 C（in-proc retriever 不复现 decompose/补检索/父块/截断）都不合格 | 属实 | **接受** | gold 改高召回多策略并集+人工确认最小充分集；CRec 改用 e2e 响应里保存的 retrievalContext（真 C），删除 in-proc 诊断路径 |
+| 🔴2 | CRec 的 gold（仅召回池）与 C（in-proc retriever 不复现 decompose/补检索/父块/截断）都不合格 | 属实 | **接受** | gold 最终改为 Codex CLI 直接阅读完整 `data/parsed`，不依赖任何 RAG 候选池；CRec 的 C 取 e2e `retrievalContext` |
 | 🔴3 | "零改动主项目"不成立：sidecar 起 lifespan 会 init SQLite/WAL、恢复任务、可能建 Milvus collection；`.env` 被 gitignore 检测不到；工作树本就脏 | 属实（main.py:25-45 lifespan；.gitignore:18） | **接受** | sidecar 状态全引向临时目录；断言 Milvus collection 已存在；`git status` 改前后快照对比+`.env` 哈希单独比；进程组+finally+kill |
 | 🔴4 | Match 无有效人类标签：Excel 无对应答案快照，旧 y 用到新答案上无意义 | 属实（`outputs/dataset_answers/` 均旧版本） | **接受** | MVP A/B 删除 Match；y 仅用于分层划分与未来 holdout；历史答案可作 judge 校准参考（非 A/B 指标） |
 | P1 | model_copy 不校验（留 str "50"、收未知字段）；dict[str,Any] 使 sidecar/in-proc 对坏配置发散 | 属实（codex 实测） | **接受** | 改白名单 Pydantic CandidateConfig，经完整 ServerConfig 构造做类型校验 |
@@ -45,17 +45,17 @@
 ### B.2 数据集（修订，覆盖 🔴2/P4）
 - `dataset/normalize_labels.py`：Excel 4 列自由文本 → 结构化标签（codex 或 claude 建议 + 人工复核），输出可信度高/低。
 - `dataset/build_gold.py`：
-  1. 每题高召回并集：多查询 BM25 + 向量 + 对象精确查找 + 父块/邻块扩展；
-  2. codex 在并集上生成参考答案+原子 claims+gold evidence chunk_id+负样本；
-  3. claude 反向核验每条 gold evidence 是否支持对应 claim、参考答案有无事实错误，标不一致；
-  4. 找不到证据的 claim **保留并标 `retrieval_gap`**（不丢弃，符合 main.tex §2.3）；
-  5. 不一致写 `review/disputes_*.md` 人工复核（MVP checkpoint）。
+  1. 先把 Markdown 语料复制到仓库外临时目录；Codex CLI 从中立临时 cwd 以 read-only/ephemeral 模式启动，通过 `--add-dir <staged-corpus>` 搜索完整语料，固定使用 `gpt-5.6-terra` 并显式设置 `model_reasoning_effort=low`；gold CLI 单次超时为 900 秒，超时须终止整个进程组。提示词使用挂载语料绝对路径，不假设 cwd 内有文件；该隔离防止继承项目 `AGENTS.md`，且禁止调用 `HybridRetriever`、Milvus、Elasticsearch 或预计算候选池；
+  2. 定位符固定为 `evidence_id + document_path + section + verbatim quote`，代码确定性校验路径未逃逸且规范化后的 quote 确实存在；
+  3. Claude CLI 同样从仓库外中立临时 cwd 启动，仅启用 `Read/Grep/Glob` 并挂载同一个仓库外语料副本，避免 `--add-dir` 回溯项目 `CLAUDE.md`；不使用会禁用本机 OAuth/keychain 的 `--bare`，核验答案、claim、证据支持关系与最小充分性。报告分别记录 CLI interface、resolved model 与由 model id 判定的实际 family，不把 `claude` 命令名误记为 Anthropic 家族；
+  4. Claude 或确定性校验不通过时，把问题交回 Codex 输出完整返修版，再交 Claude 复审；最多返修两轮，仍不通过标 `review_not_converged`；
+  5. 通过模型复审后仍须人工确认最小充分证据集，并用 `build_gold.py --confirm <ids|all> --reviewer <name>` 持久化；未确认题不进入正式 CRec。CRec 用 evidence quote 对 e2e citable context 正文做确定性覆盖匹配。
 - `dataset/split.py`：分层 dev16/test9/holdout6，固定划分绑定代码版本。
 
 ### B.3 指标（修订）
 - `metrics/judges/`：`codex exec --ephemeral -s read-only --output-schema <schema.json>`（临时目录跑）；`claude -p --json-schema <schema> --output-format json`（禁工具/会话持久化）。每题每族**一次调用返回全指标**。
-- `metrics/e2e.py`：Faith（逐说法支持率）、CitP（引用内容级有效性）；两家一致进硬门槛，分歧剔除并计剔除率（有效 n<16 或剔除>30% 降级趋势参考）。
-- `metrics/diagnostics.py`：CRec = |E⁺∩C|/|E⁺|，**C 取自 e2e 响应 retrievalContext**。
+- `metrics/e2e.py`：Faith（逐说法支持率）、CitP（引用内容级有效性）；两家一致进硬门槛，分歧剔除并计剔除率（有效 n<15 或剔除>30% 降级趋势参考）。
+- `metrics/diagnostics.py`：CRec = 被 C 覆盖的已确认 E⁺ quote 数 / 已确认 E⁺ quote 总数，**C 取自 e2e 响应 retrievalContext 正文**。
 - `metrics/bootstrap.py`：配对 bootstrap B=1000，**固定种子**；报告逐题配对差、有效 n、CI 宽度、剔除率；宽 CI 标探索性。
 - **内容寻址缓存**（从 MVP 起，覆盖 P2）：键 = 族+model id+prompt/schema 版本+question+answer+有序 context chunk 内容哈希+citations。
 
@@ -95,7 +95,7 @@ claude 倾向 **A 先跑通闭环、B 紧接做第二轮验证**（两候选正�
 ### E.1 阻断 partial 闭合
 - **🔴1 候选预检门（新）**：`auto_cross_ref_closure` 只在有未覆盖内部引用时补 `fallback_ref_chunks`，OFF 时确定性引用补齐仍执行 → "必然改 C"过强。**加门**：off→on 后至少 N 题（建议 ≥3）的有序 context chunk-ID 集合发生变化，否则候选判无效、不进 judge。此门用 sidecar 响应的 retrievalContext 直接比，零 LLM 成本。
 - **🔴2 gold 状态机修正**：三态明确——
-  - 独立高召回搜索**找到**支持证据 → 进 `E⁺`（gold evidence）；
+  - Codex 直接阅读完整语料并经 Claude 复审后**找到**支持证据 → 进 `E⁺`（精确语料定位符）；
   - **找不到**任何支持证据 → 标 `corpus_gap`/`unverified_claim`，**不进 CRec 分母**；
   - 找到但候选版本 C 未召回 → `retrieval_gap`（计入，正是 CRec 该暴露的）。
   - 报告须给 `CRec eligible n`（分母实际题数）。人工复核范围 = 最小充分证据集确认（不止模型分歧）。

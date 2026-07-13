@@ -1,18 +1,16 @@
-"""Build gold evidence E⁺ via high-recall pool + codex generate + claude verify.
+"""Build weak-supervision gold with independent Codex and Claude CLI agents.
 
-State machine (MVP_PLAN §E.2):
-  - found supporting evidence → E⁺
-  - no evidence in corpus → corpus_gap (excluded from CRec denominator)
-  - found but candidate C misses → retrieval_gap (counted by CRec at eval time)
-
-Does not mutate the main project. Writes disputes under eval_methodology/review/.
+Codex reads ``data/parsed`` directly and creates a draft. Claude independently
+reads the same corpus and reviews it. Deterministic or Claude review failures
+are returned to Codex for at most two complete repair rounds.
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import hashlib
 import json
+import shutil
 import sys
 import tempfile
 from datetime import UTC, datetime
@@ -23,574 +21,359 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from eval_methodology.mvp.metrics.judges.cli_backend import (  # noqa: E402
+    infer_model_family,
+    run_claude_json,
+    run_codex_json,
+)
+from eval_methodology.mvp.dataset.gold_corpus import (  # noqa: E402
+    MIN_QUOTE_CHARS,
+    corpus_manifest,
+    validate_gold,
+)
 from eval_methodology.mvp.paths import (  # noqa: E402
     DATA_DIR,
     GOLD_JSON,
     LABELS_JSON,
+    PARSED_CORPUS_DIR,
     REVIEW_DIR,
     SCHEMAS_DIR,
-)
-from eval_methodology.mvp.metrics.judges.cli_backend import (  # noqa: E402
-    run_claude_json,
-    run_codex_json,
 )
 
 GOLD_SCHEMA_PATH = SCHEMAS_DIR / "gold_output.schema.json"
 VERIFY_SCHEMA_PATH = SCHEMAS_DIR / "gold_verify.schema.json"
+GOLD_PROMPT_VERSION = "gold-direct-corpus-v2"
+VERIFY_PROMPT_VERSION = "gold-independent-review-v2"
+MAX_REPAIR_ROUNDS = 2
+GOLD_CODEX_MODEL = "gpt-5.6-terra"
+GOLD_CLI_TIMEOUT_S = 900.0
 
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _chunk_entry(chunk: Any, *, score: float | None, strategy: str) -> dict[str, Any]:
-    return {
-        "chunk_id": chunk.chunk_id,
-        "content": chunk.content,
-        "source": chunk.metadata.source,
-        "section_path": list(chunk.metadata.section_path),
-        "parent_chunk_id": chunk.metadata.parent_chunk_id or "",
-        "object_label": chunk.metadata.object_label or "",
-        "score": score,
-        "strategy": strategy,
-    }
+def _generation_prompt(
+    question: str, manifest: dict[str, Any], corpus_root: Path
+) -> str:
+    files = "\n".join(f"- {row['path']}" for row in manifest["files"])
+    return f"""你是 Eurocode 评测集的 gold 生成员。当前工作目录是中立空目录；只读语料挂载在绝对路径：{corpus_root}。
+必须直接使用文件读取/搜索能力，完整检索该绝对路径下的 Markdown 规范和指南；不得假设当前目录含语料，不得调用本项目 RAG、检索器、Milvus、Elasticsearch 或复用候选池。
+
+任务：针对问题生成中文参考答案和原子 claims，并从实际 Markdown 文件中给出最小充分证据集。
+- supported claim 必须引用至少一个 evidence_id。
+- corpus_gap 仅在你搜索完整个语料仍找不到支持证据时使用，且 evidence_ids 必须为空。
+- 每条 evidence 使用相对当前语料根目录的 document_path、与 Markdown heading 文本一致的 section，以及从该 heading 下逐字复制的 quote（至少 {MIN_QUOTE_CHARS} 字符）。
+- quote 必须真实存在；不要改写、拼接或凭记忆补充。
+- evidence_id/claim_id 在本题内唯一；不要输出未被 claim 使用的 evidence。
+- reference_answer 只能陈述 claims 覆盖且语料支持的内容；对 corpus_gap 明确说明语料不足。
+
+问题：{question}
+
+可用 Markdown 文件（manifest sha256={manifest["sha256"]}）：
+{files}
+"""
 
 
-def _merge_entry(
-    merged: dict[str, dict[str, Any]],
-    entry: dict[str, Any],
-) -> None:
-    prev = merged.get(entry["chunk_id"])
-    if prev is None:
-        merged[entry["chunk_id"]] = entry
-        return
-    # Keep higher score; union strategies.
-    if (entry.get("score") or 0) > (prev.get("score") or 0):
-        strategies = {prev.get("strategy"), entry.get("strategy")}
-        entry = {**entry, "strategy": "+".join(sorted(s for s in strategies if s))}
-        merged[entry["chunk_id"]] = entry
-    else:
-        strategies = {prev.get("strategy"), entry.get("strategy")}
-        prev["strategy"] = "+".join(sorted(s for s in strategies if s))
+def _review_prompt(
+    question: str,
+    gold: dict[str, Any],
+    manifest: dict[str, Any],
+    corpus_root: Path,
+) -> str:
+    clean = {k: v for k, v in gold.items() if not k.startswith("_")}
+    return f"""你是独立 gold 审查员。当前工作目录是中立空目录；只读语料挂载在绝对路径：{corpus_root}。必须自行使用 Read/Grep/Glob 搜索该绝对路径的完整语料，不得仅相信 Codex 给出的 quote，也不得调用项目 RAG、Milvus 或 Elasticsearch。
+
+核验以下内容：参考答案是否准确完整；每条 claim 是否原子且状态正确；每个 quote 是否来自所列文件并直接支持 claim；证据是否是最小充分集；是否存在 Codex 漏检却错误标为 corpus_gap 的证据。
+per_claim 必须恰好覆盖所有 claim_id。任何事实错误、漏证、伪造路径/引文、证据不足或非最小集都应 agree=false，并令 overall_agree=false。不要用模型记忆代替语料证据。
+
+问题：{question}
+语料 manifest sha256：{manifest["sha256"]}
+待审 gold：
+{json.dumps(clean, ensure_ascii=False, indent=2)}
+"""
 
 
-def _question_queries(question: str) -> list[str]:
-    queries = [question]
-    stripped = question.replace("？", " ").replace("?", " ").strip()
-    if stripped and stripped != question:
-        queries.append(stripped)
-    if len(question) > 40:
-        queries.append(question[:40])
-    return list(dict.fromkeys(queries))
+def _repair_prompt(
+    question: str,
+    gold: dict[str, Any],
+    validation_errors: list[str],
+    review: dict[str, Any],
+    manifest: dict[str, Any],
+    corpus_root: Path,
+) -> str:
+    clean_review = {k: v for k, v in review.items() if not k.startswith("_")}
+    clean_gold = {k: v for k, v in gold.items() if not k.startswith("_")}
+    return f"""你是 Eurocode gold 返修员。Claude 审查或确定性校验发现问题。
+当前工作目录是中立空目录；只读语料挂载在绝对路径：{corpus_root}。请重新直接搜索该绝对路径的 Markdown 全语料并输出一份完整替换版 gold。不得假设当前目录含语料，不得调用项目 RAG、Milvus、Elasticsearch，不得只局部打补丁。
+所有 document_path/section/quote/evidence_id/claim_id 约束与首轮相同；逐字 quote 至少 {MIN_QUOTE_CHARS} 字符。
+
+问题：{question}
+语料 manifest sha256：{manifest["sha256"]}
+确定性错误：{json.dumps(validation_errors, ensure_ascii=False)}
+Claude 审查：{json.dumps(clean_review, ensure_ascii=False, indent=2)}
+上一版 gold：{json.dumps(clean_gold, ensure_ascii=False, indent=2)}
+"""
 
 
-def _object_labels_from_question(question: str) -> list[str]:
-    """Pull Table/Figure/Expression/Clause-like labels for exact object lookup."""
-    from shared.reference_graph import extract_reference_labels
-
-    labels = list(extract_reference_labels(question))
-    # Lightweight Chinese/number patterns often present in client questions.
-    import re
-
-    for m in re.finditer(
-        r"(?:Table|表|Figure|图|Expression|公式|Clause|条款)\s*([0-9]+(?:\.[0-9]+)*)",
-        question,
-        re.I,
-    ):
-        head = m.group(0)
-        labels.append(head)
-    return list(dict.fromkeys(labels))
+def _review_passed(review: dict[str, Any], claim_ids: set[str]) -> bool:
+    verdicts = review.get("per_claim") or []
+    reviewed_ids = {str(v.get("claim_id") or "") for v in verdicts}
+    return bool(
+        review.get("overall_agree")
+        and review.get("reference_answer_accurate")
+        and review.get("minimum_sufficient_evidence")
+        and reviewed_ids == claim_ids
+        and len(verdicts) == len(claim_ids)
+        and all(v.get("agree") for v in verdicts)
+    )
 
 
-async def _neighbor_chunks(retriever: Any, seed_ids: list[str]) -> list[Any]:
-    """Parent + sibling-by-parent expansion around seed hits."""
-    out: list[Any] = []
-    seen: set[str] = set()
-    for cid in seed_ids[:20]:
-        try:
-            opened = await retriever.open_chunk(cid, neighbors=1)
-        except Exception:  # noqa: BLE001
-            opened = []
-        for ch in opened:
-            if ch.chunk_id not in seen:
-                seen.add(ch.chunk_id)
-                out.append(ch)
-        # Sibling expansion: other children of the same parent via ES.
-        parent_id = None
-        for ch in opened:
-            if ch.chunk_id == cid:
-                parent_id = ch.metadata.parent_chunk_id
-                break
-        if not parent_id:
-            continue
-        try:
-            es = await retriever._get_es()
-            body = {
-                "size": 6,
-                "query": {"term": {"parent_chunk_id": parent_id}},
-                "_source": False,
-            }
-            resp = await es.search(index=retriever.config.es_index, body=body)
-            sib_ids = [
-                h.get("_id")
-                for h in resp.get("hits", {}).get("hits", [])
-                if h.get("_id") and h.get("_id") not in seen
-            ]
-            if sib_ids:
-                siblings = await retriever._fetch_chunks(sib_ids[:4])
-                for ch in siblings:
-                    if ch.chunk_id not in seen:
-                        seen.add(ch.chunk_id)
-                        out.append(ch)
-        except Exception:  # noqa: BLE001
-            continue
-    return out
-
-
-async def high_recall_pool(question: str, *, top_k: int = 30) -> list[dict[str, Any]]:
-    """Independent multi-strategy high-recall union (read-only).
-
-    Strategies (MVP_PLAN / audit C4):
-      1) Independent BM25 per query variant
-      2) Independent vector search per query variant
-      3) Object exact lookup (table/figure/expression/clause labels)
-      4) Parent + neighbor (sibling) expansion around hits
-    Does **not** rely solely on HybridRetriever.retrieve() fused path.
-    """
-    from server.config import ServerConfig
-    from server.core.retrieval import HybridRetriever
-
-    config = ServerConfig()
-    data = config.model_dump()
-    data["vector_top_k"] = top_k
-    data["bm25_top_k"] = top_k
-    data["rerank_top_n"] = min(top_k, 20)
-    config = ServerConfig(**data)
-
-    retriever = HybridRetriever(config)
-    await retriever.initialize()
-    try:
-        merged: dict[str, dict[str, Any]] = {}
-        seed_ids: list[str] = []
-        filters: dict = {}
-
-        for q in _question_queries(question):
-            # 1) BM25 alone
-            try:
-                bm25 = await retriever._bm25_search(q, top_k=top_k, filters=filters)
-            except Exception:  # noqa: BLE001
-                bm25 = []
-            bm25_ids = [r["chunk_id"] for r in bm25 if r.get("chunk_id")]
-            if bm25_ids:
-                chunks = await retriever._fetch_chunks(bm25_ids)
-                by_id = {c.chunk_id: c for c in chunks}
-                for r in bm25:
-                    cid = r.get("chunk_id")
-                    if cid in by_id:
-                        score = r.get("score")
-                        _merge_entry(
-                            merged,
-                            _chunk_entry(
-                                by_id[cid],
-                                score=float(score) if score is not None else None,
-                                strategy="bm25",
-                            ),
-                        )
-                        seed_ids.append(cid)
-
-            # 2) Vector alone
-            try:
-                vec = await retriever._vector_search(q, top_k, filters)
-            except Exception:  # noqa: BLE001
-                vec = []
-            vec_ids = [r["chunk_id"] for r in vec if r.get("chunk_id")]
-            if vec_ids:
-                chunks = await retriever._fetch_chunks(vec_ids)
-                by_id = {c.chunk_id: c for c in chunks}
-                for r in vec:
-                    cid = r.get("chunk_id")
-                    if cid in by_id:
-                        score = r.get("score")
-                        _merge_entry(
-                            merged,
-                            _chunk_entry(
-                                by_id[cid],
-                                score=float(score) if score is not None else None,
-                                strategy="vector",
-                            ),
-                        )
-                        seed_ids.append(cid)
-
-        # 3) Object exact lookup
-        for label in _object_labels_from_question(question):
-            try:
-                objs = await retriever.lookup_object(label, filters=filters, top_k=3)
-            except Exception:  # noqa: BLE001
-                objs = []
-            for ch in objs:
-                _merge_entry(
-                    merged,
-                    _chunk_entry(ch, score=None, strategy="object_lookup"),
-                )
-                seed_ids.append(ch.chunk_id)
-
-        # 4) Parent + neighbor expansion
-        neighbors = await _neighbor_chunks(retriever, list(dict.fromkeys(seed_ids)))
-        for ch in neighbors:
-            _merge_entry(
-                merged,
-                _chunk_entry(ch, score=None, strategy="neighbor"),
-            )
-
-        ranked = sorted(
-            merged.values(),
-            key=lambda x: (x.get("score") is not None, x.get("score") or 0.0),
-            reverse=True,
-        )
-        return ranked[:50]
-    finally:
-        await retriever.close()
-
-
-def _pool_prompt(question: str, pool: list[dict[str, Any]]) -> str:
-    lines = [
-        "你是 Eurocode 规范问答的 gold 标注助手。",
-        "给定问题与高召回 chunk 候选池，输出：",
-        "1) reference_answer：基于池内证据的参考答案（中文）",
-        "2) claims：原子说法列表，每条含 claim_id, text, status, evidence_chunk_ids, negative_chunk_ids",
-        "status 只能是 supported | corpus_gap：",
-        "  - supported：池内至少 1 个 chunk 充分支持该说法，填 evidence_chunk_ids",
-        "  - corpus_gap：池内找不到支持证据",
-        "negative_chunk_ids：相关但不足以支持该 claim 的 chunk（可空）",
-        "只使用候选池中的 chunk_id，禁止编造 id。",
-        "",
-        f"问题：{question}",
-        "",
-        "候选池：",
-    ]
-    for i, c in enumerate(pool, 1):
-        sec = " > ".join(c.get("section_path") or [])
-        content = (c.get("content") or "")[:1200]
-        lines.append(
-            f"[{i}] chunk_id={c['chunk_id']} source={c.get('source')} section={sec}\n{content}"
-        )
-    return "\n".join(lines)
-
-
-def _verify_prompt(question: str, gold: dict[str, Any], pool: list[dict[str, Any]]) -> str:
-    pool_by_id = {c["chunk_id"]: c for c in pool}
-    lines = [
-        "你是独立核验员。检查 gold 标注是否成立。",
-        "对每条 claim：evidence 是否真支持；reference_answer 是否有事实错误。",
-        "输出 per_claim: [{claim_id, agree: bool, note: str}] 与 overall_agree: bool。",
-        "",
-        f"问题：{question}",
-        f"参考答案：{gold.get('reference_answer', '')}",
-        "",
-        "claims：",
-    ]
-    for claim in gold.get("claims") or []:
-        eids = claim.get("evidence_chunk_ids") or []
-        snippets = []
-        for eid in eids:
-            chunk = pool_by_id.get(eid)
-            if chunk:
-                snippets.append(f"{eid}: {(chunk.get('content') or '')[:600]}")
-        lines.append(
-            f"- {claim.get('claim_id')}: status={claim.get('status')} text={claim.get('text')}\n"
-            f"  evidence:\n  " + "\n  ".join(snippets or ["(none)"])
-        )
-    return "\n".join(lines)
-
-
-def _ensure_schemas() -> None:
-    SCHEMAS_DIR.mkdir(parents=True, exist_ok=True)
-    if not GOLD_SCHEMA_PATH.is_file():
-        GOLD_SCHEMA_PATH.write_text(
-            json.dumps(
-                {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["reference_answer", "claims"],
-                    "properties": {
-                        "reference_answer": {"type": "string"},
-                        "claims": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": [
-                                    "claim_id",
-                                    "text",
-                                    "status",
-                                    "evidence_chunk_ids",
-                                    "negative_chunk_ids",
-                                ],
-                                "properties": {
-                                    "claim_id": {"type": "string"},
-                                    "text": {"type": "string"},
-                                    "status": {
-                                        "type": "string",
-                                        "enum": ["supported", "corpus_gap"],
-                                    },
-                                    "evidence_chunk_ids": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                    "negative_chunk_ids": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    if not VERIFY_SCHEMA_PATH.is_file():
-        VERIFY_SCHEMA_PATH.write_text(
-            json.dumps(
-                {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["overall_agree", "per_claim"],
-                    "properties": {
-                        "overall_agree": {"type": "boolean"},
-                        "per_claim": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["claim_id", "agree", "note"],
-                                "properties": {
-                                    "claim_id": {"type": "string"},
-                                    "agree": {"type": "boolean"},
-                                    "note": {"type": "string"},
-                                },
-                            },
-                        },
-                    },
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+def _codex(prompt: str, corpus_dir: Path) -> dict[str, Any]:
+    # Neutral cwd prevents repository AGENTS.md inheritance.
+    with tempfile.TemporaryDirectory(prefix="mvp_gold_codex_") as temp_dir:
+        return run_codex_json(
+            prompt,
+            schema_path=GOLD_SCHEMA_PATH,
+            workdir=Path(temp_dir),
+            ignore_rules=True,
+            add_dirs=(corpus_dir,),
+            reasoning_effort="low",
+            model=GOLD_CODEX_MODEL,
+            timeout_s=GOLD_CLI_TIMEOUT_S,
         )
 
 
-async def build_one(
+def _claude(prompt: str, corpus_dir: Path) -> dict[str, Any]:
+    # Neutral cwd prevents project CLAUDE.md discovery without breaking OAuth.
+    with tempfile.TemporaryDirectory(prefix="mvp_gold_claude_") as temp_dir:
+        return run_claude_json(
+            prompt,
+            schema_path=VERIFY_SCHEMA_PATH,
+            workdir=Path(temp_dir),
+            tools=("Read", "Grep", "Glob"),
+            add_dirs=(corpus_dir,),
+            permission_mode="dontAsk",
+            timeout_s=GOLD_CLI_TIMEOUT_S,
+        )
+
+
+def _stage_corpus(source: Path, destination: Path) -> Path:
+    """Copy Markdown corpus outside the project tree for CLI isolation."""
+    staged = destination / "corpus"
+    for source_file in source.resolve().rglob("*.md"):
+        relative = source_file.relative_to(source.resolve())
+        target = staged / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, target)
+    corpus_manifest(staged)
+    return staged
+
+
+def build_one(
     item: dict[str, Any],
     *,
-    skip_llm: bool = False,
+    corpus_dir: Path = PARSED_CORPUS_DIR,
+    max_repair_rounds: int = MAX_REPAIR_ROUNDS,
 ) -> dict[str, Any]:
-    qid = item["id"]
-    question = item["question"]
-    pool = await high_recall_pool(question)
-    pool_ids = {c["chunk_id"] for c in pool}
-
-    if skip_llm:
-        # Deterministic stub for offline wiring tests.
-        gold = {
-            "reference_answer": "",
-            "claims": [
-                {
-                    "claim_id": "c1",
-                    "text": "(stub — run without --skip-llm for real gold)",
-                    "status": "corpus_gap" if not pool else "supported",
-                    "evidence_chunk_ids": [pool[0]["chunk_id"]] if pool else [],
-                    "negative_chunk_ids": [],
-                }
-            ],
-        }
-        verify = {"overall_agree": True, "per_claim": [{"claim_id": "c1", "agree": True, "note": "stub"}]}
-        models = {"gold_family": "stub", "verify_family": "stub"}
-    else:
-        with tempfile.TemporaryDirectory(prefix="mvp_gold_") as tmp:
-            gold = run_codex_json(
-                _pool_prompt(question, pool),
-                schema_path=GOLD_SCHEMA_PATH,
-                workdir=Path(tmp),
-            )
-            verify = run_claude_json(
-                _verify_prompt(question, gold, pool),
-                schema_path=VERIFY_SCHEMA_PATH,
-            )
-        models = {
-            "gold_family": "codex",
-            "verify_family": "claude",
-            "gold_model": gold.get("_resolved_model"),
-            "verify_model": verify.get("_resolved_model"),
-        }
-
-    # Sanitize claim evidence ids to pool.
-    e_plus: list[str] = []
-    claims_out = []
-    for claim in gold.get("claims") or []:
-        status = claim.get("status") or "corpus_gap"
-        eids = [e for e in (claim.get("evidence_chunk_ids") or []) if e in pool_ids]
-        if status == "supported" and not eids:
-            status = "corpus_gap"
-        if status == "supported":
-            e_plus.extend(eids)
-        claims_out.append(
-            {
-                "claim_id": claim.get("claim_id"),
-                "text": claim.get("text"),
-                "status": status,
-                "evidence_chunk_ids": eids,
-                "negative_chunk_ids": [
-                    e
-                    for e in (claim.get("negative_chunk_ids") or [])
-                    if e in pool_ids
-                ],
-            }
+    """Run Codex generation, Claude review, and bounded Codex repair."""
+    question = str(item["question"])
+    manifest = corpus_manifest(corpus_dir)
+    history: list[dict[str, Any]] = []
+    converged = False
+    with tempfile.TemporaryDirectory(prefix="mvp_gold_corpus_") as stage_dir:
+        staged_corpus = _stage_corpus(corpus_dir, Path(stage_dir))
+        gold = _codex(
+            _generation_prompt(question, manifest, staged_corpus), staged_corpus
         )
+        for round_index in range(max_repair_rounds + 1):
+            validation_errors = validate_gold(gold, corpus_dir)
+            review = _claude(
+                _review_prompt(question, gold, manifest, staged_corpus), staged_corpus
+            )
+            claim_ids = {str(c.get("claim_id") or "") for c in gold.get("claims") or []}
+            converged = not validation_errors and _review_passed(review, claim_ids)
+            history.append(
+                {
+                    "round": round_index,
+                    "kind": "draft" if round_index == 0 else "repair",
+                    "validation_errors": validation_errors,
+                    "review": {
+                        k: v for k, v in review.items() if not k.startswith("_")
+                    },
+                    "codex_model": gold.get("_resolved_model"),
+                    "claude_model": review.get("_resolved_model"),
+                    "gold_sha256": hashlib.sha256(
+                        json.dumps(
+                            {k: v for k, v in gold.items() if not k.startswith("_")},
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                    "passed": converged,
+                }
+            )
+            if converged or round_index == max_repair_rounds:
+                break
+            gold = _codex(
+                _repair_prompt(
+                    question,
+                    gold,
+                    validation_errors,
+                    review,
+                    manifest,
+                    staged_corpus,
+                ),
+                staged_corpus,
+            )
 
-    e_plus = sorted(set(e_plus))
-    agree = bool(verify.get("overall_agree"))
-    disputes = []
-    for pc in verify.get("per_claim") or []:
-        if not pc.get("agree", True):
-            disputes.append(pc)
-
-    claim_statuses = {c["status"] for c in claims_out}
-    if not claims_out:
-        gold_claim_status = "none"
-    elif claim_statuses == {"supported"}:
-        gold_claim_status = "supported"
-    elif claim_statuses == {"corpus_gap"}:
-        gold_claim_status = "corpus_gap"
-    else:
-        gold_claim_status = "mixed"
-
-    # All items need human confirmation of min sufficient evidence set (C5).
-    status = "needs_human_review"
-    if not agree or disputes:
-        status = "needs_human_review_disputed"
-    if models.get("gold_family") == "stub":
-        status = "stub_needs_human_review"
-
+    evidence = list(gold.get("evidence") or [])
+    claims = list(gold.get("claims") or [])
+    e_plus = sorted(
+        {
+            str(eid)
+            for claim in claims
+            if claim.get("status") == "supported"
+            for eid in claim.get("evidence_ids") or []
+        }
+    )
+    statuses = {c.get("status") for c in claims}
+    claim_status = (
+        "none"
+        if not claims
+        else next(iter(statuses))
+        if len(statuses) == 1
+        else "mixed"
+    )
+    gold_model = history[-1]["codex_model"]
+    verify_model = history[-1]["claude_model"]
     return {
-        "id": qid,
+        "id": item["id"],
         "question": question,
-        "status": status,
+        "status": "needs_human_review" if converged else "review_not_converged",
         "built_at": _utc_now(),
-        "models": models,
-        "pool_chunk_ids": [c["chunk_id"] for c in pool],
-        "pool_size": len(pool),
-        "pool_strategies": sorted(
-            {s for c in pool for s in str(c.get("strategy") or "").split("+") if s}
-        ),
+        "prompt_versions": {
+            "gold": GOLD_PROMPT_VERSION,
+            "verify": VERIFY_PROMPT_VERSION,
+        },
+        "corpus_manifest": manifest,
+        "models": {
+            "gold_interface": "codex-cli",
+            "verify_interface": "claude-cli",
+            "gold_family": infer_model_family(gold_model),
+            "verify_family": infer_model_family(verify_model),
+            "gold_model": gold_model,
+            "verify_model": verify_model,
+        },
+        "revision_history": history,
         "gold": {
             "reference_answer": gold.get("reference_answer", ""),
-            "claims": claims_out,
+            "claims": claims,
+            "evidence": evidence,
             "E_plus": e_plus,
-            "eligible_for_crec": bool(e_plus),
-            "gold_claim_status": gold_claim_status,
-            # retrieval_gap is evaluated later vs each system's C; placeholder list empty.
-            "retrieval_gap_vs_system": [],
+            "eligible_for_crec": False,
+            "gold_claim_status": claim_status,
         },
-        "verify": verify,
-        "disputes": disputes,
+        "disputes": [
+            verdict
+            for verdict in (history[-1]["review"].get("per_claim") or [])
+            if not verdict.get("agree")
+        ],
         "human_review": {
             "required": True,
             "task": "confirm_minimum_sufficient_evidence_set",
-            "checklist": [
-                "E⁺ 是否为支持参考答案 claims 的最小充分集",
-                "是否有应进 E⁺ 却漏掉的 pool chunk",
-                "corpus_gap claims 是否确为语料缺口",
-            ],
             "confirmed": False,
+            "confirmed_by": "",
+            "confirmed_at": "",
         },
     }
 
 
-def write_human_review_packet(results: list[dict[str, Any]]) -> Path:
-    """Write review file for **all** items (not only model disputes). Audit C5."""
-    REVIEW_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    path = REVIEW_DIR / f"gold_min_evidence_review_{ts}.md"
+def write_human_review_packet(
+    results: list[dict[str, Any]], *, review_dir: Path = REVIEW_DIR
+) -> Path:
+    """Write the required minimum-sufficient-evidence review for all items."""
+    review_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    path = review_dir / f"gold_min_evidence_review_{stamp}.md"
     lines = [
-        f"# Gold 最小充分证据集人工复核 ({ts})",
+        f"# Gold 最小充分证据集人工复核 ({stamp})",
         "",
-        "范围：**全部题目**。任务 = 确认每题 E⁺ 是否为支持 claims 的最小充分集。",
-        "模型分歧题额外标 `[DISPUTED]`。",
-        "",
-        f"题数：{len(results)}",
+        "范围：全部题目。只有人工确认后该题才可进入正式 CRec。",
         "",
     ]
-    for r in results:
-        tag = ""
-        if r.get("disputes") or "disputed" in str(r.get("status")):
-            tag = " `[DISPUTED]`"
-        if r.get("status") == "error":
-            tag = " `[ERROR]`"
-        lines.append(f"## {r['id']}{tag}: {r.get('question', '')}")
-        lines.append(f"- status: {r.get('status')}")
-        gold = r.get("gold") or {}
-        lines.append(f"- gold_claim_status: {gold.get('gold_claim_status')}")
-        lines.append(f"- E⁺ ({len(gold.get('E_plus') or [])}): "
-                     f"{', '.join(gold.get('E_plus') or []) or '(none)'}")
-        lines.append(f"- pool_size: {r.get('pool_size')} strategies={r.get('pool_strategies')}")
-        lines.append(f"- reference_answer: {(gold.get('reference_answer') or '')[:300]}")
+    for result in results:
+        lines.extend(
+            [
+                f"## {result['id']}: {result.get('question', '')}",
+                f"- status: {result.get('status')}",
+            ]
+        )
+        gold = result.get("gold") or {}
+        lines.append(f"- reference_answer: {gold.get('reference_answer', '')}")
         for claim in gold.get("claims") or []:
             lines.append(
-                f"  - claim `{claim.get('claim_id')}` [{claim.get('status')}]: "
-                f"{claim.get('text')}"
+                f"- `{claim.get('claim_id')}` [{claim.get('status')}]: {claim.get('text')}"
             )
             lines.append(
-                f"    evidence: {', '.join(claim.get('evidence_chunk_ids') or []) or '—'}"
+                f"  evidence: {', '.join(claim.get('evidence_ids') or []) or '(none)'}"
             )
-        for d in r.get("disputes") or []:
-            lines.append(f"  - **dispute** `{d.get('claim_id')}`: {d.get('note')}")
-        if r.get("error"):
-            lines.append(f"- error: {r['error']}")
-        lines.append("- [ ] 人工确认最小充分证据集")
-        lines.append("")
-    # Also emit a disputes-only companion for quick triage.
+        for evidence in gold.get("evidence") or []:
+            lines.append(
+                f"  - `{evidence.get('evidence_id')}` {evidence.get('document_path')}"
+                f" / {evidence.get('section')}: {evidence.get('quote')}"
+            )
+        for dispute in result.get("disputes") or []:
+            lines.append(
+                f"- [DISPUTED] `{dispute.get('claim_id')}`: {dispute.get('note')}"
+            )
+        if result.get("error"):
+            lines.append(f"- error: {result['error']}")
+        lines.extend(["- [ ] 人工确认最小充分证据集", ""])
+    path.write_text("\n".join(lines), encoding="utf-8")
     disputed = [
-        r for r in results if r.get("disputes") or "disputed" in str(r.get("status"))
+        result
+        for result in results
+        if result.get("disputes") or result.get("status") == "review_not_converged"
     ]
     if disputed:
-        dpath = REVIEW_DIR / f"disputes_{ts}.md"
-        dlines = [
-            f"# Gold model disputes only ({ts})",
-            "",
-            f"n_disputed={len(disputed)} / total={len(results)}",
-            "",
-        ]
-        for r in disputed:
-            dlines.append(f"## {r['id']}: {r.get('question')}")
-            for d in r.get("disputes") or []:
-                dlines.append(f"- `{d.get('claim_id')}`: {d.get('note')}")
-            dlines.append("")
-        dpath.write_text("\n".join(dlines), encoding="utf-8")
-    path.write_text("\n".join(lines), encoding="utf-8")
+        disputes_path = review_dir / f"disputes_{stamp}.md"
+        dispute_lines = [f"# Gold model disputes ({stamp})", ""]
+        for result in disputed:
+            dispute_lines.append(f"## {result['id']}: {result.get('question', '')}")
+            for row in result.get("disputes") or []:
+                dispute_lines.append(f"- `{row.get('claim_id')}`: {row.get('note')}")
+            history = result.get("revision_history") or []
+            for error in (
+                history[-1].get("validation_errors") if history else []
+            ) or []:
+                dispute_lines.append(f"- deterministic: {error}")
+            dispute_lines.append("")
+        disputes_path.write_text("\n".join(dispute_lines), encoding="utf-8")
     return path
 
 
-async def build_all(
+def build_all(
     labels_path: Path,
     *,
+    corpus_dir: Path = PARSED_CORPUS_DIR,
     limit: int | None = None,
     ids: list[str] | None = None,
-    skip_llm: bool = False,
+    review_dir: Path = REVIEW_DIR,
 ) -> dict[str, Any]:
-    labels = json.loads(labels_path.read_text(encoding="utf-8"))
-    items = labels["items"]
+    """Build selected labels sequentially and retain per-item failures."""
+    corpus_manifest(corpus_dir)
+    items = json.loads(labels_path.read_text(encoding="utf-8"))["items"]
     if ids:
-        idset = set(ids)
-        items = [i for i in items if i["id"] in idset]
+        selected = set(ids)
+        items = [item for item in items if item["id"] in selected]
     if limit is not None:
         items = items[:limit]
-
     results = []
-    for idx, item in enumerate(items, 1):
-        print(f"[{idx}/{len(items)}] gold {item['id']}")
+    for index, item in enumerate(items, 1):
+        print(f"[{index}/{len(items)}] gold {item['id']}")
         try:
-            results.append(await build_one(item, skip_llm=skip_llm))
+            results.append(build_one(item, corpus_dir=corpus_dir))
         except Exception as exc:  # noqa: BLE001
             results.append(
                 {
@@ -601,46 +384,120 @@ async def build_all(
                     "gold": {
                         "reference_answer": "",
                         "claims": [],
+                        "evidence": [],
                         "E_plus": [],
-                        "eligible_for_crec": False,
                     },
                 }
             )
-
-    review_path = write_human_review_packet(results)
+    review_path = write_human_review_packet(results, review_dir=review_dir)
     return {
         "built_at": _utc_now(),
         "n": len(results),
+        "n_errors": sum(result.get("status") == "error" for result in results),
         "review_path": str(review_path),
-        "disputes_path": str(review_path),  # backward-compatible key
         "items": results,
     }
 
 
+def confirm_human_reviews(
+    payload: dict[str, Any],
+    *,
+    ids: set[str] | None,
+    reviewer: str,
+    corpus_dir: Path,
+) -> int:
+    """Persist human minimum-sufficient-evidence confirmation."""
+    confirmed = 0
+    for item in payload.get("items") or []:
+        if ids is not None and item.get("id") not in ids:
+            continue
+        if item.get("status") not in {"needs_human_review", "confirmed"}:
+            raise ValueError(
+                f"cannot confirm {item.get('id')}: status={item.get('status')}"
+            )
+        errors = validate_gold(item.get("gold") or {}, corpus_dir)
+        if errors:
+            raise ValueError(f"cannot confirm {item.get('id')}: {errors}")
+        review = item.setdefault("human_review", {})
+        review.update(
+            {
+                "required": True,
+                "task": "confirm_minimum_sufficient_evidence_set",
+                "confirmed": True,
+                "confirmed_by": reviewer,
+                "confirmed_at": _utc_now(),
+            }
+        )
+        item["status"] = "confirmed"
+        item["gold"]["eligible_for_crec"] = True
+        confirmed += 1
+    if confirmed == 0:
+        raise ValueError("no matching gold items to confirm")
+    return confirmed
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build gold E⁺ for MVP dataset")
+    parser = argparse.ArgumentParser(
+        description="Build gold through Codex and Claude CLIs"
+    )
     parser.add_argument("--labels", type=Path, default=LABELS_JSON)
+    parser.add_argument("--corpus", type=Path, default=PARSED_CORPUS_DIR)
     parser.add_argument("--out", type=Path, default=GOLD_JSON)
+    parser.add_argument("--review-dir", type=Path, default=REVIEW_DIR)
+    parser.add_argument(
+        "--force", action="store_true", help="overwrite an existing output"
+    )
+    parser.add_argument(
+        "--confirm",
+        type=str,
+        default=None,
+        help="persist human review for comma-separated IDs or 'all' in --out",
+    )
+    parser.add_argument("--reviewer", type=str, default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--ids", type=str, default=None, help="comma-separated ids")
-    parser.add_argument(
-        "--skip-llm",
-        action="store_true",
-        help="offline stub gold (wiring only; not for real metrics)",
-    )
     args = parser.parse_args(argv)
-    _ensure_schemas()
+    if args.confirm is not None:
+        if not args.out.is_file():
+            parser.error(f"gold output does not exist: {args.out}")
+        if not args.reviewer or not args.reviewer.strip():
+            parser.error("--reviewer is required with --confirm")
+        payload = json.loads(args.out.read_text(encoding="utf-8"))
+        confirm_ids = None
+        if args.confirm.strip().lower() != "all":
+            confirm_ids = {
+                value.strip() for value in args.confirm.split(",") if value.strip()
+            }
+        try:
+            count = confirm_human_reviews(
+                payload,
+                ids=confirm_ids,
+                reviewer=args.reviewer.strip(),
+                corpus_dir=args.corpus,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        args.out.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"confirmed {count} gold item(s) in {args.out}")
+        return 0
+    if args.out.exists() and not args.force:
+        parser.error(f"output already exists: {args.out}; pass --force to overwrite")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    ids = [x.strip() for x in args.ids.split(",")] if args.ids else None
-    payload = asyncio.run(
-        build_all(args.labels, limit=args.limit, ids=ids, skip_llm=args.skip_llm)
+    ids = [value.strip() for value in args.ids.split(",")] if args.ids else None
+    payload = build_all(
+        args.labels,
+        corpus_dir=args.corpus,
+        limit=args.limit,
+        ids=ids,
+        review_dir=args.review_dir,
     )
-    args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(
-        f"wrote {args.out} n={payload['n']} "
-        f"review={payload.get('review_path')}"
+    args.out.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    return 0
+    print(f"wrote {args.out} n={payload['n']} review={payload['review_path']}")
+    return 1 if payload["n_errors"] else 0
 
 
 if __name__ == "__main__":

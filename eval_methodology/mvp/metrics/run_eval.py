@@ -53,10 +53,15 @@ def _load_split_items(
     return items
 
 
-def _e_plus_for(item: dict[str, Any]) -> list[str]:
+def _evidence_for_crec(item: dict[str, Any]) -> list[dict[str, Any]]:
+    review = item.get("gold_human_review") or {}
+    if not isinstance(review, dict) or not review.get("confirmed"):
+        return []
+    if item.get("gold_status") in {"review_not_converged", "error"}:
+        return []
     gold = item.get("gold") or {}
     if isinstance(gold, dict):
-        return list(gold.get("E_plus") or [])
+        return list(gold.get("evidence") or [])
     return []
 
 
@@ -99,7 +104,9 @@ def eval_on_sidecar(
             else:
                 # Offline: heuristic extract + vacuous scores for wiring.
                 from eval_methodology.mvp.metrics.judges.extract import extract_units
-                from eval_methodology.mvp.metrics.judges.dual_judge import DualJudgeResult
+                from eval_methodology.mvp.metrics.judges.dual_judge import (
+                    DualJudgeResult,
+                )
 
                 units = extract_units(
                     question=question,
@@ -127,7 +134,7 @@ def eval_on_sidecar(
                 question_id=qid,
                 stream_result=stream,
                 judge_result=judged,
-                e_plus=_e_plus_for(item),
+                evidence_locators=_evidence_for_crec(item),
                 gold_claim_status=_gold_claim_status(item),
             )
             per_q.append(pq)
@@ -161,7 +168,9 @@ def eval_on_sidecar(
                 notes=f"eval error: {type(exc).__name__}: {exc}",
             )
             per_q.append(pq)
-            raw_results.append({"id": qid, "error": str(exc), "metrics": pq.model_dump()})
+            raw_results.append(
+                {"id": qid, "error": str(exc), "metrics": pq.model_dump()}
+            )
         if sleep_s > 0:
             time.sleep(sleep_s)
 
@@ -213,7 +222,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--split", type=str, default="dev")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--repeats", type=int, default=2, help="baseline repeats (×2)")
-    parser.add_argument("--variant", choices=["baseline", "candidate", "both"], default="baseline")
+    parser.add_argument(
+        "--variant", choices=["baseline", "candidate", "both"], default="baseline"
+    )
     parser.add_argument("--baseline-port", type=int, default=BASELINE_PORT)
     parser.add_argument("--candidate-port", type=int, default=CANDIDATE_PORT)
     parser.add_argument("--no-llm-judge", action="store_true")
@@ -259,7 +270,9 @@ def main(argv: list[str] | None = None) -> int:
         report = compare_snapshots(before, after)
         payload["isolation"] = report.to_dict()
         out = args.out or (ARTIFACTS_DIR / f"eval_{args.variant}_{args.split}.json")
-        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        out.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print(f"wrote {out}")
         assert_isolation(report)
 

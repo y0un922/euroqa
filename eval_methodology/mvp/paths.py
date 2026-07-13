@@ -7,6 +7,7 @@ from pathlib import Path
 MVP_ROOT = Path(__file__).resolve().parent
 EVAL_ROOT = MVP_ROOT.parent
 PROJECT_ROOT = EVAL_ROOT.parent
+PARSED_CORPUS_DIR = PROJECT_ROOT / "data" / "parsed"
 
 DATA_DIR = MVP_ROOT / "data"
 CACHE_DIR = MVP_ROOT / "cache"
