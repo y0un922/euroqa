@@ -393,6 +393,31 @@ def test_generation_prompt_uses_selected_corpus_root(tmp_path):
     assert str(mounted) in prompt
     assert "当前工作目录是中立空目录" in prompt
     assert "不得假设当前目录含语料" in prompt
+    assert "不得输出 HelloAGENTS" in prompt
+    assert "section 中禁止包含 `#`" in prompt
+    assert "quote 前最近出现的 Markdown heading" in prompt
+    assert "不得用父章节标题代替最近 heading" in prompt
+    assert "禁止把两个 heading" in prompt
+    assert "不得改写、拼接不连续段落" in prompt
+    assert "每条 claim 只表达一个可独立核验的事实" in prompt
+
+
+def test_repair_prompt_repeats_strict_locator_and_noninteractive_rules(tmp_path):
+    corpus = _corpus(tmp_path)
+    mounted = tmp_path / "staged" / "corpus"
+    prompt = bg._repair_prompt(
+        "question",
+        _gold(),
+        ["section heading not found"],
+        _review(False),
+        bg.corpus_manifest(corpus),
+        mounted,
+    )
+    assert "不得输出 HelloAGENTS" in prompt
+    assert "section 中禁止包含 `#`" in prompt
+    assert "quote 前最近出现的 Markdown heading" in prompt
+    assert "不得原样重复上一版定位符" in prompt
+    assert "必须把实际公式、数值或列表项包含进 quote" in prompt
 
 
 def test_staged_corpus_is_outside_source_and_preserves_manifest(tmp_path):

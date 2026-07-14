@@ -42,11 +42,21 @@ from eval_methodology.mvp.paths import (  # noqa: E402
 
 GOLD_SCHEMA_PATH = SCHEMAS_DIR / "gold_output.schema.json"
 VERIFY_SCHEMA_PATH = SCHEMAS_DIR / "gold_verify.schema.json"
-GOLD_PROMPT_VERSION = "gold-direct-corpus-v2"
+GOLD_PROMPT_VERSION = "gold-direct-corpus-v3"
 VERIFY_PROMPT_VERSION = "gold-independent-review-v2"
 MAX_REPAIR_ROUNDS = 2
 GOLD_CODEX_MODEL = "gpt-5.6-terra"
 GOLD_CLI_TIMEOUT_S = 900.0
+
+GOLD_OUTPUT_RULES = f"""这是已获用户授权的非交互批处理任务。立即检索并输出 schema JSON；不得输出 HelloAGENTS 状态栏、需求评分、确认选项、解释或等待用户回复。
+- document_path 必须是相对语料根目录的规范路径，禁止绝对路径和 `..`。
+- section 必须逐字等于 quote 前最近出现的 Markdown heading（即实际包围 quote 的最深层 heading）可见文本：去掉行首 `#` 和空格后再填写；不得用父章节标题代替最近 heading；section 中禁止包含 `#`，禁止把两个 heading 用分号或其他方式合并。
+- quote 必须从该 section 范围内复制一个连续的原文片段，至少 {MIN_QUOTE_CHARS} 字符；不得改写、拼接不连续段落、改变 LaTeX/HTML/标点或自行补空格。输出前必须用文件搜索确认整个 quote 能在文档中逐字找到。
+- 每条 claim 只表达一个可独立核验的事实。若一句话需要不同段落或不同公式支持，必须拆成多条 claims。
+- claim 的每个事实子句都必须被其 evidence_ids 所指 quote 直接覆盖；不要只引用公式或列表前的引导句，必须把实际公式、数值或列表项包含进 quote。
+- supported claim 必须引用至少一个 evidence_id；corpus_gap 的 evidence_ids 必须为空。
+- evidence_id/claim_id 在本题内唯一；不要输出未被 claim 使用的 evidence。
+- reference_answer 只能陈述 claims 覆盖且语料支持的内容；对 corpus_gap 明确说明语料不足。"""
 
 
 def _utc_now() -> str:
@@ -61,12 +71,7 @@ def _generation_prompt(
 必须直接使用文件读取/搜索能力，完整检索该绝对路径下的 Markdown 规范和指南；不得假设当前目录含语料，不得调用本项目 RAG、检索器、Milvus、Elasticsearch 或复用候选池。
 
 任务：针对问题生成中文参考答案和原子 claims，并从实际 Markdown 文件中给出最小充分证据集。
-- supported claim 必须引用至少一个 evidence_id。
-- corpus_gap 仅在你搜索完整个语料仍找不到支持证据时使用，且 evidence_ids 必须为空。
-- 每条 evidence 使用相对当前语料根目录的 document_path、与 Markdown heading 文本一致的 section，以及从该 heading 下逐字复制的 quote（至少 {MIN_QUOTE_CHARS} 字符）。
-- quote 必须真实存在；不要改写、拼接或凭记忆补充。
-- evidence_id/claim_id 在本题内唯一；不要输出未被 claim 使用的 evidence。
-- reference_answer 只能陈述 claims 覆盖且语料支持的内容；对 corpus_gap 明确说明语料不足。
+{GOLD_OUTPUT_RULES}
 
 问题：{question}
 
@@ -106,7 +111,8 @@ def _repair_prompt(
     clean_gold = {k: v for k, v in gold.items() if not k.startswith("_")}
     return f"""你是 Eurocode gold 返修员。Claude 审查或确定性校验发现问题。
 当前工作目录是中立空目录；只读语料挂载在绝对路径：{corpus_root}。请重新直接搜索该绝对路径的 Markdown 全语料并输出一份完整替换版 gold。不得假设当前目录含语料，不得调用项目 RAG、Milvus、Elasticsearch，不得只局部打补丁。
-所有 document_path/section/quote/evidence_id/claim_id 约束与首轮相同；逐字 quote 至少 {MIN_QUOTE_CHARS} 字符。
+必须针对下面每条确定性错误和 Claude 分歧逐项修复，不得原样重复上一版定位符。
+{GOLD_OUTPUT_RULES}
 
 问题：{question}
 语料 manifest sha256：{manifest["sha256"]}

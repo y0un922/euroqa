@@ -41,10 +41,12 @@ terminate that group on timeout. Gold calls use a 900-second timeout; judge call
 their 300-second default.
 
 A full 31-question run completed with `n_errors=0` and wrote
-`mvp/data/gold_cli_terra_20260713.json`. Of the 31 questions, 23 reached
-`needs_human_review` and 8 exhausted the two repair rounds as
-`review_not_converged`; none are CRec-eligible until explicit human confirmation.
-The all-question review packet is under `review/gold_cli_terra_20260713/`.
+`mvp/data/gold_cli_terra_20260713.json`. Eight initially non-converged questions
+were regenerated with prompt v3, which requires non-interactive output, the nearest
+Markdown heading, exact contiguous quotes, and atomic fully-evidenced claims. All
+31 now have `status=needs_human_review`, pass deterministic validation and Claude
+review, and remain CRec-ineligible until explicit human confirmation. The current
+all-question review packet is under `review/gold_cli_terra_20260713/`.
 
 Until indexes are rebuilt **outside** MVP, sidecar commands remain blocked:
 

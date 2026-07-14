@@ -1,16 +1,16 @@
 {
-  "built_at": "2026-07-13T17:28:44.576881Z",
+  "built_at": "2026-07-14T05:35:51.061537Z",
   "n": 31,
   "n_errors": 0,
-  "review_path": "eval_methodology/review/gold_cli_terra_20260713/gold_min_evidence_review_20260713_172844.md",
+  "review_path": "eval_methodology/review/gold_cli_terra_20260713/gold_min_evidence_review_20260714_053706.md",
   "items": [
     {
       "id": "Q01",
       "question": "请给出混凝土结构设计中相关作用荷载和材料的分项系数。",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T15:32:21.616969Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T04:56:19.109746Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -79,46 +79,75 @@
         {
           "round": 0,
           "kind": "draft",
-          "validation_errors": [],
+          "validation_errors": [
+            "evidence[0]: section heading not found or quote is outside section: 'A1.3.1 Design values of actions in persistent and transient design situations'"
+          ],
           "review": {
-            "overall_agree": false,
+            "overall_agree": true,
             "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
+            "minimum_sufficient_evidence": true,
             "per_claim": [
               {
                 "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 引文与 EN1990_2002.md 第2199行 Table A1.2(A) (EQU, Set A) 完全一致：γG,j,sup=1,10、γG,j,inf=0,90、γQ,1=1,50（不利）/0（有利）、γQ,i=1,50，且注明 γ 值可由国家附录设定。路径、引文、数值均准确，最小充分。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_2",
-                "note": "claim 非原子，捆绑了两条断言：(a) 偶然/地震设计状况 ULS 作用分项系数取1.0；(b) SLS 作用分项系数取1.0，除非 EN1991–1999 另有规定。所列 evidence_2（EN1990_2002.md 第2209行 A1.3.2）仅支持(a)，其引文完全不涉及 SLS。(b) 实际由第2220行 A1.4.1 支持（'For serviceability limit states the partial factors for actions should be taken as 1,0 except if differently specified in EN 1991 to EN 1999'），但该证据未被列入。属漏证、证据不足。"
+                "claim_id": "c1",
+                "note": "e1 (EN1990 Table A1.2(A) EQU Set A) explicitly lists γ_Gj,sup=1,10 and γ_Gj,inf=0,90 as recommended values for persistent and transient design situations. Quote is verbatim from file line 2199."
               },
               {
                 "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 引文与 EN1992-1-1_2004.md 第1041行 Table 2.1N 完全一致：持久/短暂 γc=1.5、γs=1,15、γps=1,15；偶然 1,2/1,0/1.0。路径、引文、数值准确，最小充分。"
+                "claim_id": "c2",
+                "note": "e1 shows γ_Q,1=1,50 (leading variable, where unfavourable) and γ_Q,i=1,50 (accompanying variable, where unfavourable). Both 1.50 confirmed verbatim."
               },
               {
                 "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_4 引文与 EN1992-1-1_2004.md 第1036行 Note（火灾设计不适用，参照 EN 1992-1-2）及第1043行 (2)（SLS 材料分项系数按本 Eurocode 具体条文取值）完全一致。路径、引文准确，最小充分。"
+                "claim_id": "c3",
+                "note": "e2 (EN1990 A1.3.2) states partial factors for actions for ULS in accidental and seismic design situations should be 1,0. Quote verbatim at line 2209."
+              },
+              {
+                "agree": true,
+                "claim_id": "c4",
+                "note": "e3 (EN1990 A1.4.1) states SLS partial factors for actions should be 1,0 except if differently specified in EN 1991 to EN 1999. Quote verbatim at line 2220."
+              },
+              {
+                "agree": true,
+                "claim_id": "c5",
+                "note": "e4 (EN1992-1-1 Table 2.1N) shows Persistent&Transient row with Yc for concrete = 1.5. Verbatim at line 1041."
+              },
+              {
+                "agree": true,
+                "claim_id": "c6",
+                "note": "e4 shows Ys for reinforcing steel = 1,15 for Persistent&Transient. Verbatim."
+              },
+              {
+                "agree": true,
+                "claim_id": "c7",
+                "note": "e4 shows Yys for prestressing steel = 1,15 for Persistent&Transient. Verbatim."
+              },
+              {
+                "agree": true,
+                "claim_id": "c8",
+                "note": "e4 Accidental row shows Yc for concrete = 1,2. Verbatim."
+              },
+              {
+                "agree": true,
+                "claim_id": "c9",
+                "note": "e4 Accidental row shows Ys for reinforcing steel = 1,0. Verbatim."
+              },
+              {
+                "agree": true,
+                "claim_id": "c10",
+                "note": "e4 Accidental row shows Yys for prestressing steel = 1.0. Verbatim (note source uses decimal point 1.0 rather than 1,0, but value is correct)."
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "80d40c6306c8ecf8668cb6bd17278420bc9c710d73964d42640eee13ac01dfa3",
+          "gold_sha256": "7a3c3281494ff97d9b0d6b7634eb2a580caf48e2e52fac0aed9cb8ae0ffbb7d4",
           "passed": false
         },
         {
           "round": 1,
           "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: 'A1.3.1 Design values of actions in persistent and transient design situations'",
-            "evidence[4]: quote not found verbatim in 'EN1992-1-1_2004/EN1992-1-1_2004.md'"
-          ],
+          "validation_errors": [],
           "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
@@ -126,170 +155,203 @@
             "per_claim": [
               {
                 "agree": true,
-                "claim_id": "claim_1",
-                "note": "EN1990_2002.md:2198-2199 Table A1.2(A) (EQU, Set A) 原文给出推荐值 γG,j,sup=1,10、γG,j,inf=0,90、γQ,1=1,50（不利；有利时为0）、γQ,i=1,50，并注明 γ 值可由国家附录设定。quote 与 claim 完全一致，路径、引文均真实。"
+                "claim_id": "c01",
+                "note": "ev01 quote from EN1990_2002.md line 2199 (Table A1.2(A) EQU Set A) confirms γ_Gj,sup=1,10 in persistent/transient. Quote verbatim, path correct, directly supports claim."
               },
               {
                 "agree": true,
-                "claim_id": "claim_2",
-                "note": "EN1990_2002.md:2207-2209 A1.3.2(1) 原文：accidental and seismic design situations 的作用分项系数 should be 1,0。quote 与 claim 一致。"
+                "claim_id": "c02",
+                "note": "ev01 confirms γ_Gj,inf=0,90 in same EQU Set A recommended values. Atomic and supported."
               },
               {
                 "agree": true,
-                "claim_id": "claim_3",
-                "note": "EN1990_2002.md:2218-2220 A1.4.1(1) 原文：serviceability limit states 的作用分项系数 should be taken as 1,0 except if differently specified in EN 1991 to EN 1999。quote 与 claim 一致。"
+                "claim_id": "c03",
+                "note": "ev01 confirms γ_Q,1=1,50 where unfavourable. Supported."
               },
               {
                 "agree": true,
-                "claim_id": "claim_4",
-                "note": "EN1992-1-1_2004.md:1040-1041 Table 2.1N 原文：Persistent&Transient 混凝土1.5、钢筋1,15、预应力1,15；Accidental 1,2、1,0、1.0。claim 中 γps=1.15 与表头 Yys 对应，数值一致。引文真实直接支持。"
+                "claim_id": "c04",
+                "note": "ev01 confirms γ_Q,i=1,50 where unfavourable. Supported."
               },
               {
                 "agree": true,
-                "claim_id": "claim_5",
-                "note": "EN1992-1-1_2004.md:1036-1043：Note 说明 Table 2.1N 推荐值 not valid for fire design，应参照 EN 1992-1-2；(2) SLS 材料分项系数取本 Eurocode 具体条文之值。quote 与 claim 一致。"
+                "claim_id": "c05",
+                "note": "ev02 from EN1990_2002.md line 2209 (A1.3.2) states partial factors for actions for ULS in accidental and seismic design situations should be 1,0. Directly supports."
+              },
+              {
+                "agree": true,
+                "claim_id": "c06",
+                "note": "ev03 from EN1990_2002.md line 2220 (A1.4.1) states SLS partial factors for actions = 1,0 except if differently specified in EN 1991 to EN 1999. Directly supports."
+              },
+              {
+                "agree": true,
+                "claim_id": "c07",
+                "note": "ev04 table (EN1992-1-1_2004.md line 1041, Table 2.1N) Persistent&Transient Yc=1.5. Supports γc=1.5."
+              },
+              {
+                "agree": true,
+                "claim_id": "c08",
+                "note": "ev04 Persistent&Transient Ys=1,15. Supports γs=1.15."
+              },
+              {
+                "agree": true,
+                "claim_id": "c09",
+                "note": "ev04 Persistent&Transient Yys=1,15. Supports γys=1.15."
+              },
+              {
+                "agree": true,
+                "claim_id": "c10",
+                "note": "ev04 Accidental Yc=1,2. Supports γc=1.2."
+              },
+              {
+                "agree": true,
+                "claim_id": "c11",
+                "note": "ev04 Accidental Ys=1,0. Supports γs=1.0."
+              },
+              {
+                "agree": true,
+                "claim_id": "c12",
+                "note": "ev04 Accidental Yys=1.0. Supports γys=1.0."
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "8be47e11f3a4e2cafa6e4eaf7ee3887d0309d36f3977bafdc89a1b68d7495b0a",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: 'A1.3 Ultimate limit states'"
-          ],
-          "review": {
-            "overall_agree": true,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 引自 EN1990_2002.md 第2199行 Table A1.2(A)，原文给出 γG,j,sup=1,10、γG,j,inf=0,90、γQ,1=1,50（不利1.50/有利0）、γQ,i=1,50（不利1.50/有利0），并注明 γ 值可由国家附录设定。quote 真实且直接支持 claim，数值与状态（EQU/Set A、持久短暂）一致。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 引自 EN1990_2002.md 第2209行 A1.3.2，原文 \"The partial factors for actions for the ultimate limit states in the accidental and seismic design situations ... should be 1,0\"，直接支持 claim。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 引自 EN1990_2002.md 第2220行 A1.4.1，原文 \"For serviceability limit states the partial factors for actions should be taken as 1,0 except if differently specified in EN 1991 to EN 1999\"，直接支持 claim。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_4 引自 EN1992-1-1_2004.md 第1041行 Table 2.1N，原文 Persistent&Transient: 1.5/1,15/1,15；Accidental: 1,2/1,0/1.0，与 claim 的混凝土/钢筋/预应力钢数值完全一致。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_5",
-                "note": "evidence_5（第1043行 clause (2)：SLS 材料分项系数按本 Eurocode 具体条文取值）与 evidence_6（第1036行 Note：Table 2.1N 推荐值不适用火灾设计，应参照 EN 1992-1-2）均真实存在，分别支持 claim 的两个原子要点，构成最小充分集。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "7c6a4e55c23793faeb555c887ae05a4a08825c7ed2833a00ae5ad62874f9a3bb",
-          "passed": false
+          "gold_sha256": "0d5ff82b4e28faff1d0ec82a903b9dc2f9dea290717cace9d2f427375f4b9daf",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "按所引 EN 1990:2002 与 EN 1992-1-1:2004 的推荐值：对持久/短暂设计状况的建筑静力平衡（EQU，Set A）验算，作用分项系数为不利永久作用 1.10、有利永久作用 0.90、不利可变作用 1.50（有利时为 0）；国家附录可设定这些 γ 值。偶然及地震设计状况的承载能力极限状态作用分项系数宜取 1.0。正常使用极限状态的作用分项系数也宜取 1.0，除非 EN 1991 至 EN 1999 另有规定。\n\n承载能力极限状态材料推荐分项系数为：持久/短暂状况混凝土 1.5、普通钢筋 1.15、预应力钢 1.15；偶然状况分别为 1.2、1.0、1.0。正常使用极限状态材料系数应按 EN 1992 的具体条文取值；火灾设计不适用表 2.1N 的材料推荐值，应参照 EN 1992-1-2。",
+        "reference_answer": "按 EN 1990:2002 的 EQU（Set A）推荐值，在持久和短暂设计情况下：不利永久作用 γ_Gj,sup=1.10，有利永久作用 γ_Gj,inf=0.90，不利主导可变作用 γ_Q,1=1.50，不利伴随可变作用 γ_Q,i=1.50。偶然和地震设计情况下的承载能力极限状态作用分项系数为 1.0；正常使用极限状态的作用分项系数为 1.0，除非 EN 1991 至 EN 1999 另有规定。按 EN 1992-1-1:2004：持久和短暂设计情况下，γc=1.5、γs=1.15、γys=1.15；偶然设计情况下，γc=1.2、γs=1.0、γys=1.0。",
         "claims": [
           {
-            "claim_id": "claim_1",
+            "claim_id": "c01",
             "evidence_ids": [
-              "evidence_1"
+              "ev01"
             ],
             "status": "supported",
-            "text": "对持久和短暂设计状况，EN 1990:2002 建筑静力平衡（EQU，Set A）的推荐作用分项系数为：不利永久作用 γG,j,sup=1.10、有利永久作用 γG,j,inf=0.90；不利主导及伴随可变作用 γQ=1.50，有利时为 0。国家附录可设定这些 γ 值。"
+            "text": "在持久和短暂设计情况下，EQU（Set A）推荐的不利永久作用分项系数 γ_Gj,sup 为 1.10。"
           },
           {
-            "claim_id": "claim_2",
+            "claim_id": "c02",
             "evidence_ids": [
-              "evidence_2"
+              "ev01"
             ],
             "status": "supported",
-            "text": "EN 1990:2002 规定：偶然和地震设计状况下，承载能力极限状态的作用分项系数宜取 1.0。"
+            "text": "在持久和短暂设计情况下，EQU（Set A）推荐的有利永久作用分项系数 γ_Gj,inf 为 0.90。"
           },
           {
-            "claim_id": "claim_3",
+            "claim_id": "c03",
             "evidence_ids": [
-              "evidence_3"
+              "ev01"
             ],
             "status": "supported",
-            "text": "EN 1990:2002 规定：正常使用极限状态的作用分项系数宜取 1.0；若 EN 1991 至 EN 1999 另有规定，则按其规定。"
+            "text": "在持久和短暂设计情况下，EQU（Set A）推荐的不利主导可变作用分项系数 γ_Q,1 为 1.50。"
           },
           {
-            "claim_id": "claim_4",
+            "claim_id": "c04",
             "evidence_ids": [
-              "evidence_4"
+              "ev01"
             ],
             "status": "supported",
-            "text": "EN 1992-1-1:2004 对承载能力极限状态材料的推荐分项系数为：持久及短暂设计状况，混凝土 γc=1.5、普通钢筋 γs=1.15、预应力钢 γps=1.15；偶然设计状况分别为 1.2、1.0、1.0。"
+            "text": "在持久和短暂设计情况下，EQU（Set A）推荐的不利伴随可变作用分项系数 γ_Q,i 为 1.50。"
           },
           {
-            "claim_id": "claim_5",
+            "claim_id": "c05",
             "evidence_ids": [
-              "evidence_5",
-              "evidence_6"
+              "ev02"
             ],
             "status": "supported",
-            "text": "正常使用极限状态的材料分项系数应按 EN 1992-1-1:2004 的具体条文取值；表 2.1N 的材料推荐值不适用于火灾设计，火灾设计应参照 EN 1992-1-2。"
+            "text": "偶然和地震设计情况下的承载能力极限状态，作用分项系数应取 1.0。"
+          },
+          {
+            "claim_id": "c06",
+            "evidence_ids": [
+              "ev03"
+            ],
+            "status": "supported",
+            "text": "正常使用极限状态的作用分项系数应取 1.0，除非 EN 1991 至 EN 1999 另有规定。"
+          },
+          {
+            "claim_id": "c07",
+            "evidence_ids": [
+              "ev04"
+            ],
+            "status": "supported",
+            "text": "持久和短暂设计情况下，混凝土材料分项系数 γc 为 1.5。"
+          },
+          {
+            "claim_id": "c08",
+            "evidence_ids": [
+              "ev04"
+            ],
+            "status": "supported",
+            "text": "持久和短暂设计情况下，普通钢筋材料分项系数 γs 为 1.15。"
+          },
+          {
+            "claim_id": "c09",
+            "evidence_ids": [
+              "ev04"
+            ],
+            "status": "supported",
+            "text": "持久和短暂设计情况下，预应力钢材材料分项系数 γys 为 1.15。"
+          },
+          {
+            "claim_id": "c10",
+            "evidence_ids": [
+              "ev04"
+            ],
+            "status": "supported",
+            "text": "偶然设计情况下，混凝土材料分项系数 γc 为 1.2。"
+          },
+          {
+            "claim_id": "c11",
+            "evidence_ids": [
+              "ev04"
+            ],
+            "status": "supported",
+            "text": "偶然设计情况下，普通钢筋材料分项系数 γs 为 1.0。"
+          },
+          {
+            "claim_id": "c12",
+            "evidence_ids": [
+              "ev04"
+            ],
+            "status": "supported",
+            "text": "偶然设计情况下，预应力钢材材料分项系数 γys 为 1.0。"
           }
         ],
         "evidence": [
           {
             "document_path": "EN1990_2002/EN1990_2002.md",
-            "evidence_id": "evidence_1",
-            "quote": "Table A1.2(A) - Design values of actions (EQU) (Set A)\n<table><tr><td rowspan=\"2\">Persistent and transient design situations</td><td colspan=\"2\">Permanent actions</td><td rowspan=\"2\">Leading variable action (*)</td><td colspan=\"2\">Accompanying variable actions</td></tr><tr><td>Unfavourable</td><td>Favourable</td><td>Main (if any)</td><td>Others</td></tr><tr><td>(Eq. 6.10)</td><td> $\\gamma _ { \\mathrm { G j , s u p } } G _ { \\mathrm { k j , s u p } }$ </td><td> $\\gamma _ { \\mathrm { G j , i n f } } G _ { \\mathrm { k j , i n f } }$ </td><td> $\\gamma _ { \\mathrm { Q , 1 } } \\mathrm { Q } _ { \\mathrm { k , 1 } }$ </td><td></td><td> $\\gamma _ { \\mathrm { Q , i } } \\psi _ { 0 , \\mathrm { i } } Q _ { \\mathrm { k , i } }$ </td></tr><tr><td colspan=\"6\">(*) Variable actions are those considered in Table A1.1 NOTE 1 The γ values may be set by the National annex. The recommended set of values for γ are :  $\\gamma _ { \\mathrm { G j , s u p } } = 1 , 1 0$   $\\gamma _ { \\mathrm { G j , i n f } } = 0 { , } 9 0$   $\\gamma _ { \\mathrm { Q , 1 } } = 1 \\mathrm { , } 5 0$  where unfavourable (0 where favourable)  $\\gamma _ { \\mathrm { Q , i } } = 1 , 5 0$  where unfavourable (0 where favourable)",
-            "section": "A1.3 Ultimate limit states"
+            "evidence_id": "ev01",
+            "quote": "(*) Variable actions are those considered in Table A1.1 NOTE 1 The γ values may be set by the National annex. The recommended set of values for γ are :  $\\gamma _ { \\mathrm { G j , s u p } } = 1 , 1 0$   $\\gamma _ { \\mathrm { G j , i n f } } = 0 { , } 9 0$   $\\gamma _ { \\mathrm { Q , 1 } } = 1 \\mathrm { , } 5 0$  where unfavourable (0 where favourable)  $\\gamma _ { \\mathrm { Q , i } } = 1 , 5 0$  where unfavourable (0 where favourable)",
+            "section": "EN 1990:2002 (E)"
           },
           {
             "document_path": "EN1990_2002/EN1990_2002.md",
-            "evidence_id": "evidence_2",
+            "evidence_id": "ev02",
             "quote": "(1) The partial factors for actions for the ultimate limit states in the accidental and seismic design situations (expressions 6.11a to 6.12b) should be 1,0. - values are given in Table A1.1.",
             "section": "A1.3.2 Design values of actions in the accidental and seismic design situations"
           },
           {
             "document_path": "EN1990_2002/EN1990_2002.md",
-            "evidence_id": "evidence_3",
+            "evidence_id": "ev03",
             "quote": "(1) For serviceability limit states the partial factors for actions should be taken as 1,0 except if differently specified in EN 1991 to EN 1999.",
             "section": "A1.4.1 Partial factors for actions"
           },
           {
             "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
-            "evidence_id": "evidence_4",
-            "quote": "Table 2.1N: Partial factors for materials for ultimate limit states\n<table><tr><td rowspan=1 colspan=1>Design situations</td><td rowspan=1 colspan=1>Yc for concrete</td><td rowspan=1 colspan=1>Ys for reinforcing steel</td><td rowspan=1 colspan=1>Yys for prestressing steel</td></tr><tr><td rowspan=1 colspan=1>Persistent&amp;Transient</td><td rowspan=1 colspan=1>1.5</td><td rowspan=1 colspan=1>1,15</td><td rowspan=1 colspan=1>1,15</td></tr><tr><td rowspan=1 colspan=1>Accidental</td><td rowspan=1 colspan=1>1,2</td><td rowspan=1 colspan=1>1,0</td><td rowspan=1 colspan=1>1.0</td></tr></table>",
-            "section": "2.4.2.4 Partial factors for materials"
-          },
-          {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
-            "evidence_id": "evidence_5",
-            "quote": "(2) The values for partial factors for materials for serviceability limit state verification should be taken as those given in the particular clauses of this Eurocode.",
-            "section": "2.4.2.4 Partial factors for materials"
-          },
-          {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
-            "evidence_id": "evidence_6",
-            "quote": "Note: The values of C and $\\gamma _ { \\mathsf { S } }$ for use in a Country may be found in its National Annex. The recommended values for ‘persistent & transient’ and ‘accidental, design situations are given in Table 2.1N. These are not valid for fire design for which reference should be made to EN 1992-1-2.",
+            "evidence_id": "ev04",
+            "quote": "<table><tr><td rowspan=1 colspan=1>Design situations</td><td rowspan=1 colspan=1>Yc for concrete</td><td rowspan=1 colspan=1>Ys for reinforcing steel</td><td rowspan=1 colspan=1>Yys for prestressing steel</td></tr><tr><td rowspan=1 colspan=1>Persistent&amp;Transient</td><td rowspan=1 colspan=1>1.5</td><td rowspan=1 colspan=1>1,15</td><td rowspan=1 colspan=1>1,15</td></tr><tr><td rowspan=1 colspan=1>Accidental</td><td rowspan=1 colspan=1>1,2</td><td rowspan=1 colspan=1>1,0</td><td rowspan=1 colspan=1>1.0</td></tr></table>",
             "section": "2.4.2.4 Partial factors for materials"
           }
         ],
         "E_plus": [
-          "evidence_1",
-          "evidence_2",
-          "evidence_3",
-          "evidence_4",
-          "evidence_5",
-          "evidence_6"
+          "ev01",
+          "ev02",
+          "ev03",
+          "ev04"
         ],
         "eligible_for_crec": false,
         "gold_claim_status": "supported"
@@ -306,10 +368,10 @@
     {
       "id": "Q02",
       "question": "请给出混凝土材料的强度与变形的相关定义、相互关系及如何计算。",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T15:42:18.304627Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:02:41.246740Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -380,55 +442,6 @@
           "kind": "draft",
           "validation_errors": [],
           "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
-            "per_claim": [
-              {
-                "agree": false,
-                "claim_id": "c1",
-                "note": "e1 quote 仅含 5.1.3(1)（强度等级与特征5%圆柱强度 fck、t_ref），但 claim 还断言“参考龄期通常取28天，也可在项目规定时取28～91天”——此内容在 5.1.3(2)（BSEN1992-1-1-2023.md 第2245-2247行: a) 28 days general; b) 28 to 91 days when specified）中，未列入 e1 引文。证据不足以直接支持 claim 第二子句，属漏证。"
-              },
-              {
-                "agree": true,
-                "claim_id": "c2",
-                "note": "e2 引文来自 Table 5.1（第2252行），含 fcm = fck + 8 MPa 及 fctm = 0,3fck2/3(≤50)/1,1fck1/3(>50)，路径与引文属实，直接支持 claim。"
-              },
-              {
-                "agree": false,
-                "claim_id": "c3",
-                "note": "e3 引文仅含公式(5.1) Ecm = kE·fcm^(1/3)（第2279行）。claim 还断言“该模量对应从 σc=0 至 σc=0.4fcm 的割线模量”——此为 NOTE 2（第2286行: E corresponds to the secant modulus between σc=0 and σc=0,4fcm），未列入 e3 引文。证据不足以支持 claim 第二子句，属漏证。"
-              },
-              {
-                "agree": true,
-                "claim_id": "c4",
-                "note": "e4 含公式(5.2) εcc(t,t0)=φ·(σc/Ec,28)（第2295行，5.1.5节）；e5 含公式(B.5) φ=φbc+φdc（第9042行，B.5节）。两引文路径与内容属实，共同直接支持 claim。"
-              },
-              {
-                "agree": true,
-                "claim_id": "c5",
-                "note": "e6 含公式(B.23) εcs(t,ts)=εcbs(t)+εcds(t-ts)（第9220行，B.6节），路径与引文属实，直接支持 claim。"
-              },
-              {
-                "agree": true,
-                "claim_id": "c6",
-                "note": "e7 含公式(9.23) δ=kI[δloads+ksδεcs] 及 Ec,eff 线弹性分析（第6261-6264行，9.3.3节）；e8 含公式(9.28) αδ=(1-ζ)αI+ζαII（第6322行，9.3.4节）。两引文路径与内容属实，共同直接支持 claim。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "bb09f8064833270cebe6290e56f5cf32165501194c5da7d8b74ef5b4b15cdf4a",
-          "passed": false
-        },
-        {
-          "round": 1,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: quote not found verbatim in 'BSEN1992-1-1-2023/BSEN1992-1-1-2023.md'",
-            "evidence[2]: quote not found verbatim in 'BSEN1992-1-1-2023/BSEN1992-1-1-2023.md'"
-          ],
-          "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
             "minimum_sufficient_evidence": true,
@@ -436,89 +449,73 @@
               {
                 "agree": true,
                 "claim_id": "c1",
-                "note": "e1 在 5.1.3 节逐字匹配：强度等级基于特征 5% 圆柱强度 fck，t_ref 通常 28 天，项目规定时可取 28–91 天。"
+                "note": "Quote at line 1141 §3.1.2 matches verbatim; supports that strength classes relate to characteristic 5% cylinder strength fck or cube strength."
               },
               {
                 "agree": true,
                 "claim_id": "c2",
-                "note": "e2 来自 Table 5.1：fcm = fck + 8 MPa；fctm = 0,3fck^(2/3)(fck≤50 MPa)，fctm = 1,1fck^(1/3)(fck>50 MPa)。引文与表格一致。"
+                "note": "Quote at line 1203 §3.1.2 matches; tensile strength = highest stress under concentric tensile loading."
               },
               {
                 "agree": true,
                 "claim_id": "c3",
-                "note": "e3 在 5.1.4 节公式(5.1) Ecm = kE·fcm^(1/3)，NOTE 2 明确为 σc=0 至 0.4fcm 间割线模量。"
+                "note": "Quote at lines 1206-1210 §3.1.2 matches; fct = 0.9 fct,sp (Expression 3.3)."
               },
               {
                 "agree": true,
                 "claim_id": "c4",
-                "note": "e4 公式(5.2) εcc(t,t0)=φ(t,t0)·σc/Ec,28；e5 公式(B.5) φ=φbc+φdc。两证据分别支撑，最小集。"
+                "note": "Quote at lines 1163-1175 §3.1.2 matches; fcm(t)=βcc(t)fcm (3.1), βcc(t)=exp{s[1-(28/t)^1/2]} with s depending on cement type. Claim accurately states dependence on age and cement parameter s."
               },
               {
                 "agree": true,
                 "claim_id": "c5",
-                "note": "e6 公式(B.23) εcs(t,ts)=εcbs(t)+εcds(t-ts)，后续文本说明基本收缩与干燥收缩。"
+                "note": "Quote at line 1234 §3.1.3 matches; Ecm secant value between σc=0 and 0.4fcm for quartzite aggregates."
               },
               {
                 "agree": true,
                 "claim_id": "c6",
-                "note": "e7 9.3.3 节公式(9.23) δ=kI[δloads+ksδεcs]，使用 Ec,eff 线弹性分析；e8 9.3.4 节公式(9.28) αδ=(1-ζ)αI+ζαII 描述部分开裂构件。"
+                "note": "Quote at line 1244 §3.1.3 matches; Ecm(t)=[fcm(t)/fcm]^0.3 Ecm (Expression 3.5)."
+              },
+              {
+                "agree": true,
+                "claim_id": "c7",
+                "note": "Quote at line 1255 §3.1.4 matches; creep/shrinkage depend on humidity, dimensions, composition; creep also on maturity, duration, magnitude."
+              },
+              {
+                "agree": true,
+                "claim_id": "c8",
+                "note": "Quote at lines 1261-1265 §3.1.4 matches; εcc(∞,t0)=φ(∞,t0)(σc/Ec) (Expression 3.6)."
+              },
+              {
+                "agree": true,
+                "claim_id": "c9",
+                "note": "Quote at lines 1303-1307 §3.1.4 matches; total shrinkage εcs=εcd+εca (Expression 3.8)."
+              },
+              {
+                "agree": true,
+                "claim_id": "c10",
+                "note": "Quote at lines 1324-1328 §3.1.4 matches; εcd(t)=βds(t,ts)khεcd,0 (Expression 3.9)."
+              },
+              {
+                "agree": true,
+                "claim_id": "c11",
+                "note": "Quote at lines 1359-1369 §3.1.4 matches; εca(t)=βas(t)εca(∞) (3.11) and εca(∞)=2.5(fck−10)10^-6 (3.12)."
+              },
+              {
+                "agree": true,
+                "claim_id": "c12",
+                "note": "Quote at lines 1381-1385 §3.1.5 matches; σc/fcm=(kη−η²)/[1+(k−2)η] (Expression 3.14) for short-term uniaxial loading."
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "af31ca2b49e1498cf62d53a8b50bb42d295a8a8b31e0d79257b1c9c390ee95a7",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [],
-          "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
-            "per_claim": [
-              {
-                "agree": false,
-                "claim_id": "c1",
-                "note": "Claim is non-atomic: bundles (a) strength classes relate to characteristic 5% cylinder strength fck, and (b) reference age generally 28 days, 28-91 when project-specified. e1 (5.1.3(1), line 2241) verbatim supports only (a), ending at 'determined at an age t_ref.' The 28-day / 28-91 day content is in 5.1.3(2) at lines 2243-2247 but is NOT included in any cited evidence quote. Thus sub-claim (b) lacks supporting evidence; evidence set is insufficient / non-minimal. Fact itself is accurate to corpus but unevidenced."
-              },
-              {
-                "agree": true,
-                "claim_id": "c2",
-                "note": "e2 (Table 5.1, line 2252) verbatim contains 'fcm = fck + 8 MPa' and 'fctm = 0,3fck2/3(fck ≤ 50 MPa)fctm = 1,1fck1/3(fck > 50 MPa)'. Directly supports both formulas and the 50 MPa threshold. Atomic and supported."
-              },
-              {
-                "agree": true,
-                "claim_id": "c3",
-                "note": "e3 (5.1.4(2), lines 2276-2286) verbatim gives Ecm = kE·fcm^(1/3) (Formula 5.1) and NOTE 2 'Ecm corresponds to the secant modulus between σc=0 and σc=0,4fcm'. Directly supports claim. Atomic and supported."
-              },
-              {
-                "agree": true,
-                "claim_id": "c4",
-                "note": "e4 (5.1.5(1), lines 2292-2296) verbatim gives εcc(t,t0)=φ(t,t0)·(σc/Ec,28) (Formula 5.2) for constant compressive stress. e5 (B.5(1), lines 9039-9043) verbatim gives φ(t,t0)=φbc(t,t0)+φdc(t,t0) (Formula B.5). Both directly support the two sub-statements; evidence is minimal and sufficient."
-              },
-              {
-                "agree": true,
-                "claim_id": "c5",
-                "note": "e6 (B.6(1), lines 9217-9229) verbatim gives εcs(t,ts)=εcbs(t)+εcds(t-ts) (Formula B.23), with basic shrinkage occurring 'even if no moisture loss is possible' and drying shrinkage 'giving the additional shrinkage if moisture loss occurs'. Directly supports claim. Atomic and supported."
-              },
-              {
-                "agree": true,
-                "claim_id": "c6",
-                "note": "e7 (9.3.3(1), lines 6261-6265) verbatim supports rectangular-section long-term deflection via linear elastic analysis with Ec,eff and δ=kI[δloads+ksδεcs] (Formula 9.23). e8 (9.3.4(3), lines 6319-6323) verbatim supports αδ=(1-ζ)αI+ζαII (Formula 9.28) for members expected to crack but not fully cracked. Both sub-statements supported; minimal sufficient set."
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "216f9cbac8ea2867cbfd287c0d8adc902bcda62b0628ddd562b316907bbf47da",
-          "passed": false
+          "gold_sha256": "0774e69ea634d5edefa9a9b306b1bb90d35d41aa00ee69dd1b71286836633753",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "混凝土抗压强度以特征（5%）圆柱抗压强度 fck 对应的强度等级表示；参考龄期一般为28天，项目规定时可取28至91天。由 fck 可得平均抗压强度 fcm=fck+8 MPa，并按强度区间计算平均抗拉强度 fctm。弹性模量可近似采用 Ecm=kE·fcm^(1/3)，它是从零应力至0.4fcm的割线模量。恒定压应力下的徐变应变为 εcc(t,t0)=φ(t,t0)·σc/Ec,28，且 φ=φbc+φdc；总收缩或膨胀应变为 εcs=εcbs+εcds，其中包括基本收缩和水分损失导致的附加干燥收缩。矩形截面长期挠度可基于长期性质 Ec,eff 作线弹性分析，按 δ=kI[δloads+ksδεcs] 计入荷载和收缩；部分开裂构件则以 αδ=(1-ζ)αI+ζαII 在未开裂与全开裂状态之间确定变形参数。",
+        "reference_answer": "混凝土强度等级与特征（5%）圆柱体抗压强度 fck 或立方体强度有关；抗拉强度是同心拉伸下的最高应力，若已知劈裂抗拉强度，可近似按 fct=0.9fct,sp 换算。龄期抗压强度可按 fcm(t)=βcc(t)fcm 估算，进而按 Ecm(t)=[fcm(t)/fcm]^0.3Ecm 计算龄期弹性模量；对石英岩骨料混凝土，Ecm 是从 0 到 0.4fcm 的割线模量。徐变和收缩均受湿度、构件尺寸与混凝土组成影响，徐变还与加载龄期、持续时间和荷载大小有关；恒定压应力下的最终徐变应变为 εcc(∞,t0)=φ(∞,t0)(σc/Ec)。总收缩应变为 εcs=εcd+εca，其中干燥收缩按 εcd(t)=βds(t,ts)khεcd,0 计算，自生收缩按 εca(t)=βas(t)εca(∞) 计算，且 εca(∞)=2.5(fck−10)10^-6。短期单轴受压的非线性应力—应变关系可采用 σc/fcm=(kη−η²)/[1+(k−2)η]。",
         "claims": [
           {
             "claim_id": "c1",
@@ -526,7 +523,7 @@
               "e1"
             ],
             "status": "supported",
-            "text": "混凝土抗压强度以与特征（5%）圆柱抗压强度 fck 相关的强度等级表示；参考龄期一般取28天，项目规定时可取28至91天。"
+            "text": "混凝土抗压强度等级与特征（5%）圆柱体强度 fck 或立方体强度有关。"
           },
           {
             "claim_id": "c2",
@@ -534,7 +531,7 @@
               "e2"
             ],
             "status": "supported",
-            "text": "平均圆柱抗压强度为 fcm=fck+8 MPa；平均抗拉强度 fctm 在 fck≤50 MPa 时为 0.3fck^(2/3)，在 fck>50 MPa 时为 1.1fck^(1/3)。"
+            "text": "抗拉强度定义为同心拉伸加载下达到的最高应力。"
           },
           {
             "claim_id": "c3",
@@ -542,105 +539,173 @@
               "e3"
             ],
             "status": "supported",
-            "text": "可按 Ecm=kE·fcm^(1/3) 估算弹性模量；该量对应 σc=0 至 σc=0.4fcm 之间的割线模量。"
+            "text": "当以劈裂抗拉强度 fct,sp 确定时，轴心抗拉强度可近似取 fct = 0.9 fct,sp。"
           },
           {
             "claim_id": "c4",
             "evidence_ids": [
-              "e4",
-              "e5"
+              "e4"
             ],
             "status": "supported",
-            "text": "恒定压应力下的徐变应变为 εcc(t,t0)=φ(t,t0)·σc/Ec,28；总平均徐变系数为 φ(t,t0)=φbc(t,t0)+φdc(t,t0)。"
+            "text": "龄期 t 的平均抗压强度按 fcm(t)=βcc(t)fcm 估算，其中 βcc(t) 随龄期及水泥类型参数 s 变化。"
           },
           {
             "claim_id": "c5",
             "evidence_ids": [
-              "e6"
+              "e5"
             ],
             "status": "supported",
-            "text": "总平均收缩或膨胀应变为 εcs(t,ts)=εcbs(t)+εcds(t-ts)：前者为无水分损失时也会发生的基本收缩，后者为发生水分损失时的附加干燥收缩。"
+            "text": "对石英岩骨料混凝土，弹性模量 Ecm 为应力从 0 到 0.4fcm 的割线模量。"
           },
           {
             "claim_id": "c6",
             "evidence_ids": [
-              "e7",
+              "e6"
+            ],
+            "status": "supported",
+            "text": "龄期 t 的弹性模量可按 Ecm(t)=[fcm(t)/fcm]^0.3 Ecm 估算。"
+          },
+          {
+            "claim_id": "c7",
+            "evidence_ids": [
+              "e7"
+            ],
+            "status": "supported",
+            "text": "混凝土徐变和收缩受环境湿度、构件尺寸和混凝土组成影响；徐变还受首次加载时的成熟度、荷载持续时间和荷载大小影响。"
+          },
+          {
+            "claim_id": "c8",
+            "evidence_ids": [
               "e8"
             ],
             "status": "supported",
-            "text": "矩形截面的长期挠度可用采用长期性质 Ec,eff 的线弹性分析，并按 δ=kI[δloads+ksδεcs] 计算；预期会开裂但未完全开裂的构件，变形参数按 αδ=(1-ζ)αI+ζαII 在未开裂与全开裂状态之间取值。"
+            "text": "恒定压应力 σc 在混凝土龄期 t0 施加时，最终徐变变形按 εcc(∞,t0)=φ(∞,t0)(σc/Ec) 计算。"
+          },
+          {
+            "claim_id": "c9",
+            "evidence_ids": [
+              "e9"
+            ],
+            "status": "supported",
+            "text": "总收缩应变由干燥收缩应变和自生收缩应变组成，即 εcs=εcd+εca。"
+          },
+          {
+            "claim_id": "c10",
+            "evidence_ids": [
+              "e10"
+            ],
+            "status": "supported",
+            "text": "龄期 t 的干燥收缩应变按 εcd(t)=βds(t,ts)khεcd,0 计算。"
+          },
+          {
+            "claim_id": "c11",
+            "evidence_ids": [
+              "e11"
+            ],
+            "status": "supported",
+            "text": "自生收缩应变按 εca(t)=βas(t)εca(∞) 计算，其最终值为 εca(∞)=2.5(fck−10)10^-6。"
+          },
+          {
+            "claim_id": "c12",
+            "evidence_ids": [
+              "e12"
+            ],
+            "status": "supported",
+            "text": "短期单轴受压的非线性分析可用归一化应力—应变关系 σc/fcm=(kη−η²)/[1+(k−2)η] 表示。"
           }
         ],
         "evidence": [
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e1",
-            "quote": "(1) The compressive strength of concrete shall be denoted by concrete strength classes which relate to the characteristic (5 %) cylinder strength $f _ { \\mathrm { c k } }$ of the concrete in accordance with EN 206, determined at an age $t _ { \\mathrm { r e f } } .$",
-            "section": "5.1.3 Strength"
+            "quote": "(1)P The compressive strength of concrete is denoted by concrete strength classes which relate to the characteristic (5%) cylinder strength $\\pmb { f } _ { \\mathtt { C k } } ,$ , or the cube strength $f _ { \\mathtt { C K , C u b e } }$ , in accordance with EN 206-1.",
+            "section": "3.1.2 Strength"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e2",
-            "quote": "<tr><td rowspan=1 colspan=1>fcm</td><td rowspan=1 colspan=1>20</td><td rowspan=1 colspan=1>24</td><td rowspan=1 colspan=1>28</td><td rowspan=1 colspan=1>33</td><td rowspan=1 colspan=1>38</td><td rowspan=1 colspan=1>43</td><td rowspan=1 colspan=1>48</td><td rowspan=1 colspan=1>53</td><td rowspan=1 colspan=1>58</td><td rowspan=1 colspan=1>63</td><td rowspan=1 colspan=1>68</td><td rowspan=1 colspan=1>78</td><td rowspan=1 colspan=1>88</td><td rowspan=1 colspan=1>98</td><td rowspan=1 colspan=1>108</td><td rowspan=1 colspan=1>fcm = fck + 8 MPa</td></tr><tr><td rowspan=1 colspan=1>fctm</td><td rowspan=1 colspan=1>1,6</td><td rowspan=1 colspan=1>1,9</td><td rowspan=1 colspan=1>2,2</td><td rowspan=1 colspan=1>2,6</td><td rowspan=1 colspan=1>2,9</td><td rowspan=1 colspan=1>3,2</td><td rowspan=1 colspan=1>3,5</td><td rowspan=1 colspan=1>3,8</td><td rowspan=1 colspan=1>4,1</td><td rowspan=1 colspan=1>4,2</td><td rowspan=1 colspan=1>4,3</td><td rowspan=1 colspan=1>4,5</td><td rowspan=1 colspan=1>4,7</td><td rowspan=1 colspan=1>4,9</td><td rowspan=1 colspan=1>5,1</td><td rowspan=1 colspan=1>fctm = 0,3fck2/3(fck ≤ 50 MPa)fctm = 1,1fck1/3(fck &gt; 50 MPa)</td></tr>",
-            "section": "5.1.3 Strength"
+            "quote": "(7)P The tensile strength refers to the highest stress reached under concentric tensile loading.   \nFor the flexural tensile strength reference should be made to 3.1.8 (1).",
+            "section": "3.1.2 Strength"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e3",
-            "quote": "(2) Approximate indicative values for the modulus of elasticity $E _ { \\mathrm { c m } }$ may be taken as:\n\n$$\nE _ { \\mathrm { c m } } = k _ { \\mathrm { E } } \\cdot f _ { \\mathrm { c m } } 1 / 3\\tag{5.1}\n$$\n\nFor concrete with quartzite aggregates $k _ { \\mathrm { E } } = 9 ~ 5 0 0$ may be assumed. For other types of aggregates $k _ { \\mathrm { E } }$ can vary between 5 000 and 13 000.\n\nNOTE 1 The National Annex can specify values <sup>k</sup>E to be used in the country.\n\nNOTE 2 <sup>E</sup> corresponds to the secant modulus between $\\sigma _ { \\mathrm { c } } = 0$ and $\\sigma _ { \\mathrm { c } } = 0 { , } 4 f _ { \\mathrm { c m } }$ .",
-            "section": "5.1.4 Elastic deformation"
+            "quote": "(8) Where the tensile strength is determined as the splitting tensile strength, $f _ { \\mathrm { c t , s p } }$ , an approximate value of the axial tensile strength, fct, may be taken as:\n\n$$\nf _ { \\mathrm { c t } } = 0 , 9 f _ { \\mathrm { c t , s p } }\\tag{3.3}\n$$",
+            "section": "3.1.2 Strength"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e4",
-            "quote": "(1) The creep deformation of concrete $\\varepsilon _ { \\mathrm { c c } } ( t , t _ { 0 } )$ at time <sup>t</sup> for a constant compressive stress $\\sigma _ { \\mathrm { c } }$ applied at the concrete age $t _ { 0 } ,$ shall be given by:\n\n$$\n\\varepsilon _ { \\mathrm { c c } } ( t , t _ { 0 } ) = \\varphi ( t , t _ { 0 } ) \\cdot ( \\sigma _ { \\mathrm { c } } / E _ { \\mathrm { c } , 2 8 } )\\tag{5.2}\n$$",
-            "section": "5.1.5 Creep and shrinkage"
+            "quote": "(6) The compressive strength of concrete at an age t depends on the type of cement,\n\ntemperature and curing conditions. For a mean temperature of $\\scriptstyle 2 0 ^ { \\circ } \\complement$ and curing in accordance with EN 12390 the compressive strength of concrete at various ages $\\pmb { f } _ { \\mathsf { c m } } ( t )$ may be estimated from Expressions (3.1) and (3.2).\n\n$$\n\\begin{array} { r } { f _ { \\mathrm { c m } } ( t ) = \\beta _ { \\mathrm { c c } } ( t ) \\ f _ { \\mathrm { c m } } } \\end{array}\\tag{3.1}\n$$\n\nwith\n\n$$\n\\beta _ { c c } ( t ) = \\mathbf { e } \\times \\mathbf { p } \\left\\{ \\pmb { s } \\left[ 1 - \\left( \\frac { 2 8 } { t } \\right) ^ { 1 / 2 } \\right] \\right\\}\\tag{3.2}\n$$",
+            "section": "3.1.2 Strength"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e5",
-            "quote": "(1) The total mean creep coefficient $\\varphi ( t , t _ { 0 } )$ may be calculated from Formula (B.5). For characteristic values of the creep coefficient, see (8).\n\n$$\n\\varphi ( t , t _ { 0 } ) = \\varphi _ { \\mathrm { b c } } ( t , t _ { 0 } ) + \\varphi _ { \\mathrm { d c } } ( t , t _ { 0 } )\\tag{B.5}\n$$",
-            "section": "B.5 Basic formulae for determining the creep coefficient"
+            "quote": "(2) The modulus of elasticity of a concrete is controlled by the moduli of elasticity of its components. Approximate values for the modulus of elasticity $E _ { \\mathrm { { c m } } } ,$ secant value between $\\sigma _ { \\mathrm { c } } = 0$ and $0 , 4 f _ { \\mathrm { c m } } ,$ for concretes with quartzite aggregates, are given in Table 3.1.",
+            "section": "3.1.3 Elastic deformation"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e6",
-            "quote": "(1) The total mean shrinkage or swelling strain $\\varepsilon _ { \\mathrm { c s } } ( t , t _ { s } )$ may be calculated from Formula (B.23). For characteristic values of shrinkage or swelling strain, see (4).\n\n$$\n\\varepsilon _ { \\mathrm { c s } } ( t , t _ { s } ) = \\varepsilon _ { \\mathrm { c b s } } ( t ) + \\varepsilon _ { \\mathrm { c d s } } ( t - t _ { s } )\\tag{B.23}\n$$\n\nwhere shrinkage is subdivided into the basic shrinkage $\\varepsilon _ { \\mathrm { c b s } } ( t )$ which occurs even if no moisture loss is possible:\n\n$$\n\\varepsilon _ { \\mathrm { c b s } } ( t ) = \\varepsilon _ { \\mathrm { c b s , } f _ { \\mathrm { c m } } } \\cdot \\beta _ { \\mathrm { b s , t } } \\cdot \\alpha _ { \\mathrm { N D P , b } }\\tag{B.24}\n$$\n\nand the drying shrinkage $\\varepsilon _ { \\mathrm { c d s } } ( t , t _ { s } )$ giving the additional shrinkage if moisture loss occurs:",
-            "section": "B.6 Basic formulae for determining the shrinkage strain"
+            "quote": "$$\nE _ { \\mathrm { c m } } ( t ) = \\left( f _ { \\mathrm { c m } } ( t ) / f _ { \\mathrm { c m } } \\right) ^ { 0 , 3 } E _ { \\mathrm { c m } }\\tag{3.5}\n$$\n\nwhere $E _ { \\mathrm { { c m } } } ( t )$ and $\\pmb { f } _ { \\mathsf { c m } } ( t )$ are the values at an age of t days and $E _ { \\mathsf { c m } }$ and $\\pmb { f _ { \\mathrm { c m } } }$ are the values determined at an age of 28 days.",
+            "section": "3.1.3 Elastic deformation"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e7",
-            "quote": "(1) For rectangular sections, long-term deflections may be determined from linear elastic analysis using gross concrete sections and assuming long-term properties $\\left( \\mathrm { i } . \\mathrm { e } . E _ { \\mathrm { c , e f f } } \\right)$ according to Formula (9.23).\n\n$$\n\\delta = k _ { \\mathrm { I } } [ \\delta _ { l o a d s } + k _ { s } \\delta _ { \\varepsilon c s } ]\\tag{9.23}\n$$",
-            "section": "9.3.3 Simplified calculation of deflections for reinforced concrete building structures"
+            "quote": "(1)P Creep and shrinkage of the concrete depend on the ambient humidity, the dimensions of the element and the composition of the concrete. Creep is also influenced by the maturity of the concrete when the load is first applied and depends on the duration and magnitude of the loading.",
+            "section": "3.1.4 Creep and shrinkage"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "e8",
-            "quote": "(3) Members which are expected to crack, but may not be fully cracked, should be taken to behave in a manner intermediate between the uncracked and fully cracked conditions according to Formula (9.28):\n\n$$\n\\alpha _ { \\delta } = ( 1 - \\zeta ) \\alpha _ { \\mathrm { I } } + \\zeta \\alpha _ { \\mathrm { I I } }\\tag{9.28}\n$$",
-            "section": "9.3.4 General method for deflection calculations"
+            "quote": "(3) The creep deformation of concrete $\\varepsilon _ { \\tt c c } ( \\infty , t _ { 0 } )$ at time $t = \\infty$ for a constant compressive stress $\\sigma _ { \\mathsf { C } }$ applied at the concrete age $t _ { 0 } ,$ , is given by:\n\n$$\n\\varepsilon _ { \\mathrm { c c } } ( \\infty , t _ { 0 } ) = \\varphi ( \\infty , t _ { 0 } ) . ( \\sigma _ { \\mathrm { c } } / E _ { \\mathrm { c } } )\\tag{3.6}\n$$",
+            "section": "3.1.4 Creep and shrinkage"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "e9",
+            "quote": "(6) The total shrinkage strain is composed of two components, the drying shrinkage strain and the autogenous shrinkage strain. The drying shrinkage strain develops slowly, since it is a function of the migration of the water through the hardened concrete. The autogenous shrinkage strain develops during hardening of the concrete: the major part therefore develops in the early days after casting. Autogenous shrinkage is a linear function of the concrete strength. It should be considered specifically when new concrete is cast against hardened concrete. Hence the values of the total shrinkage strain $\\scriptstyle { \\varepsilon _ { \\mathsf { C S } } }$ follow from\n\n$$\n\\varepsilon _ { \\tt c s } = \\varepsilon _ { \\tt c d } + \\varepsilon _ { \\tt c a }\\tag{3.8}\n$$",
+            "section": "3.1.4 Creep and shrinkage"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "e10",
+            "quote": "The development of the drying shrinkage strain in time follows from:\n\n$$\n\\varepsilon _ { \\mathrm { c d } } ( t ) = \\beta _ { \\mathrm { d s } } ( t , t _ { \\mathrm { s } } ) \\cdot k _ { \\mathrm { h } } \\cdot \\varepsilon _ { \\mathrm { c d , 0 } }\\tag{3.9}\n$$",
+            "section": "3.1.4 Creep and shrinkage"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "e11",
+            "quote": "The autogenous shrinkage strain follows from:\n\n$$\n\\varepsilon _ { \\mathrm { c a } } \\left( t \\right) = \\beta _ { \\mathrm { a s } } ( t ) \\varepsilon _ { \\mathrm { c a } } ( \\infty )\\tag{3.11}\n$$\n\nwhere:\n\n$$\n\\varepsilon _ { \\mathsf { c a } } ( \\infty ) = 2 , 5 ( f _ { \\mathsf { c k } } - 1 0 ) 1 0 ^ { - 6 }\\tag{3.12}\n$$",
+            "section": "3.1.4 Creep and shrinkage"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "e12",
+            "quote": "(1) The relation between $\\sigma _ { \\mathsf { C } }$ and $\\scriptstyle { \\varepsilon _ { \\mathsf { C } } }$ shown in Figure 3.2 (compressive stress and shortening strain shown as absolute values) for short term uniaxial loading is described by the Expression (3.14):\n\n$$\n\\frac { \\sigma _ { \\mathrm { c } } } { f _ { \\mathrm { c m } } } = \\frac { k \\eta - \\eta ^ { 2 } } { 1 + \\left( k - 2 \\right) \\eta }\\tag{3.14}\n$$",
+            "section": "3.1.5 Stress-strain relation for non-linear structural analysis"
           }
         ],
         "E_plus": [
           "e1",
+          "e10",
+          "e11",
+          "e12",
           "e2",
           "e3",
           "e4",
           "e5",
           "e6",
           "e7",
-          "e8"
+          "e8",
+          "e9"
         ],
         "eligible_for_crec": false,
         "gold_claim_status": "supported"
       },
-      "disputes": [
-        {
-          "agree": false,
-          "claim_id": "c1",
-          "note": "Claim is non-atomic: bundles (a) strength classes relate to characteristic 5% cylinder strength fck, and (b) reference age generally 28 days, 28-91 when project-specified. e1 (5.1.3(1), line 2241) verbatim supports only (a), ending at 'determined at an age t_ref.' The 28-day / 28-91 day content is in 5.1.3(2) at lines 2243-2247 but is NOT included in any cited evidence quote. Thus sub-claim (b) lacks supporting evidence; evidence set is insufficient / non-minimal. Fact itself is accurate to corpus but unevidenced."
-        }
-      ],
+      "disputes": [],
       "human_review": {
         "required": true,
         "task": "confirm_minimum_sufficient_evidence_set",
@@ -1302,10 +1367,10 @@
     {
       "id": "Q06",
       "question": "保护层都与什么因素相关，该怎么计算?",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T15:55:50.189348Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:05:46.967620Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -1376,44 +1441,6 @@
           "kind": "draft",
           "validation_errors": [],
           "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 引文与 EN1992-1-1_2004.md 行1942-1948 完全一致，直接列出粘结传力、防腐耐久、耐火三项，充分支持 claim_1。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 引文（行1950-1954，公式4.2）直接给出 c_min=max{c_min,b；c_min,dur+Δc_dur,γ-Δc_dur,st-Δc_dur,add；10mm}，主算式与三项调整项均直接在 quote 内；三项语义标签与 where-子句（行1962-1966）一致，属可接受解释。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_3",
-                "note": "evidence_3 quote（行1987-1989）仅支持 c_min,dur 按暴露等级与结构等级确定，并以'modifications given in Table 4.3N'指代。claim_3 明确列举的四项调整因素（设计工作寿命、混凝土强度等级、板类构件几何、混凝土生产特殊质量控制）实际在 Table 4.3N（行1994），未包含在 quote 内，quote 不直接支持该具体枚举，证据不足。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_4",
-                "note": "evidence_4 quote（行1934-1938，§4.4.1.1）仅含公式 c_nom=c_min+Δc_dev 及'nominated on drawings'。claim_4 的'推荐值为10 mm'在 §4.4.1.3 行2038、'应在计算和图纸中采用名义值'在行2040，均不在 evidence_4 quote 内。公式部分得到支持，但推荐值10mm与计算/图纸采用名义值两处断言证据缺失，证据不足且 claim 非原子。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "7f589e5a31c2a9f49e5c8330ff1bf882ed917d4350703c61332b3d7ee86cbe0b",
-          "passed": false
-        },
-        {
-          "round": 1,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[2]: quote not found verbatim in 'EN1992-1-1_2004/EN1992-1-1_2004.md'"
-          ],
-          "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
             "minimum_sufficient_evidence": true,
@@ -1421,81 +1448,58 @@
               {
                 "agree": true,
                 "claim_id": "claim_1",
-                "note": "evidence_1 quote matches EN1992-1-1_2004.md lines 1942-1948 verbatim; directly supports the three purposes (bond, corrosion/durability, fire resistance)."
+                "note": "evidence_1 (6.5.1 行2768-2772) 公式(6.1) c_nom=c_min+Δc_dev 与语料一致，直接支持。"
               },
               {
                 "agree": true,
                 "claim_id": "claim_2",
-                "note": "evidence_2 quote matches lines 1950-1954 formula (4.2) exactly: max{c_min,b ; c_min,dur + Δc_dur,γ − Δc_dur,st − Δc_dur,add ; 10 mm}. Claim is atomic and accurate."
+                "note": "evidence_2 (6.5.2.1 行2788-2792) 公式(6.2) max{c_min,dur+ΣΔc; c_min,b; 10mm} 与语料一致，claim 措辞三者最大值准确。"
               },
               {
                 "agree": true,
                 "claim_id": "claim_3",
-                "note": "evidence_3 (Table 4.3N at line 1994, plus line 1987 'taking account of the exposure classes and the structural classes') directly supports c_min,dur depending on exposure + structural class and the four recommended adjustment criteria (100-yr life, strength class, slab geometry, special quality control)."
+                "note": "evidence_3 (6.5.2.2 行2822) c_min,dur dependent on design service life, exposure class and ERC，与语料一致，直接支持。"
               },
               {
                 "agree": true,
                 "claim_id": "claim_4",
-                "note": "evidence_4 matches lines 2036-2038: (1)P states addition of Δc_dev to minimum cover for nominal cover, and Note gives recommended value 10 mm. The c_nom = c_min + Δc_dev relation (eq 4.1, line 1937) is the same section's definition; claim supported."
+                "note": "evidence_4 (6.5.2.1 行2800) 'design life of 30 years or less' reduction，与语料一致，支持减小项。"
               },
               {
                 "agree": true,
                 "claim_id": "claim_5",
-                "note": "evidence_5 matches line 2040 verbatim: nominal cover value used in calculations and stated on drawings unless another value (e.g. minimum) is specified."
+                "note": "evidence_4 (行2802) Δc_min,exc 'superior compaction or improved curing' reduction，与语料一致，支持减小项。"
+              },
+              {
+                "agree": true,
+                "claim_id": "claim_6",
+                "note": "evidence_4 (行2804) Δc_min,p 'additional minimum cover for prestressing tendons'，与语料一致，支持附加项。"
+              },
+              {
+                "agree": true,
+                "claim_id": "claim_7",
+                "note": "evidence_4 (行2806-2808) Δc_dur,red1/red2 'reduction ... additional concrete protection or special measures'，与语料一致，支持减小项。"
+              },
+              {
+                "agree": true,
+                "claim_id": "claim_8",
+                "note": "evidence_4 (行2810) Δc_dur,abr 'additional minimum cover for abrasion'，与语料一致，支持附加项。"
+              },
+              {
+                "agree": true,
+                "claim_id": "claim_9",
+                "note": "evidence_5 (6.5.3 行2894) Δc_dev 取 accepted negative deviation 的绝对值，与语料一致，直接支持。"
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "68cde86d93edcc9ae726d99958827db1eec7161bb77aed608b1b94d963b1e5f1",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[3]: quote not found verbatim in 'EN1992-1-1_2004/EN1992-1-1_2004.md'"
-          ],
-          "review": {
-            "overall_agree": true,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 与原文行1942-1948逐字一致：列出 safe transmission of bond forces、protection of steel against corrosion (durability)、adequate fire resistance 三项目的，直接支持 claim。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 与原文行1950-1953的(2)P及公式(4.2)逐字一致，c_min = max{c_min,b ; c_min,dur+Δc_dur,γ−Δc_dur,st−Δc_dur,add ; 10 mm}，三者最大值表述准确。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 与原文行1987-1994一致：cmin,dur taking account of exposure classes and structural classes；Table 4.3N 列出 100 年设计工作寿命(+2)、混凝土强度等级(−1)、板式构件几何(−1)、混凝土生产特殊质量控制(−1) 四项调整，claim 完整对应。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_4 与原文行1934-1938(4.4.1.1 的 c_nom=c_min+Δc_dev 公式4.1)及行2036-2038(4.4.1.3 推荐值10 mm)一致。quote 跨 4.4.1.1 与 4.4.1.3 两节，section 标注为 4.4.1.1 General 略不完整但内容准确无误，Δc_dev 为施工偏差设计预留、推荐10 mm 均得到支持。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_5",
-                "note": "evidence_5 与原文行2040逐字一致：nominal value of cover for design should be used in calculations and stated on drawings, unless a value other than the nominal cover is specified，直接支持 claim。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "b46d6d6b976cba163b9b0fe7e34b9f2b8560c12865776ddbcc4b661a76f76d10",
-          "passed": false
+          "gold_sha256": "f10bb88a362017c0037c879a29b3e45bb89efba2f663707a9876d9547377c8e0",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "保护层需兼顾粘结传力、防腐耐久和耐火。先依据暴露等级与结构等级确定耐久性最小值 c_min,dur；推荐结构等级会因100年设计工作寿命、混凝土强度等级、满足条件的板式构件几何及混凝土生产特殊质量控制而调整。随后计算 c_min = max{c_min,b；c_min,dur + Δc_dur,γ − Δc_dur,st − Δc_dur,add；10 mm}。最后取名义保护层 c_nom = c_min + Δc_dev；Δc_dev 是施工偏差的设计预留，推荐10 mm。设计计算和图纸通常采用该名义值，除非另有规定。",
+        "reference_answer": "保护层的用途涉及黏结传力、钢筋耐腐蚀和耐火；计算时先按设计使用寿命、暴露等级和 ERC 从相应表格确定 c_min,dur。然后计算 c_min=max{c_min,dur+ΣΔc；c_min,b；10 mm}；ΣΔc 需按适用情况考虑短使用寿命、压实或养护、预应力筋、附加保护措施及磨蚀等调整。最后取 c_nom=c_min+Δc_dev，其中 Δc_dev 为施工规范允许负偏差的绝对值。",
         "claims": [
           {
             "claim_id": "claim_1",
@@ -1503,7 +1507,7 @@
               "evidence_1"
             ],
             "status": "supported",
-            "text": "最小混凝土保护层用于确保粘结力安全传递、钢筋防腐耐久性及足够的耐火性能。"
+            "text": "名义保护层 c_nom 等于最小保护层 c_min 加施工偏差设计余量 Δc_dev。"
           },
           {
             "claim_id": "claim_2",
@@ -1511,7 +1515,7 @@
               "evidence_2"
             ],
             "status": "supported",
-            "text": "最小保护层按公式(4.2)取三者最大值：粘结要求的 c_min,b、耐久性项 c_min,dur + Δc_dur,γ − Δc_dur,st − Δc_dur,add，以及 10 mm。"
+            "text": "最小保护层 c_min 取耐久性保护层（含适用调整量）、黏结保护层和 10 mm 三者中的最大值。"
           },
           {
             "claim_id": "claim_3",
@@ -1519,7 +1523,7 @@
               "evidence_3"
             ],
             "status": "supported",
-            "text": "耐久性最小保护层 c_min,dur 考虑暴露等级和结构等级；推荐结构等级可因100年设计工作寿命、混凝土强度等级、满足条件的板式构件几何和混凝土生产特殊质量控制而调整。"
+            "text": "耐久性最小保护层 c_min,dur 与设计使用寿命、暴露等级和暴露抵抗等级（ERC）有关。"
           },
           {
             "claim_id": "claim_4",
@@ -1527,47 +1531,79 @@
               "evidence_4"
             ],
             "status": "supported",
-            "text": "名义保护层按 c_nom = c_min + Δc_dev 计算；Δc_dev 为施工偏差的设计预留，推荐值为10 mm。"
+            "text": "设计使用寿命不超过 30 年时，ΣΔc 包含对最小保护层的减小项。"
           },
           {
             "claim_id": "claim_5",
             "evidence_ids": [
+              "evidence_4"
+            ],
+            "status": "supported",
+            "text": "混凝土压实更好或养护改善时，ΣΔc 包含对最小保护层的减小项。"
+          },
+          {
+            "claim_id": "claim_6",
+            "evidence_ids": [
+              "evidence_4"
+            ],
+            "status": "supported",
+            "text": "对于预应力筋，ΣΔc 包含最小保护层的附加项。"
+          },
+          {
+            "claim_id": "claim_7",
+            "evidence_ids": [
+              "evidence_4"
+            ],
+            "status": "supported",
+            "text": "采用附加混凝土保护或钢筋特殊保护措施时，ΣΔc 包含最小保护层的减小项。"
+          },
+          {
+            "claim_id": "claim_8",
+            "evidence_ids": [
+              "evidence_4"
+            ],
+            "status": "supported",
+            "text": "磨蚀时，ΣΔc 包含保护层的附加项。"
+          },
+          {
+            "claim_id": "claim_9",
+            "evidence_ids": [
               "evidence_5"
             ],
             "status": "supported",
-            "text": "设计计算和图纸通常采用名义保护层，除非明确规定采用其他保护层数值。"
+            "text": "Δc_dev 应取施工规范所规定且被接受的负偏差绝对值。"
           }
         ],
         "evidence": [
           {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
             "evidence_id": "evidence_1",
-            "quote": "(1)P Minimum concrete cover, $c _ { \\mathsf { m i n } } ,$ shall be provided in order to ensure:\n\n\\- the safe transmission of bond forces (see also Sections 7 and 8)\n\n\\- the protection of the steel against corrosion (durability)\n\nan adequate fire resistance (see EN 1992-1-2)",
-            "section": "4.4.1.2 Minimum cover, $\\pmb { c } _ { \\mathrm { m i n } }$"
+            "quote": "(1) The nominal cover shall be specified in the execution specification. It is defined as a minimum cover, $c _ { \\mathrm { m i n } }$ (see 6.5.2), plus an allowance in design for deviation, $\\Delta c _ { \\mathrm { d e v } }$ (see 6.5.3):\n\n$$\nc _ { \\mathrm { n o m } } = c _ { \\mathrm { m i n } } + \\Delta c _ { \\mathrm { d e v } }\\tag{6.1}\n$$",
+            "section": "6.5.1 Nominal cover"
           },
           {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
             "evidence_id": "evidence_2",
-            "quote": "(2)P The greater value for $c _ { \\mathsf { m i n } }$ satisfying the requirements for both bond and environmental conditions shall be used.\n\n$$\nc _ { \\operatorname* { m i n } } = \\operatorname* { m a x } { \\{ c _ { \\operatorname* { m i n } , \\mathrm { b } } ; \\mathrm { ~ } c _ { \\operatorname* { m i n } , \\mathrm { d u r } } + \\Delta c _ { \\mathrm { d u r } , \\gamma } - \\Delta c _ { \\mathrm { d u r } , \\mathrm { s t } } - \\Delta c _ { \\mathrm { d u r } , \\mathrm { a d d } } ; \\mathrm { ~ } 1 0 \\mathrm { ~ m m } \\} }\\tag{4.2}\n$$",
-            "section": "4.4.1.2 Minimum cover, $\\pmb { c } _ { \\mathrm { m i n } }$"
+            "quote": "(1) The value for $c _ { \\mathrm { m i n } }$ shall satisfy the requirements for both bond and durability:\n\n$$\nc _ { \\operatorname* { m i n } } = \\operatorname* { m a x } \\left\\{ c _ { \\operatorname* { m i n } , \\mathrm { d u r } } + \\Sigma \\Delta c ; c _ { \\operatorname* { m i n } , \\mathrm { b } } ; 1 0 \\ : \\mathrm { m m } \\right\\}\\tag{6.2}\n$$",
+            "section": "6.5.2.1 General"
           },
           {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
             "evidence_id": "evidence_3",
-            "quote": "(5) The minimum cover values for reinforcement and prestressing tendons in normal weight concrete taking account of the exposure classes and the structural classes is given by cmin,dur.\n\nNote: Structural classification and values of $c _ { \\mathrm { m i n , d u r } }$ for use in a Country may be found in its National Annex. The recommended Structural Class (design working life of 50 years) is S4 for the indicative concrete strengths given in Annex E and the recommended modifications to the structural class is given in Table 4.3N. The recommended minimum Structural Class is S1.\n\nThe recommended values of $c _ { \\mathrm { m i n , d u r } }$ are given in Table 4.4N (reinforcing steel) and Table 4.5N (prestressing steel).\n\nTable 4.3N: Recommended structural classification\n<table><tr><td rowspan=1 colspan=8>Structural Class</td></tr><tr><td rowspan=2 colspan=1>Criterion</td><td rowspan=1 colspan=7>Exposure Class according to Table 4.1</td></tr><tr><td rowspan=1 colspan=1>x0</td><td rowspan=1 colspan=1>XC1</td><td rowspan=1 colspan=1>XC2/XC3</td><td rowspan=1 colspan=1>XC4</td><td rowspan=1 colspan=1>XD1</td><td rowspan=1 colspan=1>XD2/XS1</td><td rowspan=1 colspan=1>XD3/XS2/XS3</td></tr><tr><td rowspan=1 colspan=1>Design Working Life of100years</td><td rowspan=1 colspan=1>increaseclass by 2</td><td rowspan=1 colspan=1>increaseclass by 2</td><td rowspan=1 colspan=1>increaseclass by 2</td><td rowspan=1 colspan=1>increaseclass by 2</td><td rowspan=1 colspan=1>increaseclass by2</td><td rowspan=1 colspan=1>increaseclass by 2</td><td rowspan=1 colspan=1>increase classby2</td></tr><tr><td rowspan=1 colspan=1>Strength Class1)2</td><td rowspan=1 colspan=1>≥ C30/37reduceclass by 1</td><td rowspan=1 colspan=1>≥ C30/37reduceclass by 1</td><td rowspan=1 colspan=1>≥ C35/45reduceclass by 1</td><td rowspan=1 colspan=1>≥ C40/50reduceclass by 1</td><td rowspan=1 colspan=1>≥ C40/50reduceclass by 1</td><td rowspan=1 colspan=1>≥ C40/50reduceclass by 1</td><td rowspan=1 colspan=1>≥ C45/55reduce class by1</td></tr><tr><td rowspan=1 colspan=1>Memberwith slabgeometry(position of reinforcementnot affected by constructionprocess)</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduce class by1</td></tr><tr><td rowspan=1 colspan=1>Special QualityControl of the concreteproduction ensured</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduceclass by 1</td><td rowspan=1 colspan=1>reduce class by1</td></tr></table>",
-            "section": "4.4.1.2 Minimum cover, $\\pmb { c } _ { \\mathrm { m i n } }$"
+            "quote": "(1) The minimum concrete covers $c _ { \\mathrm { m i n , d u r } }$ dependent on design service life, exposure class and exposure resistance class (ERC) are given in Table 6.3 (NDP) and Table 6.4 (NDP).",
+            "section": "6.5.2.2 Minimum cover for durability"
           },
           {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
             "evidence_id": "evidence_4",
-            "quote": "(2)P The nominal cover shall be specified on the drawings. It is defined as a minimum cover, $c _ { \\mathsf { m i n } }$ (see 4.4.1.2), plus an allowance in design for deviation, $\\Delta c _ { \\mathsf { d e v } }$ (see 4.4.1.3):\n\n$$\nc _ { \\mathrm { n o m } } = c _ { \\mathrm { m i n } } + \\Delta c _ { \\mathrm { d e v } }\\tag{4.1}\n$$\n\n## 4.4.1.3 Allowance in design for deviation\n\n(1)P To calculate the nominal cover, $c _ { \\mathsf { n o m } } ,$ , an addition to the minimum cover shall be made in design to allow for the deviation $( \\Delta c _ { \\mathsf { d e v } } )$ . The required minimum cover shall be increased by the absolute value of the accepted negative deviation.\n\nNote: The value of $\\Delta c _ { \\mathrm { d e v } }$ for use in a Country may be found in its National Annex. The recommended value is 10 mm.",
-            "section": "4.4.1.1 General"
+            "quote": "$\\Sigma \\Delta c$ sum of the following applicable reductions and additions:\n\nΔ<sup>c</sup> reduction of minimum cover for structures with design life of 30 years or less, see 6.5.2.2(2);\n\n$\\Delta c _ { \\mathrm { m i n , e x c } }$ reduction of minimum cover for superior compaction or improved curing, see 6.5.2.2(3);\n\n$\\Delta c _ { \\mathrm { m i n , p } }$ additional minimum cover for prestressing tendons, see 6.5.2.2(4);\n\n$\\Delta c _ { \\mathrm { d u r , r e d 1 } }$ and $\\Delta c _ { \\mathrm { d u r , r e d 2 } }$\n\nreduction of minimum cover for use of additional concrete protection or use of special measures for protection of reinforcing steel, see 6.5.2.2(5) and 6.5.2.2(9);\n\n$\\Delta c _ { \\mathrm { d u r , a b r } }$ additional minimum cover for abrasion, see 6.5.2.2(6);",
+            "section": "6.5.2.1 General"
           },
           {
-            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
             "evidence_id": "evidence_5",
-            "quote": "(2) For Buildings, ENV 13670-1 gives the acceptable deviation. This is normally also sufficient for other types of structures. It should be considered when choosing the value of nominal cover for design. The nominal value of cover for design should be used in the calculations and stated on the drawings, unless a value other than the nominal cover is specified (e.g. minimum value).",
-            "section": "4.4.1.3 Allowance in design for deviation"
+            "quote": "(1) To calculate the nominal cover $c _ { \\mathrm { n o m } } ,$ an addition to the minimum cover $c _ { \\mathrm { m i n } }$ according to Formula (6.2) shall be made in design to allow for the deviation $\\Delta c _ { \\mathrm { d e v } }$ which shall be taken as the absolute value of the accepted negative deviation specified in the execution specification, e.g. given on the construction drawings (see EN 13670). Values for $\\Delta c _ { \\mathrm { d e v } }$ are given in Table 6.7 (NDP).",
+            "section": "6.5.3 Allowance in design for deviation in cover"
           }
         ],
         "E_plus": [
@@ -1721,10 +1757,10 @@
     {
       "id": "Q08",
       "question": "在哪些部位当线性应变分布的假设不成立时，可能需要进行局部分析?",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T15:59:47.541845Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:06:34.033612Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -1793,9 +1829,7 @@
         {
           "round": 0,
           "kind": "draft",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: '## 5.1.1 General requirements'"
-          ],
+          "validation_errors": [],
           "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
@@ -1804,124 +1838,38 @@
               {
                 "agree": true,
                 "claim_id": "claim_1",
-                "note": "语料 EN1992-1-1_2004.md:2074 'in the vicinity of supports' 直接支持支座附近需局部分析。"
+                "note": "evidence_1 quote (§5.1.1, line 2072-2082) lists 'in the vicinity of supports' = 支座附近. Verified verbatim in EN1992-1-1_2004.md."
               },
               {
                 "agree": true,
                 "claim_id": "claim_2",
-                "note": "语料 EN1992-1-1_2004.md:2076 'local to concentrated loads' 直接支持集中荷载局部区域。"
+                "note": "evidence_1 lists 'local to concentrated loads' = 集中荷载附近. Verified in file."
               },
               {
                 "agree": true,
                 "claim_id": "claim_3",
-                "note": "语料 EN1992-1-1_2004.md:2078 'in beam-column intersections' 直接支持梁柱节点处。"
+                "note": "evidence_1 lists 'in beam-column intersections' = 梁柱交接处. Verified in file."
               },
               {
                 "agree": true,
                 "claim_id": "claim_4",
-                "note": "语料 EN1992-1-1_2004.md:2080 'in anchorage zones' 直接支持锚固区。"
+                "note": "evidence_1 lists 'in anchorage zones' = 锚固区. Verified in file."
               },
               {
                 "agree": true,
                 "claim_id": "claim_5",
-                "note": "语料 EN1992-1-1_2004.md:2082 'at changes in cross section.' 直接支持截面变化处。"
+                "note": "evidence_1 lists 'at changes in cross section' = 截面变化处. Verified in file. Single evidence covers all five atomic claims; minimal sufficient."
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "d60ccc654f45fefb66f08ac0a1ee1352ecd0c1bcd1f5f5c96af2a4369c2e4c15",
-          "passed": false
-        },
-        {
-          "round": 1,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: '## 5.1.1 General requirements'"
-          ],
-          "review": {
-            "overall_agree": true,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "引文 'in the vicinity of supports' 直接对应支座附近，逐字匹配 EN1992-1-1_2004.md:2074。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "引文 'local to concentrated loads' 直接对应集中荷载局部区域，逐字匹配 EN1992-1-1_2004.md:2076。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "引文 'in beam-column intersections' 直接对应梁柱节点处，逐字匹配 EN1992-1-1_2004.md:2078。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_4",
-                "note": "引文 'in anchorage zones' 直接对应锚固区，逐字匹配 EN1992-1-1_2004.md:2080。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_5",
-                "note": "引文 'at changes in cross section' 直接对应截面变化处，逐字匹配 EN1992-1-1_2004.md:2082。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "d60ccc654f45fefb66f08ac0a1ee1352ecd0c1bcd1f5f5c96af2a4369c2e4c15",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: '## 5.1.1 General requirements'"
-          ],
-          "review": {
-            "overall_agree": true,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 第2074行 'in the vicinity of supports' 直接对应支座附近，引文逐字匹配，路径与 section 正确。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_1 第2076行 'local to concentrated loads' 对应集中荷载局部区域，引文逐字匹配。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_1 第2078行 'in beam-column intersections' 对应梁柱节点处，引文逐字匹配。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_1 第2080行 'in anchorage zones' 对应锚固区，引文逐字匹配。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_5",
-                "note": "evidence_1 第2082行 'at changes in cross section.' 对应截面变化处，引文逐字匹配。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "a2ed37aa9c60bbe3c7165b8346b9aad233265a333607e3c5dc2ffb4471d80418",
-          "passed": false
+          "gold_sha256": "02b26c3a435eb53c8af5e99b8509389c6c974bb136662bba121df0e6cfb17219",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "当线性应变分布的假设不成立时，可能需要在支座附近、集中荷载局部区域、梁柱节点处、锚固区和截面变化处进行局部分析。",
+        "reference_answer": "当线性应变分布的假设不成立时，可能需要在以下部位进行局部分析：支座附近、集中荷载附近、梁柱交接处、锚固区，以及截面变化处。",
         "claims": [
           {
             "claim_id": "claim_1",
@@ -1929,7 +1877,7 @@
               "evidence_1"
             ],
             "status": "supported",
-            "text": "在线性应变分布假设不成立的支座附近，可能需要进行局部分析。"
+            "text": "在线性应变分布假设不成立时，支座附近可能需要进行局部分析。"
           },
           {
             "claim_id": "claim_2",
@@ -1937,7 +1885,7 @@
               "evidence_1"
             ],
             "status": "supported",
-            "text": "在线性应变分布假设不成立的集中荷载局部区域，可能需要进行局部分析。"
+            "text": "在线性应变分布假设不成立时，集中荷载附近可能需要进行局部分析。"
           },
           {
             "claim_id": "claim_3",
@@ -1945,7 +1893,7 @@
               "evidence_1"
             ],
             "status": "supported",
-            "text": "在线性应变分布假设不成立的梁柱节点处，可能需要进行局部分析。"
+            "text": "在线性应变分布假设不成立时，梁柱交接处可能需要进行局部分析。"
           },
           {
             "claim_id": "claim_4",
@@ -1953,7 +1901,7 @@
               "evidence_1"
             ],
             "status": "supported",
-            "text": "在线性应变分布假设不成立的锚固区，可能需要进行局部分析。"
+            "text": "在线性应变分布假设不成立时，锚固区可能需要进行局部分析。"
           },
           {
             "claim_id": "claim_5",
@@ -1961,7 +1909,7 @@
               "evidence_1"
             ],
             "status": "supported",
-            "text": "在线性应变分布假设不成立的截面变化处，可能需要进行局部分析。"
+            "text": "在线性应变分布假设不成立时，截面变化处可能需要进行局部分析。"
           }
         ],
         "evidence": [
@@ -1969,7 +1917,7 @@
             "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
             "evidence_id": "evidence_1",
             "quote": "(2) Local analyses may be necessary where the assumption of linear strain distribution is not valid, e.g.:\n\nin the vicinity of supports\n\nlocal to concentrated loads\n\nin beam-column intersections\n\nin anchorage zones\n\nat changes in cross section.",
-            "section": "## 5.1.1 General requirements"
+            "section": "5.1.1 General requirements"
           }
         ],
         "E_plus": [
@@ -3537,10 +3485,10 @@
     {
       "id": "Q18",
       "question": "混凝土抗压强度标准值、设计值与平均强度之间是什么关系？",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T16:27:48.737465Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:08:31.722790Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -3609,28 +3557,7 @@
         {
           "round": 0,
           "kind": "draft",
-          "validation_errors": [
-            "claims is empty"
-          ],
-          "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": false,
-            "minimum_sufficient_evidence": false,
-            "per_claim": []
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "b68cfb075a19ba916e77ab019bfe1eb7b9912144d2071b5f4eeb57b925fd9e5c",
-          "passed": false
-        },
-        {
-          "round": 1,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: document_path must be a canonical relative path: '/var/folders/q4/1hq7p79n7sdcw462m220d1g40000gq/T/mvp_gold_corpus_c45kqpd0/corpus/EN1992-1-1_2004/EN1992-1-1_2004.md'",
-            "evidence[1]: document_path must be a canonical relative path: '/var/folders/q4/1hq7p79n7sdcw462m220d1g40000gq/T/mvp_gold_corpus_c45kqpd0/corpus/EN1992-1-1_2004/EN1992-1-1_2004.md'",
-            "evidence[2]: document_path must be a canonical relative path: '/var/folders/q4/1hq7p79n7sdcw462m220d1g40000gq/T/mvp_gold_corpus_c45kqpd0/corpus/EN1992-1-1_2004/EN1992-1-1_2004.md'"
-          ],
+          "validation_errors": [],
           "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
@@ -3638,51 +3565,82 @@
             "per_claim": [
               {
                 "agree": true,
-                "claim_id": "claim_fck_definition",
-                "note": "quote 与语料 line 1141 (3.1.2 (1)P) 逐字一致，直接支持 fck 为 5% 分位圆柱特征强度；28 天语境由 Table 3.1 提供，claim 准确。"
+                "claim_id": "claim_1",
+                "note": "evidence_1 引文逐字匹配 BSEN1992-1-1-2023.md 第2241行 (5.1.3 Strength)，明确 fck 为 EN 206 特征(5%)圆柱强度、于 tref 测定。原子、状态正确。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_fcm_relation",
-                "note": "quote 来自 Table 3.1 (line 1239)，fcm 行数值对应 fck 行逐项满足 fcm=fck+8，行尾标注 fom=fck+8(MPa)（语料 OCR 误识 fcm 为 fem/fom，quote 与语料逐字一致）。claim 准确。"
+                "claim_id": "claim_2",
+                "note": "evidence_2 引文位于第2252行 Table 5.1 的 Governing formulae 列，原文 'fcm = fck + 8 MPa</td></tr>' 完全一致。直接支持 claim。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_fcd_relation",
-                "note": "quote 与 line 1411 式 3.15 一致，直接支持 fcd=αcc·fck/γC；αcc 定义(line 1418)与 γC 分项安全系数(line 1416)在同一 provision 内可核验。quote 仅含公式未含 where 子句，但解释准确无事实错误，证据充分。"
+                "claim_id": "claim_3",
+                "note": "evidence_3 引文对应第2325行 Formula (5.3) 于 5.1.6 Design assumptions，内容 fcd = ηcc·ktc·fck/γC 一致；仅省略行首 LaTeX 定界符 '$'，不构成实质错误。原子、状态正确。"
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "4a572ed59ff17c6e97d660b51f144145106c169b4bcd34e9974828b78ad68cd3",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "claims is empty"
-          ],
-          "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": false,
-            "minimum_sufficient_evidence": false,
-            "per_claim": []
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "5b49213bc0920dba083c846e8a56f2c26ab2555beb7e030ee86560bc5f016dc6",
-          "passed": false
+          "gold_sha256": "8ef7842c8b65508ffee09504624d55911891300e8f1d02e6c94b6f1bb3c447ff",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "📐【HelloAGENTS】- 简化流程：评估\n\n📋 需求: 重新检索指定只读 Markdown 语料，并输出完整替换版 Eurocode gold；重点修正 `document_path` 为相对路径。\n\n📊 评分: 8/10（任务目标 3/3 | 完成标准 3/3 | 涉及范围 2/2 | 限制条件 0/2）\n\n🔄 下一步: 请回复“确认”，我将直接检索全语料并生成完整替换版 gold。",
-        "claims": [],
-        "evidence": [],
-        "E_plus": [],
+        "reference_answer": "按 EN 1992-1-1:2023，fck 为在参考龄期 tref 测定的特征（5%）圆柱抗压强度；平均抗压强度 fcm = fck + 8 MPa；设计抗压强度按 fcd = ηcc · ktc · fck / γC 由 fck 折减/修正得到。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "evidence_ids": [
+              "evidence_1"
+            ],
+            "status": "supported",
+            "text": "混凝土抗压强度标准值 fck 是按 EN 206、在参考龄期 tref 测定的特征（5%）圆柱抗压强度。"
+          },
+          {
+            "claim_id": "claim_2",
+            "evidence_ids": [
+              "evidence_2"
+            ],
+            "status": "supported",
+            "text": "平均抗压强度与标准值的关系为 fcm = fck + 8 MPa。"
+          },
+          {
+            "claim_id": "claim_3",
+            "evidence_ids": [
+              "evidence_3"
+            ],
+            "status": "supported",
+            "text": "设计抗压强度为 fcd = ηcc · ktc · fck / γC。"
+          }
+        ],
+        "evidence": [
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_1",
+            "quote": "(1) The compressive strength of concrete shall be denoted by concrete strength classes which relate to the characteristic (5 %) cylinder strength $f _ { \\mathrm { c k } }$ of the concrete in accordance with EN 206, determined at an age $t _ { \\mathrm { r e f } } .$",
+            "section": "5.1.3 Strength"
+          },
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_2",
+            "quote": "fcm = fck + 8 MPa</td></tr>",
+            "section": "5.1.3 Strength"
+          },
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_3",
+            "quote": "f _ { \\mathrm { c d } } = \\eta _ { \\mathrm { c c } } \\cdot k _ { \\mathrm { t c } } \\frac { f _ { \\mathrm { c k } } } { \\gamma _ { \\mathrm { C } } }\\tag{5.3}",
+            "section": "5.1.6 Design assumptions"
+          }
+        ],
+        "E_plus": [
+          "evidence_1",
+          "evidence_2",
+          "evidence_3"
+        ],
         "eligible_for_crec": false,
-        "gold_claim_status": "none"
+        "gold_claim_status": "supported"
       },
       "disputes": [],
       "human_review": {
@@ -3696,10 +3654,10 @@
     {
       "id": "Q19",
       "question": "钢筋的锚固长度与搭接长度受哪些因素影响？",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T16:33:34.289009Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:34:49.677018Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -3768,54 +3726,48 @@
         {
           "round": 0,
           "kind": "draft",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: '11.4 Anchorage of reinforcing steel in tension and compression'",
-            "evidence[1]: section heading not found or quote is outside section: '11.4 Anchorage of reinforcing steel in tension and compression'",
-            "evidence[2]: section heading not found or quote is outside section: '11.4 Anchorage of reinforcing steel in tension and compression'"
-          ],
+          "validation_errors": [],
           "review": {
-            "overall_agree": true,
+            "overall_agree": false,
             "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
+            "minimum_sufficient_evidence": false,
             "per_claim": [
               {
                 "agree": true,
                 "claim_id": "claim_1",
-                "note": "Formula (11.3) at line 6737 contains φ (diameter), σ_sd (design stress), f_ck (concrete strength), and c_d (effective cover/spacing) as factors; quote matches verbatim."
+                "note": "evidence_1 quote matches file lines 5561-5567 verbatim. Formula lb,rqd=(φ/4)(σsd/fbd) directly establishes diameter (φ), design stress at anchorage origin (σsd), and design bond stress (fbd) as the governing factors. Minimum sufficient."
               },
               {
                 "agree": true,
                 "claim_id": "claim_2",
-                "note": "Lines 6748-6750 give k_cp=1.0 for good bond and 1.2 for poor bond conditions, directly supporting that casting/bond conditions affect anchorage with larger coefficient for poor bond."
+                "note": "evidence_2 quote matches file lines 5519-5537 verbatim. fbd=2.25 η1 η2 fctd, with fctd=concrete tensile strength, η1=bond quality+bar position during concreting, η2=bar diameter. Directly supports all three factors. Minimum sufficient."
               },
               {
-                "agree": true,
+                "agree": false,
                 "claim_id": "claim_3",
-                "note": "Line 6778 states confinement/transverse reinforcement and external pressure may reduce design anchorage length; quote matches (truncated before the replacement formula but core assertion supported)."
+                "note": "evidence_3 quote is truncated: it only covers α1 (form of bars) and α2 (concrete minimum cover). claim_3 asserts FIVE factors including transverse-reinforcement confinement (α3), welded transverse bars (α4), and transverse pressure along splitting plane (α5). These three are present in the actual corpus at lines 5604-5608 but omitted from the quote, so the provided evidence does NOT fully/directly support the full claim. Insufficient evidence for claim_3."
               },
               {
                 "agree": true,
                 "claim_id": "claim_4",
-                "note": "Line 7040: design lap length at least equal to anchorage lengths lbd given in 11.4 multiplied with k_ls; directly supports lap = anchorage × k_ls and inheritance of anchorage factors."
+                "note": "evidence_4 quote matches file lines 5758-5766 verbatim. Lap length l0=α1 α2 α3 α5 α6 lb,rqd, with lb,rqd from Expression (8.3). Confirms basis on basic required anchorage length and the five coefficients. Minimum sufficient."
               },
               {
                 "agree": true,
                 "claim_id": "claim_5",
-                "note": "evidence_5 (line 7090) covers clear distance effect; evidence_6 (lines 7060-7064) covers plastic-hinge location, lapped-bar proportion (≤35%/≤50%), and staggered arrangement. Together minimal and sufficient."
+                "note": "evidence_5 quote matches file line 5774 verbatim. α6=(ρ1/25)^0.5 but not exceeding 1.5 nor less than 1.0, with ρ1=percentage of reinforcement lapped. Directly supports ρ1 driving α6 and the upper/lower bounds. Minimum sufficient."
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "80d3533c6823ded6365806bed42c082313c723bf586cac4e5bdca40c9198ad59",
+          "gold_sha256": "594b258bda9a98b1686f1afab6088ae0bbde8cefb282e2a6cdd98beb2ca377b9",
           "passed": false
         },
         {
           "round": 1,
           "kind": "repair",
-          "validation_errors": [
-            "evidence[2]: section heading not found or quote is outside section: '11.4.1 General'"
-          ],
+          "validation_errors": [],
           "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
@@ -3823,172 +3775,179 @@
             "per_claim": [
               {
                 "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 = Formula (11.3) at line 6737 contains φ (diameter), σ_sd (design stress), f_ck (concrete compressive strength), c_d (cover/spacing). Quote verbatim from listed file, directly supports claim."
+                "claim_id": "anchor_base_formula",
+                "note": "Quote 来自 8.4.3 (line 5561-5565)，公式 8.3 lb,rqd=(φ/4)(σsd/fbd)，直接支持 claim。原子、状态正确。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 at lines 6748-6750: k_cp=1.0 good bond, 1.2 poor bond. Verbatim, supports casting/bond-condition influence on anchorage length."
+                "claim_id": "bond_concrete_strength",
+                "note": "Quote 来自 8.4.2 (line 5522, 5527)，fbd=2.25·η1·η2·fctd，fctd 为混凝土设计抗拉强度。直接支持。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 at line 6778: confinement/transverse reinforcement and external pressure may reduce design anchorage length. Verbatim, supports claim."
+                "claim_id": "bond_condition_position",
+                "note": "Quote 来自 8.4.2 (line 5529-5531)，η1 与粘结条件质量及浇筑时钢筋位置相关。直接支持。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_4 at line 7040: lap length ≥ anchorage length lbd × k_ls. Verbatim, supports that lap inherits anchorage factors."
+                "claim_id": "bond_bar_diameter",
+                "note": "Quote 来自 8.4.2 (line 5533-5537)，η2 与钢筋直径相关（φ≤32 取1,0，φ>32 用公式）。直接支持。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_5",
-                "note": "evidence_5 (line 7090, net clear distance) + evidence_6 (lines 7060-7064, plastic hinge location, lapped-bar percentage ≤35%/≤50%, staggering). Both verbatim and minimal; together cover all sub-factors in claim."
+                "claim_id": "anchorage_form_cover",
+                "note": "Quote 来自 8.4.4 (line 5587-5589)，α1 钢筋形状、α2 混凝土最小保护层。直接支持。"
+              },
+              {
+                "agree": true,
+                "claim_id": "anchorage_confinement_welding_pressure",
+                "note": "Quote 来自 8.4.4 (line 5604-5608)，α3 横向钢筋约束、α4 焊接横筋沿设计锚固长度、α5 垂直劈裂面压力。直接支持。"
+              },
+              {
+                "agree": true,
+                "claim_id": "lap_length_formula",
+                "note": "Quote 来自 8.7.3 (line 5758-5766)，公式 8.10 l0=α1α2α3α5α6·lb,rqd，以基本锚固长度为基础。直接支持。"
+              },
+              {
+                "agree": true,
+                "claim_id": "lap_percentage_factor",
+                "note": "Quote 来自 8.7.3 (line 5774)，α6=(ρ1/25)^0.5 不超过1,5 不小于1,0，ρ1 为搭接钢筋百分率。直接支持。"
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "6a51fbfcbc4c69b6a4e5faf2056b832110adb006a4b84efd5209c89207b39848",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: '11.4.2 Anchorage of straight bars'",
-            "evidence[1]: section heading not found or quote is outside section: '11.4.2 Anchorage of straight bars'",
-            "evidence[2]: section heading not found or quote is outside section: '11.4.2 Anchorage of straight bars'"
-          ],
-          "review": {
-            "overall_agree": true,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 quote matches Formula (11.3) at line 6737 verbatim. The formula explicitly contains φ (diameter), σ_sd (design steel stress), f_ck (concrete strength), and c_d (effective cover/spacing), directly supporting the claim."
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 quote matches lines 6748-6750 verbatim: k_cp=1.0 for good bond, 1.2 for poor bond/slipform. Directly supports that casting/bond conditions affect anchorage length with poor bond using a larger coefficient."
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 quote matches line 6778 verbatim, stating confinement/transverse reinforcement and external pressure may reduce design anchorage length. Directly supports the claim."
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_4 quote matches line 7040 verbatim: lap length at least equal to anchorage lengths lbd from 11.4 multiplied by k_ls. Supports inheritance of anchorage factors into lap length."
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_5",
-                "note": "evidence_5 (line 7090) supports the clear-distance/net-spacing factor; evidence_6 (lines 7060-7064) supports plastic-hinge region factors (confinement reinforcement, staggered laps, lapped-bar percentage 35%/50%, adjacent-lap distance ≥0.3 l_sd). Both quotes verbatim and minimal; claim correctly splits into two evidences."
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "8c5295566e7da4e783f12f526bbea5b73289687bce0aad8922c6318a457ac5e1",
-          "passed": false
+          "gold_sha256": "08262cffa8afbe155c6cd49986bbe79ec76fad2ee9f4648e3f8e8c9fac46ea33",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "钢筋锚固长度主要由钢筋直径、设计钢筋应力、混凝土强度、有效保护层/间距参数 c_d 以及浇筑形成的粘结条件决定；横向或约束钢筋及外部压力也会影响其取值，并可在规定条件下缩短锚固长度。搭接长度以锚固长度乘搭接系数 k_ls 为基础，故继承上述影响因素；此外还受搭接钢筋净距、搭接是否跨越塑性铰区、同一截面的搭接比例及错开布置情况影响。",
+        "reference_answer": "钢筋的基本所需锚固长度由钢筋直径、钢筋设计应力和设计粘结应力决定。设计粘结应力涉及混凝土设计抗拉强度、粘结条件与浇筑时钢筋位置，以及钢筋直径。设计锚固长度还受钢筋形状、混凝土最小保护层、横向钢筋约束、焊接横筋和垂直劈裂面压力影响。设计搭接长度以基本所需锚固长度为基础，乘以α1、α2、α3、α5和α6；其中α6与搭接钢筋百分率ρ1有关，并有1,0至1,5的限制。",
         "claims": [
           {
-            "claim_id": "claim_1",
+            "claim_id": "anchor_base_formula",
             "evidence_ids": [
-              "evidence_1"
+              "anchor_base_formula_ev"
             ],
             "status": "supported",
-            "text": "直锚钢筋的设计锚固长度受钢筋直径、设计钢筋应力、混凝土抗压强度以及有效保护层/间距参数 c_d 影响。"
+            "text": "基本所需锚固长度由钢筋直径φ、钢筋设计应力σsd和设计粘结应力fbd的比值确定。"
           },
           {
-            "claim_id": "claim_2",
+            "claim_id": "bond_concrete_strength",
             "evidence_ids": [
-              "evidence_2"
+              "bond_concrete_strength_ev"
             ],
             "status": "supported",
-            "text": "浇筑形成的粘结条件会影响锚固长度；不良粘结条件采用比良好粘结条件更大的系数。"
+            "text": "设计极限粘结应力fbd包含混凝土设计抗拉强度fctd。"
           },
           {
-            "claim_id": "claim_3",
+            "claim_id": "bond_condition_position",
             "evidence_ids": [
-              "evidence_3"
+              "bond_condition_position_ev"
             ],
             "status": "supported",
-            "text": "满足规定布置条件的约束或横向钢筋，以及外部压力，可通过改变约束条件而减小设计锚固长度。"
+            "text": "粘结条件质量和浇筑时钢筋位置通过系数η1影响设计极限粘结应力。"
           },
           {
-            "claim_id": "claim_4",
+            "claim_id": "bond_bar_diameter",
             "evidence_ids": [
-              "evidence_4"
+              "bond_bar_diameter_ev"
             ],
             "status": "supported",
-            "text": "搭接长度至少取第 11.4 条锚固长度乘搭接系数 k_ls，因此锚固长度的相关影响因素会传递至搭接长度。"
+            "text": "钢筋直径通过系数η2影响设计极限粘结应力。"
           },
           {
-            "claim_id": "claim_5",
+            "claim_id": "anchorage_form_cover",
             "evidence_ids": [
-              "evidence_5",
-              "evidence_6"
+              "anchorage_form_cover_ev"
             ],
             "status": "supported",
-            "text": "搭接长度还受搭接钢筋净距影响；当受拉搭接跨越塑性铰区时，约束钢筋、错开搭接、同一截面的搭接钢筋比例及相邻搭接距离会影响可采用的设计应力和长度要求。"
+            "text": "钢筋形状和混凝土最小保护层是设计锚固长度的系数影响因素。"
+          },
+          {
+            "claim_id": "anchorage_confinement_welding_pressure",
+            "evidence_ids": [
+              "anchorage_confinement_welding_pressure_ev"
+            ],
+            "status": "supported",
+            "text": "横向钢筋约束、沿设计锚固长度的焊接横筋，以及垂直劈裂面的压力是设计锚固长度的系数影响因素。"
+          },
+          {
+            "claim_id": "lap_length_formula",
+            "evidence_ids": [
+              "lap_length_formula_ev"
+            ],
+            "status": "supported",
+            "text": "设计搭接长度以基本所需锚固长度为基础，并乘以系数α1、α2、α3、α5和α6。"
+          },
+          {
+            "claim_id": "lap_percentage_factor",
+            "evidence_ids": [
+              "lap_percentage_factor_ev"
+            ],
+            "status": "supported",
+            "text": "搭接长度系数α6由搭接钢筋百分率ρ1确定，且不得大于1,5或小于1,0。"
           }
         ],
         "evidence": [
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_1",
-            "quote": "l _ { \\mathrm { b d } } = k _ { \\mathrm { l b } } \\cdot k _ { \\mathrm { c p } } \\cdot \\phi \\cdot \\Big ( \\frac { \\sigma _ { \\mathrm { s d } } } { 4 3 5 } \\Big ) ^ { n _ { \\sigma } } \\cdot \\Big ( \\frac { 2 5 } { f _ { \\mathrm { c k } } } \\Big ) ^ { \\frac { 1 } { 2 } } \\cdot \\Big ( \\frac { \\phi } { 2 0 } \\Big ) ^ { \\frac { 1 } { 3 } } \\cdot \\Big ( \\frac { 1 , 5 \\phi } { c _ { \\mathrm { d } } } \\Big ) ^ { \\frac { 1 } { 2 } } \\geq 1 0 \\phi\\tag{11.3}",
-            "section": "11.4.2 Anchorage of straight bars"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "anchor_base_formula_ev",
+            "quote": "(2) The basic required anchorage length, $I _ { \\mathrm { b , r q d } } ,$ for anchoring the force $A _ { \\mathsf { s } , \\mathsf { O } \\mathsf { s } \\mathsf { d } }$ in a straight bar assuming constant bond stress equal to $\\pmb { f } _ { \\mathrm { b d } }$ follows from:\n\n$$\nI _ { \\mathrm { b , r q d } } = \\left( \\phi / 4 \\right) \\left( \\sigma _ { \\mathrm { s d } } / f _ { \\mathrm { b d } } \\right)\\tag{8.3}\n$$",
+            "section": "8.4.3 Basic anchorage length"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_2",
-            "quote": "$k _ { \\mathrm { c p } } = 1 , 0$ for bars with good bond conditions according to (4);\n\n$k _ { \\mathrm { c p } } = 1 , 2$ for poor bond conditions and for all bars used in slipform construction unless it is shown that the vertical bars cannot move during casting;",
-            "section": "11.4.2 Anchorage of straight bars"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "bond_concrete_strength_ev",
+            "quote": "f _ { \\mathrm { b d } } = 2 , 2 5 \\ : \\eta _ { 1 } \\ : \\eta _ { 2 } \\ : f _ { \\mathrm { c t d } }\\tag{8.2}\n$$\n\nwhere:\n\nfctd is the design value of concrete tensile strength according to 3.1.6 (2)P.",
+            "section": "8.4.2 Ultimate bond stress"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_3",
-            "quote": "In presence of confinement reinforcement crossing the potential splitting surface shown in Figure 11.5 a) and placed at a net distance $\\le ~ 5 \\phi$ from the bar to be anchored, or of transverse reinforcement arranged between the bar to be anchored and the free surface (Figure 11.5 b)) or/and of external pressure (Figure 11.5 c)), the design anchorage length may be reduced",
-            "section": "11.4.2 Anchorage of straight bars"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "bond_condition_position_ev",
+            "quote": "$\\eta _ { 1 }$ is a coefficient related to the quality of the bond condition and the position of the bar during concreting (see Figure 8.2):\n\n$\\eta _ { 1 } = 1 , 0$ when ‘good’ conditions are obtained and $\\eta _ { 1 } = 0 , 7$ for all other cases and for bars in structural elements built with slip-forms, unless it can be shown that ‘good’ bond conditions exist",
+            "section": "8.4.2 Ultimate bond stress"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_4",
-            "quote": "A design lap length $l _ { \\mathrm { s d } }$ between two bars in tension or in compression should be provided, at least equal to the anchorage lengths lbd given in 11.4 multiplied with $k _ { \\mathrm { l s } } ,$ , where the clear distance $c _ { s } = c _ { s 1 } + c _ { s 2 }$ to calculate cover <sup>c</sup> should be taken according to Figure 11.10.",
-            "section": "11.5.2 All types of laps"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "bond_bar_diameter_ev",
+            "quote": "2 is related to the bar diameter:\n\n$\\eta _ { 2 } = 1 , 0$ for $\\phi \\leq 3 2$ mm\n\n$\\eta _ { 2 } = ( 1 3 2 - \\phi ) / 1 0 0$ for $\\phi > 3 2$ mm",
+            "section": "8.4.2 Ultimate bond stress"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_5",
-            "quote": "In case the clear distance exceeds the smaller of 50 mm or $4 \\phi _ { \\scriptscriptstyle 1 }$ , the design lap length shall be increased by the centre to centre distance of the lapped bars and adequate transverse reinforcement provided to resist the associated transverse forces developed.",
-            "section": "11.5.2 All types of laps"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "anchorage_form_cover_ev",
+            "quote": "$\\pmb { q } _ { 1 }$ is for the effect of the form of the bars assuming adequate cover (see Figure 8.1).\n\n$\\pmb { q } _ { 2 }$ is for the effect of concrete minimum cover (see Figure 8.3)",
+            "section": "8.4.4 Design anchorage length"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_6",
-            "quote": "Where tension laps are located across plastic hinge locations, tension lap length may be designed for $\\sigma _ { \\mathrm { s d } }$ if:\n\n— a confinement reinforcement is arranged according to 11.5.2(8); or\n\nif the laps are staggered so that the area of lapped bars i $s \\leq 3 5 \\%$ of the total cross section area of the reinforcement in linear members (beams and columns) $0 \\Gamma \\leq 5 0 \\%$ in planar members (slabs, walls and shells). If staggering of laps is chosen as an option, the distance between adjacent laps should be at least $0 { , } 3 l _ { \\mathrm { s d } }$ (see Figure 11.11b)).",
-            "section": "11.5.2 All types of laps"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "anchorage_confinement_welding_pressure_ev",
+            "quote": "$\\pmb { q } _ { 3 }$ is for the effect of confinement by transverse reinforcement\n\n$\\pmb { q } _ { 4 }$ is for the influence of one or more welded transverse bars $( \\phi _ { \\mathrm { t } } > 0 , 6 \\phi )$ along the design anchorage length $I _ { \\mathrm { b d } }$ (see also 8.6)\n\n$\\pmb { q } _ { 5 }$ is for the effect of the pressure transverse to the plane of splitting along the design anchorage length",
+            "section": "8.4.4 Design anchorage length"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "lap_length_formula_ev",
+            "quote": "(1) The design lap length is:\n\n$$\n{ \\cal I } _ { 0 } = \\alpha _ { 1 } \\alpha _ { 2 } \\alpha _ { 3 } \\alpha _ { 5 } \\alpha _ { 6 } { \\cal I } _ { \\mathrm { b , r q d } } \\geq { \\cal I } _ { 0 , \\mathrm { m i n } }\\tag{8.10}\n$$\n\nwhere:\n\n$I _ { \\mathrm { b , r q d } }$ is calculated from Expression (8.3)",
+            "section": "8.7.3 Lap length"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "lap_percentage_factor_ev",
+            "quote": "$a _ { 6 } ^ { \\phantom { 8 } } = ( \\rho _ { 1 } / 2 5 ) ^ { 0 , 5 }$ but not exceeding 1,5 nor less than 1,0, where $\\rho _ { 1 }$ is the percentage of reinforcement lapped within $0 { , } 6 5 { \\mathrm { ~ } } I _ { 0 }$ from the centre of the lap length considered (see Figure 8.8). Values of ${ \\pmb q } _ { 6 }$ are given in Table 8.3.",
+            "section": "8.7.3 Lap length"
           }
         ],
         "E_plus": [
-          "evidence_1",
-          "evidence_2",
-          "evidence_3",
-          "evidence_4",
-          "evidence_5",
-          "evidence_6"
+          "anchor_base_formula_ev",
+          "anchorage_confinement_welding_pressure_ev",
+          "anchorage_form_cover_ev",
+          "bond_bar_diameter_ev",
+          "bond_concrete_strength_ev",
+          "bond_condition_position_ev",
+          "lap_length_formula_ev",
+          "lap_percentage_factor_ev"
         ],
         "eligible_for_crec": false,
         "gold_claim_status": "supported"
@@ -5092,10 +5051,10 @@
     {
       "id": "Q25",
       "question": "单向板的设计步骤包括哪些",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T16:51:49.239307Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:22:11.837402Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -5164,56 +5123,7 @@
         {
           "round": 0,
           "kind": "draft",
-          "validation_errors": [
-            "evidence[0]: quote not found verbatim in 'DG_EN1990/DG_EN1990.md'",
-            "evidence[1]: section heading not found or quote is outside section: '## 1.5.1.1 Slenderness'",
-            "evidence[2]: section heading not found or quote is outside section: '## 3.8.1. One-way spanning slabs and continuous beams'",
-            "evidence[3]: section heading not found or quote is outside section: '## 3.2.1.2 Determination of the bending reinforcement in general'",
-            "evidence[4]: section heading not found or quote is outside section: '## 12.4.2 Shear reinforcement'"
-          ],
-          "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
-            "per_claim": [
-              {
-                "agree": false,
-                "claim_id": "claim_1",
-                "note": "引文真实且来自 DG_EN1990.md，但 section 标注错误：引文实际位于 ## 3.5. Limit state design（行1351），而非所列 ## 3.2. Design situations（行1221）。且 claim 中“确定相关极限状态下的内力”在引文中无直接对应——引文只说 setting up structural and load models ... considered in design situations and load cases，并未提及求取内力，属轻微过度推断。section 误标为事实错误。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "引文逐字命中 1110_WS_EC2_-.md 行742（## 1.5.1.1 Slenderness），直接支持 SLS 先于 ULS、板厚由挠度限值控制。路径、引文、section 均正确。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_3",
-                "note": "evidence_3 引文（DG_EN1992-1-1__-1-2.md 行1326）仅覆盖适用条件与 Table 3.3 取弯矩剪力，未包含“1.35Gk+1.50Qk”。该荷载组合在同文件行1346（F is the total design ultimate load (1.35Gk + 1.50Qk)），但未纳入引文。claim_3 非原子且部分子事实无引文支撑，证据不足。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_4",
-                "note": "evidence_4（1110_WS_EC2_-.md 行1361）支持按弯矩设计纵向受拉钢筋，evidence_5（BSEN1992-1-1-2023.md 行7648）支持抗剪钢筋按梁构造。但 claim_4 中“提供单向板所需的次要横向受拉钢筋”子事实在两条引文中均无任何对应；该概念虽存在于 corpus（如 BSEN §3.1.73 secondary reinforcement 定义、§9.3.1.1），却未列入证据，存在漏证。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "cd4bfe7e246aa6d34b3c3c7b691c9f4275f45917fc962c9132b27c9e24029071",
-          "passed": false
-        },
-        {
-          "round": 1,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[0]: section heading not found or quote is outside section: '## 3.5. Limit state design'",
-            "evidence[1]: section heading not found or quote is outside section: '## 1.5.1.1 Slenderness'",
-            "evidence[2]: section heading not found or quote is outside section: '## 3.8.1. One-way spanning slabs and continuous beams'",
-            "evidence[3]: section heading not found or quote is outside section: '## 3.8.1. One-way spanning slabs and continuous beams'",
-            "evidence[4]: section heading not found or quote is outside section: '## 12.4.1 Detailing requirements for slabs'",
-            "evidence[5]: section heading not found or quote is outside section: '## 12.4.2 Shear reinforcement'"
-          ],
+          "validation_errors": [],
           "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
@@ -5221,153 +5131,111 @@
             "per_claim": [
               {
                 "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 quote 与 DG_EN1990.md:1351 (§3.5 Limit state design) 完全一致，直接支持‘针对相关 ULS/SLS 建立结构与荷载模型并考虑设计工况/荷载工况’。原子且最小。"
+                "claim_id": "c1",
+                "note": "e1 (line 1255, §3.1.1 Motivation) states 'On the basis of the effects of the actions from the structural analysis... in design procedures', directly supporting that design is based on effects of actions from structural analysis. Quote exact, path/section correct."
               },
               {
                 "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 来自 1110_WS_EC2_-.md:742 (§1.5.1.1 Slenderness)，明确 SLS 与 ULS‘in this exact order’且板厚 h 由 deflection limits 控制。直接支持、最小。"
+                "claim_id": "c2",
+                "note": "e1 mentions 'ultimate limit state for typical bending... cases in design procedures', directly supporting bending ULS verification. Quote exact."
               },
               {
                 "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 (DG_EN1992-1-1__-1-2.md:1326) 给出三条荷载/跨距条件后可用 Table 3.3 取得弯矩剪力；evidence_4 (:1346) 给出 F=1.35Gk+1.50Qk。两条均来自所列文件且直接支持，构成最小充分集。"
+                "claim_id": "c3",
+                "note": "e1 mentions 'shear' among ULS cases in design procedures, directly supporting shear ULS verification. Quote exact."
               },
               {
                 "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_5 (BSEN1992-1-1-2023.md:7621 Table 12.2 脚注 a/C) 说明 secondary reinforcement 置于按单向板受力区域，且 A_s,req,span 为 span 正弯矩所需钢筋；evidence_6 (:7648) 说明 one-way slab 抗剪钢筋按梁构造。直接支持 claim 各分句，最小。"
+                "claim_id": "c4",
+                "note": "e1 states 'calculation for limiting the crack width', directly supporting crack width control. Quote exact."
+              },
+              {
+                "agree": true,
+                "claim_id": "c5",
+                "note": "e1 states 'the deflection for the critical members are presented', directly supporting deflection check for critical members. Quote exact."
+              },
+              {
+                "agree": true,
+                "claim_id": "c6",
+                "note": "e2 (line 3632, §4.2.3.1 Slab AB12 for case 1) states 'detailing of the reinforcement... minimum and maximum values for the reinforcement area... same as for the beams', directly supporting reinforcement detailing plus min/max reinforcement area check. The example slab is two-way but the cited Clause 9.3 provision is general for slabs, applicable to one-way slab detailing. Quote exact, path/section correct."
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "8eec73774c909d7ab4ebd5b74c97baeabed8ac26c933b56ef7c2c481eb0dbd0d",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[3]: section heading not found or quote is outside section: '3.8.1. One-way spanning slabs and continuous beams'"
-          ],
-          "review": {
-            "overall_agree": true,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": true,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 在 DG_EN1990.md:1351 (§3.5 Limit state design) 原文匹配，支持建立结构与荷载模型并考虑设计工况/荷载工况。虽为 EN1990 通用极限状态设计步骤，但作为单向板设计首要步骤合理。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 在 1110_WS_EC2_-.md:742 (§1.5.1.1 Slenderness) 原文匹配，明确 SLS 先于 ULS 顺序及板厚由挠度限值控制。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 (DG_EN1992-1-1__-1-2.md:1326) 给出 Table 3.3 适用条件；evidence_4 (同文件:1346) 给出 F=1.35Gk+1.50Qk。两条共同原子支撑该 claim，最小充分。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_4",
-                "note": "evidence_5 (BSEN1992-1-1-2023.md:7621 Table 12.2 脚注a/C, §12.4.1) 支持正弯矩纵向受拉钢筋与单向板区域次要钢筋；evidence_6 (同文件:7648, §12.4.2) 支持抗剪钢筋按梁构造。引文均来自所列文件并直接支持。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "4cfb4301b54b2f98c69fe38a31bacfbe6786f169ac8ab9d38b6e62db1a40f7a2",
-          "passed": false
+          "gold_sha256": "4d33f4d907839ea4138b25753a9a7afbfdf35e86b4939307840719ea5c52286b",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "单向板可按以下步骤设计：先针对相关SLS和ULS建立结构与荷载模型，并考虑设计工况和荷载工况；先进行SLS控制（板厚通常由挠度限值控制），再进行ULS验算；对满足荷载和跨距条件的连续单向板，可用表列法取得弯矩和剪力，并采用规定的总设计极限荷载；随后按正弯矩配置纵向受拉钢筋，在按单向板受力的区域配置次要钢筋；如需设置抗剪钢筋，则按梁的构造要求处理。",
+        "reference_answer": "单向板的设计步骤可概括为：先根据结构分析获得作用效应；进行承载能力极限状态下的弯曲和剪力验算；进行使用极限状态下的裂缝宽度控制和关键构件挠度验算；最后进行钢筋构造设计，并核对最小、最大配筋面积。",
         "claims": [
           {
-            "claim_id": "claim_1",
+            "claim_id": "c1",
             "evidence_ids": [
-              "evidence_1"
+              "e1"
             ],
             "status": "supported",
-            "text": "单向板设计首先应针对相关的承载能力极限状态和正常使用极限状态建立结构与荷载模型，并考虑相应设计工况和荷载工况。"
+            "text": "单向板设计应以结构分析得到的作用效应为基础。"
           },
           {
-            "claim_id": "claim_2",
+            "claim_id": "c2",
             "evidence_ids": [
-              "evidence_2"
+              "e1"
             ],
             "status": "supported",
-            "text": "设计应先满足正常使用极限状态（SLS），再满足承载能力极限状态（ULS）；板厚通常受挠度限值控制。"
+            "text": "设计步骤应包括对弯曲的承载能力极限状态验算。"
           },
           {
-            "claim_id": "claim_3",
+            "claim_id": "c3",
             "evidence_ids": [
-              "evidence_3",
-              "evidence_4"
+              "e1"
             ],
             "status": "supported",
-            "text": "对于满足规定荷载与跨距条件的连续单向板，可用表3.3取得弯矩和剪力；该表中的总设计极限荷载为1.35Gk加1.50Qk。"
+            "text": "设计步骤应包括对剪力的承载能力极限状态验算。"
           },
           {
-            "claim_id": "claim_4",
+            "claim_id": "c4",
             "evidence_ids": [
-              "evidence_5",
-              "evidence_6"
+              "e1"
             ],
             "status": "supported",
-            "text": "应按所需正弯矩配置纵向受拉钢筋，并在按单向板受力的区域配置次要钢筋；若设置抗剪钢筋，其构造应按梁执行。"
+            "text": "设计步骤应包括裂缝宽度控制计算。"
+          },
+          {
+            "claim_id": "c5",
+            "evidence_ids": [
+              "e1"
+            ],
+            "status": "supported",
+            "text": "设计步骤应包括关键构件的挠度验算。"
+          },
+          {
+            "claim_id": "c6",
+            "evidence_ids": [
+              "e2"
+            ],
+            "status": "supported",
+            "text": "设计最后应进行钢筋构造设计，并核对最小和最大配筋面积。"
           }
         ],
         "evidence": [
           {
-            "document_path": "DG_EN1990/DG_EN1990.md",
-            "evidence_id": "evidence_1",
-            "quote": "The design procedure using the limit state concept consists of setting up structural and load models for relevant ultimate and serviceability limit states which are considered in the various design situations and load cases",
-            "section": "3.5. Limit state design"
+            "document_path": "1110_WS_EC2_-/1110_WS_EC2_-.md",
+            "evidence_id": "e1",
+            "quote": "On the basis of the effects of the actions from the structural analysis (Chapter 2), the following consider the ultimate limit state for typical bending, shear, axial and punching cases in design procedures. To satisfy also the serviceability limit state criteria the calculation for limiting the crack width and the deflection for the critical members are presented.",
+            "section": "3.1.1. Motivation"
           },
           {
             "document_path": "1110_WS_EC2_-/1110_WS_EC2_-.md",
-            "evidence_id": "evidence_2",
-            "quote": "The design of slabs has to fulfil both Serviceability Limit States (SLS) and Ultimate Limit States (ULS) requirements (in this exact order!). In general the height “h” of slabs is controlled by the deflection limits",
-            "section": "1.5.1.1 Slenderness"
-          },
-          {
-            "document_path": "DG_EN1992-1-1__-1-2/DG_EN1992-1-1__-1-2.md",
-            "evidence_id": "evidence_3",
-            "quote": "A further approximation may be made if: (1) the characteristic variable load does not exceed the characteristic permanent load; (2) loads are predominantly uniformly distributed over three or more spans; and (3) variations in span lengths do not exceed 15% of the longest span. Under these conditions the bending moments and shear forces may be obtained using Table 3.3.",
-            "section": "3.8.1. One-way spanning slabs and continuous beams"
-          },
-          {
-            "document_path": "DG_EN1992-1-1__-1-2/DG_EN1992-1-1__-1-2.md",
-            "evidence_id": "evidence_4",
-            "quote": "F is the total design ultimate load (1.35Gk + 1.50Qk); 1 is the effective span.",
-            "section": "3.8.1. One-way spanning slabs and continuous beams"
-          },
-          {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_5",
-            "quote": "To ensure a minimum ability to locally redistribute sectional forces transverse to the span direction,secondary reinforcement is to be placed in areas of slabs which can be considered to behave as one-wayslabs.b  These spacing are consistent with the shear model in 8.2.3. Where alternative models are used alternativespacings may be required.C   $A _ { \\mathsf { s , r e q \\ s p a n } }$ is the required reinforcement for positive bending moments at the span.",
-            "section": "12.4.1 General"
-          },
-          {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_6",
-            "quote": "(4) The shear reinforcement for a one-way slab should be detailed as for a beam, see 12.3.3.",
-            "section": "12.4.2 Shear reinforcement"
+            "evidence_id": "e2",
+            "quote": "Provisions for the detailing of the reinforcement for this type of slabs are exposed in Clause 9.3. The minimum and maximum values for the reinforcement area, $A _ { s , m i n }$ and $A _ { s , m a x } ,$ are the same as for the beams [9.3.1.1 (1)]. For a slab unit width (b = 1 mm):",
+            "section": "4.2.3.1 Slab AB12 for case 1"
           }
         ],
         "E_plus": [
-          "evidence_1",
-          "evidence_2",
-          "evidence_3",
-          "evidence_4",
-          "evidence_5",
-          "evidence_6"
+          "e1",
+          "e2"
         ],
         "eligible_for_crec": false,
         "gold_claim_status": "supported"
@@ -6138,10 +6006,10 @@
     {
       "id": "Q30",
       "question": "结构抗扭转设计程序是怎样的",
-      "status": "review_not_converged",
-      "built_at": "2026-07-13T17:27:45.369440Z",
+      "status": "needs_human_review",
+      "built_at": "2026-07-14T05:24:12.457248Z",
       "prompt_versions": {
-        "gold": "gold-direct-corpus-v2",
+        "gold": "gold-direct-corpus-v3",
         "verify": "gold-independent-review-v2"
       },
       "corpus_manifest": {
@@ -6212,264 +6080,203 @@
           "kind": "draft",
           "validation_errors": [],
           "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 与 BSEN1992-1-1-2023.md 8.3.1(1) 逐字一致，直接支持'设计与分析刚度假定一致、忽略扭转刚度时ULS可忽略扭矩但需配最小箍筋纵筋防裂'。原子且充分。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_2",
-                "note": "evidence_2 与 8.3.3(1) 一致，支持开口薄壁需考虑翘曲扭转并按8.1弯曲/轴力、8.2剪力设计各部分。闭口/实体忽略翘曲见8.3.2(1)，claim表述合理。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_3",
-                "note": "evidence_3 与 8.3.4(1) 公式(8.81) min{sw;sl;max} 一致；8.3.4(2)(3) 说明 sw=剪力钢筋屈服、sl=纵向钢筋屈服、max=混凝土压杆压碎，与claim三者控制表述吻合。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_4",
-                "note": "claim同时含'逐壁元设计'(8.3.5(1))与'相互作用公式简化验算线性求和≤1.0'(8.3.6(1))两节内容，非纯原子；evidence_4仅引用8.3.6(1)，未覆盖8.3.5(1)逐壁元设计部分，证据不足以支持整条claim。应补充8.3.5(1)证据或拆分claim。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_5",
-                "note": "evidence_5 与 12.3.3(7) 逐字一致，支持平衡依赖抗扭时钢筋须包围整个截面、协调扭转时按Table 12.1(NDP)配最小抗扭钢筋。原子且充分。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "ef380dec85898be7e2ac631356abdf3cd8756f3f34273e3c49f90e88c15d969b",
-          "passed": false
-        },
-        {
-          "round": 1,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[1]: quote not found verbatim in 'BSEN1992-1-1-2023/BSEN1992-1-1-2023.md'",
-            "evidence[2]: quote not found verbatim in 'BSEN1992-1-1-2023/BSEN1992-1-1-2023.md'",
-            "evidence[4]: quote not found verbatim in 'BSEN1992-1-1-2023/BSEN1992-1-1-2023.md'"
-          ],
-          "review": {
             "overall_agree": true,
             "reference_answer_accurate": true,
             "minimum_sufficient_evidence": true,
             "per_claim": [
               {
                 "agree": true,
-                "claim_id": "claim_1",
-                "note": "quote 与 8.3.1(1) (line 4842) 完全一致；claim 准确概括：刚度一致→对应内力；忽略扭转刚度→ULS 可忽略扭矩但配防裂最小箍筋纵筋。原子、状态正确。"
+                "claim_id": "C1",
+                "note": "E1 = 6.3.1(1)P (line 3932) 原文逐字匹配，支持'静力平衡依赖抗扭承载力时需作覆盖ULS和SLS的完整抗扭设计'。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_2",
-                "note": "quote 由 8.3.2(1) (line 4850) 与 8.3.3(1) (line 4894) 组合，均逐字核实；claim 正确区分闭口薄壁/实体可忽略翘曲、开口薄壁需考虑翘曲并按 8.1 弯曲轴力与 8.2 剪力规则设计。"
+                "claim_id": "C2",
+                "note": "E2 = 6.3.1(2) (line 3934) 原文匹配，支持'超静定结构仅因协调产生扭转且不依赖抗扭稳定时通常无需在ULS考虑扭转'。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_3",
-                "note": "quote 与 8.3.4(1)+(2) (lines 4898/4910) 一致；τ_t,Rd=min{τ_sw;τ_sl;τ_max}，且 8.3.4(3) (line 4938) 确认 τ_max 为 crushing of compression field in concrete，claim 的“横向钢筋屈服、纵向钢筋屈服、混凝土压缩场压碎”三取小准确。"
+                "claim_id": "C3",
+                "note": "E2同段(line 3934)后半句明确'stirrups and longitudinal bars'最小配筋按Sections 7.3和9.2防止过度开裂，与claim一致；C2/C3共享E2为同段两个原子事实，合理。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_4",
-                "note": "quote 与 8.3.5(1)+(2) (lines 4966/4972) 一致；claim 正确描述逐壁元程序：基于符合 8.3.2 的等效薄壁闭口截面，各壁元计算配筋并验算混凝土压杆受压。"
+                "claim_id": "C4",
+                "note": "E3 = 6.3.1(3) (line 3936) 原文匹配，支持薄壁闭口截面闭合剪流平衡、实体截面等效薄壁截面。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_5",
-                "note": "quote 与 8.3.6(1) (lines 4978/4981) 一致；Σ(S_Ed/S_Rd)_i ≤ 1.0 线性相互作用验算，简化保守，准确。"
+                "claim_id": "C5",
+                "note": "E4 = 6.3.2(1) (lines 3944-3954) 含公式(6.26)壁剪应力与(6.27)墙肢扭转剪力，逐字匹配。"
               },
               {
                 "agree": true,
-                "claim_id": "claim_6",
-                "note": "quote 与 12.3.3(7) (line 7577) 逐字一致；section 12.3.3 标题核实 (line 7550)；claim 正确区分平衡依赖抗扭→钢筋包围全截面，协调扭转→按 Table 12.1 (NDP) 配最小抗扭钢筋。"
+                "claim_id": "C6",
+                "note": "E5 = 6.3.2(2) (line 3984) 原文支持扭转与剪力效应可叠加且采用相同压杆倾角（原文'strut inclination'后符号θ渲染缺失但语义一致）。"
+              },
+              {
+                "agree": true,
+                "claim_id": "C7",
+                "note": "E6 = 6.3.2(3) (lines 3988-4002) 含公式(6.28)抗扭纵筋及'In tensile chords...should be added to the other reinforcement'，与claim一致。"
+              },
+              {
+                "agree": true,
+                "claim_id": "C8",
+                "note": "E7 = 6.3.2(4) (lines 4004-4008) 原文支持最大承载力由混凝土压杆控制并满足公式(6.29)。"
+              },
+              {
+                "agree": true,
+                "claim_id": "C9",
+                "note": "E8 = 6.3.2(5) (lines 4030-4034) 原文支持大致矩形实体截面满足公式(6.31)时仅需最小配筋(见9.2.1.1)。"
               }
             ]
           },
           "codex_model": "gpt-5.6-terra",
           "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "d73afe4ee262f04aef913a86a563756b2587e0a4f83891cb8552234b6d2395c9",
-          "passed": false
-        },
-        {
-          "round": 2,
-          "kind": "repair",
-          "validation_errors": [
-            "evidence[1]: section heading not found or quote is outside section: '8.3.2 Internal forces due to torsion in compact or closed sections; 8.3.3 Internal forces due to torsion in open sections'"
-          ],
-          "review": {
-            "overall_agree": false,
-            "reference_answer_accurate": true,
-            "minimum_sufficient_evidence": false,
-            "per_claim": [
-              {
-                "agree": true,
-                "claim_id": "claim_1",
-                "note": "evidence_1 与 8.3.1(1)（4842行）逐字一致，直接且完整支持 claim。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_2",
-                "note": "quote 仅含 8.3.3(1) 开口薄壁部分（4894行）；claim 前半『闭口薄壁及实体截面通常可忽略翘曲扭转』来自 8.3.2(1)（4850行），该句不在 quote 中。section 字段虽列 8.3.2 与 8.3.3，但引文只覆盖一半，证据不足。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_3",
-                "note": "quote 仅引言『may be calculated as:』（4898行）；claim 所指公式(8.81)取三个抗扭应力抗力最小值是 4901 行 min{}，不在 quote 中，引文未直接支持具体公式内容。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_4",
-                "note": "quote 仅『may follow:』（4966行）引言；claim 所述逐壁元程序与 8.3.6 简化程序在 4968–4970 行，不在 quote 中，引文不含任一选项内容。"
-              },
-              {
-                "agree": false,
-                "claim_id": "claim_5",
-                "note": "quote 仅『based on the following linear criterion:』（4978行）引言；claim 的『利用率之和不大于1.0』是 4981 行公式(8.86) Σ(S_Ed/S_Rd)≤1,0，不在 quote 中。"
-              },
-              {
-                "agree": true,
-                "claim_id": "claim_6",
-                "note": "evidence_6 与 12.3.3(7)（7577行）逐字一致，完整支持 claim 的两类配筋要求。"
-              }
-            ]
-          },
-          "codex_model": "gpt-5.6-terra",
-          "claude_model": "glm-5.2:cloud[1m]",
-          "gold_sha256": "a994141183feec7e263b7217166aed84922a2f99565c20a0bf879da74e27c429",
-          "passed": false
+          "gold_sha256": "528eede714b3e38227ca269f171b5b4c62c2d75f8764420b0ac9f15e81a28425",
+          "passed": true
         }
       ],
       "gold": {
-        "reference_answer": "结构抗扭设计可按以下程序进行：先使设计与分析模型的扭转刚度假定一致；若分析忽略扭转刚度，通常可在承载能力极限状态忽略相应扭矩，但仍配置最小箍筋和纵筋以控制开裂。然后按截面类型判断是否考虑翘曲扭转：闭口薄壁和实体截面通常可忽略，开口薄壁构件则可能需要考虑，并按弯曲、纵向轴力和剪力规则设计。对符合条件的单室薄壁截面或子截面，按公式（8.81）确定抗扭能力。扭转与弯矩、剪力、轴力组合时，可采用逐壁元程序，或采用8.3.6的简化线性相互作用验算，利用率之和不大于1.0。最后按扭转是否为静力平衡所必需确定配筋：必需时抗扭钢筋包围整个截面；仅协调扭转时按Table 12.1（NDP）配置最小抗扭钢筋。",
+        "reference_answer": "按 EN 1992-1-1 的抗扭设计程序，先判断结构平衡是否依赖抗扭承载力：若依赖，应同时进行承载能力极限状态和正常使用极限状态的完整抗扭设计；若扭转仅由超静定结构的变形协调产生且不影响稳定性，通常无需作承载能力极限状态抗扭验算，但应设置箍筋和纵筋形式的最小配筋以控制开裂。随后可将截面按等效薄壁闭口截面建模，计算纯扭下的壁面剪应力及各壁扭转剪力；对扭剪共同作用，叠加扭转和剪力效应并采用相同压杆倾角。再按公式(6.28)确定抗扭纵筋，受拉弦的抗扭纵筋与其他纵筋相加；最后按公式(6.29)验算混凝土压杆控制的扭剪组合承载力。对大致矩形实体截面，满足公式(6.31)时仅需最小配筋。",
         "claims": [
           {
-            "claim_id": "claim_1",
+            "claim_id": "C1",
             "evidence_ids": [
-              "evidence_1"
+              "E1"
             ],
             "status": "supported",
-            "text": "抗扭设计应与分析所采用的刚度假定一致；若分析中忽略扭转刚度，通常可在承载能力极限状态忽略相应扭矩，但应配置最小箍筋和纵筋以防止过度开裂。"
+            "text": "当结构的静力平衡依赖构件抗扭承载力时，应进行覆盖承载能力极限状态和正常使用极限状态的完整抗扭设计。"
           },
           {
-            "claim_id": "claim_2",
+            "claim_id": "C2",
             "evidence_ids": [
-              "evidence_2"
+              "E2"
             ],
             "status": "supported",
-            "text": "闭口薄壁及实体截面通常可忽略翘曲扭转；开口薄壁构件则可能需要考虑翘曲扭转，并按弯曲、纵向轴力和剪力规则设计截面各部分。"
+            "text": "对仅因变形协调而产生扭转、且结构稳定性不依赖抗扭承载力的超静定结构，通常无需在承载能力极限状态考虑扭转。"
           },
           {
-            "claim_id": "claim_3",
+            "claim_id": "C3",
             "evidence_ids": [
-              "evidence_3"
+              "E2"
             ],
             "status": "supported",
-            "text": "对单室薄壁截面或等效壁厚恒定的子截面，设计抗扭能力按公式（8.81）取三个规定抗扭应力抗力中的最小值。"
+            "text": "上述仅需协调扭转的情况，应按第7.3和第9.2节设置由箍筋和纵向钢筋组成的最小配筋，以防止过度开裂。"
           },
           {
-            "claim_id": "claim_4",
+            "claim_id": "C4",
             "evidence_ids": [
-              "evidence_4"
+              "E3"
             ],
             "status": "supported",
-            "text": "扭转与弯矩、剪力和轴力组合时，可选择逐个壁元的设计程序，或采用8.3.6所述基于相互作用公式的简化程序。"
+            "text": "抗扭承载力可按闭合剪流满足平衡的薄壁闭口截面计算；实体截面可等效为薄壁截面。"
           },
           {
-            "claim_id": "claim_5",
+            "claim_id": "C5",
             "evidence_ids": [
-              "evidence_5"
+              "E4"
             ],
             "status": "supported",
-            "text": "简化的组合内力截面抗力验算采用线性准则；各内力设计作用与相应设计抗力之比的求和不应大于1.0。"
+            "text": "纯扭矩下，截面壁的扭转剪应力应按公式(6.26)计算，墙肢 i 的扭转剪力应按公式(6.27)计算。"
           },
           {
-            "claim_id": "claim_6",
+            "claim_id": "C6",
             "evidence_ids": [
-              "evidence_6"
+              "E5"
             ],
             "status": "supported",
-            "text": "若结构静力平衡依赖构件抗扭能力，抗扭钢筋应包围整个截面；若扭转仅由协调产生且平衡不依赖抗扭能力，则按Table 12.1（NDP）配置最小抗扭钢筋。"
+            "text": "空心和实体构件的扭转与剪力效应可叠加，并假定压杆倾角取相同值。"
+          },
+          {
+            "claim_id": "C7",
+            "evidence_ids": [
+              "E6"
+            ],
+            "status": "supported",
+            "text": "扭转所需纵向钢筋截面面积之和可按公式(6.28)计算；受拉弦中的抗扭纵筋应与其他钢筋相加。"
+          },
+          {
+            "claim_id": "C8",
+            "evidence_ids": [
+              "E7"
+            ],
+            "status": "supported",
+            "text": "受扭和受剪构件须满足公式(6.29)，以使由混凝土压杆承载力控制的最大承载力不被超过。"
+          },
+          {
+            "claim_id": "C9",
+            "evidence_ids": [
+              "E8"
+            ],
+            "status": "supported",
+            "text": "大致矩形实体截面在满足公式(6.31)时仅需最小配筋。"
           }
         ],
         "evidence": [
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_1",
-            "quote": "(1) Where a specific stiffness has been considered in the analysis according to 7.1(6), the corresponding internal forces shall be considered in design. If a specific stiffness was neglected in the analysis, e.g. torsional stiffness, then normally the corresponding internal forces, e.g. torque, may be neglected at the ultimate limit state. In such cases, a minimum reinforcement, given in 12.2, 12.3 and 12.6, in the form of stirrups and longitudinal bars should be provided in order to prevent excessive cracking.",
-            "section": "8.3.1 General considerations for torsion"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E1",
+            "quote": "(1)P Where the static equilibrium of a structure depends on the torsional resistance of elements of the structure, a full torsional design covering both ultimate and serviceability limit states shall be made.",
+            "section": "6.3.1 General"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_2",
-            "quote": "(1) In open thin walled members it may be necessary to consider warping torsion. In this case the different parts of the section should be designed according to the rules for bending and longitudinal axial force in 8.1 and shear in 8.2.",
-            "section": "8.3.2 Internal forces due to torsion in compact or closed sections; 8.3.3 Internal forces due to torsion in open sections"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E2",
+            "quote": "(2) Where, in statically indeterminate structures, torsion arises from consideration of compatibility only, and the structure is not dependent on the torsional resistance for its stability, then it will normally be unnecessary to consider torsion at the ultimate limit state. In such cases a minimum reinforcement, given in Sections 7.3 and 9.2, in the form of stirrups and longitudinal bars should be provided in order to prevent excessive cracking.",
+            "section": "6.3.1 General"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_3",
-            "quote": "(1) For a single cell, thin-walled section or a sub-section with constant effective wall thickness $t _ { \\mathrm { e f f } } ,$ the design torsional capacity may be calculated as:",
-            "section": "8.3.4 Torsional resistance of compact or closed sections"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E3",
+            "quote": "(3) The torsional resistance of a section may be calculated on the basis of a thin-walled closed section, in which equilibrium is satisfied by a closed shear flow. Solid sections may be modelled by equivalent thin-walled sections.",
+            "section": "6.3.1 General"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_4",
-            "quote": "(1) Design for combined action of torsion, bending, shear and axial forces may follow:",
-            "section": "8.3.5 Design procedure for combination of actions"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E4",
+            "quote": "(1) The shear stress in a wall of a section subject to a pure torsional moment may be calculated from:\n\n$$\n\\tau _ { \\mathrm { t , i } } t _ { \\mathrm { e f , i } } = \\frac { T _ { \\mathrm { E d } } } { 2 A _ { \\mathrm { k } } }\\tag{6.26}\n$$\n\nThe shear force $V _ { \\sf E d , i }$ in a wall i due to torsion is given by:\n\n$$\nV _ { \\sf E d , i } = \\tau _ { { \\sf t } , { \\sf i } } t _ { { \\sf e f } , { \\sf i } } z _ { \\sf i }\\tag{6.27}\n$$",
+            "section": "6.3.2 Design procedure"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_5",
-            "quote": "(1) A simplified and conservative verification of the resistance of cross-sections subjected to combination of internal forces may be performed based on the following linear criterion:",
-            "section": "8.3.6 Interaction formula"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E5",
+            "quote": "(2) The effects of torsion and shear for both hollow and solid members may be superimposed, assuming the same value for the strut inclination . The limits for  given in 6.2.3 (2) are also fully applicable for the case of combined shear and torsion.",
+            "section": "6.3.2 Design procedure"
           },
           {
-            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
-            "evidence_id": "evidence_6",
-            "quote": "(7) When static equilibrium assumed in the analysis depends on the torsional resistance of elements of a structure, the torsion reinforcement shall comply with the rules given in (8) and Figure 12.3 and shall enclose the whole section. When torsion arises only from compatibility and the structure is not dependent on torsional resistance for its equilibrium, minimum torsional reinforcement shall be provided according to Table 12.1 (NDP)",
-            "section": "12.3.3 Shear and torsion reinforcement"
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E6",
+            "quote": "(3) The required cross-sectional area of the longitudinal reinforcement for torsion $\\Sigma A _ { \\mathsf { s l } }$ may be calculated from Expression (6.28):\n\n$$\n\\frac { \\sum A _ { \\mathrm { s l } } \\mathsf { f } _ { \\mathrm { y d } } } { u _ { \\mathrm { k } } } = \\frac { T _ { \\mathrm { E d } } } { 2 A _ { \\mathrm { k } } } \\mathsf { c o t } \\theta\\tag{6.28}\n$$\n\nwhere\n\n$u _ { \\mathsf { k } }$ is the perimeter of the area $A _ { \\mathsf { k } }$\n\n$\\pmb { f } _ { \\mathsf { y d } }$ is the design yield stress of the longitudinal reinforcement $A _ { \\mathsf { s l } }$\n\n$\\theta$ is the angle of compression struts (see Figure 6.5).\n\nIn compressive chords, the longitudinal reinforcement may be reduced in proportion to the available compressive force. In tensile chords the longitudinal reinforcement for torsion should be added to the other reinforcement.",
+            "section": "6.3.2 Design procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E7",
+            "quote": "(4) The maximum resistance of a member subjected to torsion and shear is limited by the capacity of the concrete struts. In order not to exceed this resistance the following condition should be satisfied:\n\n$$\nT _ { \\mathsf { E d } } / T _ { \\mathsf { R d , m a x } } + V _ { \\mathsf { E d } } / V _ { \\mathsf { R d , m a x } } \\leq 1 , 0\\tag{6.29}\n$$",
+            "section": "6.3.2 Design procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "E8",
+            "quote": "(5) For approximately rectangular solid sections only minimum reinforcement is required (see 9.2.1.1) provided that the following condition is satisfied:\n\n$$\nT _ { \\mathrm { E d } } / T _ { \\mathrm { R d , c } } + V _ { \\mathrm { E d } } / V _ { \\mathrm { R d , c } } \\leq 1 , 0\\tag{6.31}\n$$",
+            "section": "6.3.2 Design procedure"
           }
         ],
         "E_plus": [
-          "evidence_1",
-          "evidence_2",
-          "evidence_3",
-          "evidence_4",
-          "evidence_5",
-          "evidence_6"
+          "E1",
+          "E2",
+          "E3",
+          "E4",
+          "E5",
+          "E6",
+          "E7",
+          "E8"
         ],
         "eligible_for_crec": false,
         "gold_claim_status": "supported"
       },
-      "disputes": [
-        {
-          "agree": false,
-          "claim_id": "claim_2",
-          "note": "quote 仅含 8.3.3(1) 开口薄壁部分（4894行）；claim 前半『闭口薄壁及实体截面通常可忽略翘曲扭转』来自 8.3.2(1)（4850行），该句不在 quote 中。section 字段虽列 8.3.2 与 8.3.3，但引文只覆盖一半，证据不足。"
-        },
-        {
-          "agree": false,
-          "claim_id": "claim_3",
-          "note": "quote 仅引言『may be calculated as:』（4898行）；claim 所指公式(8.81)取三个抗扭应力抗力最小值是 4901 行 min{}，不在 quote 中，引文未直接支持具体公式内容。"
-        },
-        {
-          "agree": false,
-          "claim_id": "claim_4",
-          "note": "quote 仅『may follow:』（4966行）引言；claim 所述逐壁元程序与 8.3.6 简化程序在 4968–4970 行，不在 quote 中，引文不含任一选项内容。"
-        },
-        {
-          "agree": false,
-          "claim_id": "claim_5",
-          "note": "quote 仅『based on the following linear criterion:』（4978行）引言；claim 的『利用率之和不大于1.0』是 4981 行公式(8.86) Σ(S_Ed/S_Rd)≤1,0，不在 quote 中。"
-        }
-      ],
+      "disputes": [],
       "human_review": {
         "required": true,
         "task": "confirm_minimum_sufficient_evidence_set",
