@@ -54,7 +54,7 @@ from eval_methodology.mvp.paths import (  # noqa: E402
     MVP_DATASET_VERSION,
     RUNS_DIR,
 )
-from eval_methodology.mvp.reports.render import render_report  # noqa: E402
+from eval_methodology.mvp.reports.render import _percentile, render_report  # noqa: E402
 from eval_methodology.mvp.runner.answers import (  # noqa: E402
     generate_answers,
     load_answers,
@@ -268,6 +268,7 @@ def _build_baseline(
             "run_id": run_dir.name,
             "mode": "baseline",
             "cache_key": key,
+            "git_head": _git_head(),
             "started_at": _utc(),
             "split": split,
             "n_items": len(items),
@@ -561,6 +562,159 @@ def run_compare(
     return _finish(payload, run_dir, before)
 
 
+def _latency_stats(answers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    elapsed = sorted(
+        record["elapsed_ms"]
+        for record in answers.values()
+        if isinstance(record.get("elapsed_ms"), int) and record.get("status") == "ok"
+    )
+    if not elapsed:
+        return {"n": 0, "mean_ms": None, "p50_ms": None, "p95_ms": None}
+    return {
+        "n": len(elapsed),
+        "mean_ms": sum(elapsed) / len(elapsed),
+        "p50_ms": _percentile(elapsed, 0.5),
+        "p95_ms": _percentile(elapsed, 0.95),
+    }
+
+
+def run_compare_runs(
+    *,
+    baseline_run_dir: Path,
+    candidate_run_dir: Path,
+    dataset_path: Path = DATASET_JSON,
+    use_llm_judge: bool = True,
+    gate_n: int = 12,
+) -> dict[str, Any]:
+    """Gate a code change: paired non-regression A/B between two stored runs.
+
+    Unlike ``compare`` (same code, single config knob), both sides here are
+    stored ``baseline``-mode runs produced at different git HEADs. Answers are
+    reused as-is; judging runs live so both sides share one judge model.
+    """
+    before = take_snapshot()
+    base_payload = json.loads(
+        (baseline_run_dir / "payload.json").read_text(encoding="utf-8")
+    )
+    cand_payload = json.loads(
+        (candidate_run_dir / "payload.json").read_text(encoding="utf-8")
+    )
+    base_ids = {str(item) for item in base_payload.get("item_ids") or []}
+    cand_ids = {str(item) for item in cand_payload.get("item_ids") or []}
+    if not base_ids or base_ids != cand_ids:
+        raise RuntimeError(
+            f"runs cover different item sets: baseline={sorted(base_ids)} "
+            f"candidate={sorted(cand_ids)}"
+        )
+    split = base_payload.get("split") or "dev"
+    items = [
+        item
+        for item in _load_split_items(dataset_path, split, None)
+        if str(item["id"]) in base_ids
+    ]
+    if len(items) != len(base_ids):
+        raise RuntimeError(
+            f"dataset split={split} no longer contains all run items "
+            f"({len(items)} of {len(base_ids)})"
+        )
+
+    baseline_answers = load_answers(_answer_dir(baseline_run_dir, "baseline"))
+    candidate_answers = load_answers(_answer_dir(candidate_run_dir, "baseline"))
+    for label, answers in (
+        ("baseline", baseline_answers),
+        ("candidate", candidate_answers),
+    ):
+        if not _complete([answers], items):
+            raise RuntimeError(f"{label} run has incomplete or failed answers")
+
+    run_dir = RUNS_DIR / f"compare-runs-{_stamp()}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payload: dict[str, Any] = {
+        "run_id": run_dir.name,
+        "mode": "compare_runs",
+        "started_at": _utc(),
+        "split": split,
+        "n_items": len(items),
+        "item_ids": [item["id"] for item in items],
+        "baseline_run_dir": str(baseline_run_dir),
+        "candidate_run_dir": str(candidate_run_dir),
+        "baseline_git_head": base_payload.get("git_head"),
+        "candidate_git_head": cand_payload.get("git_head"),
+        "stage_timings": {},
+    }
+
+    diff_ids, diff_details = context_diff_from_answers(
+        baseline_answers, candidate_answers
+    )
+    payload["precheck"] = {
+        "ok": True,
+        "diff_kind": "context",
+        "diff_n": len(diff_ids),
+        "diff_ids": diff_ids,
+        "details": diff_details,
+    }
+
+    baseline_runs, judge_base_s = _evaluate_runs(
+        [baseline_answers], items, baseline_candidate(), use_llm_judge=use_llm_judge
+    )
+    candidate_runs, judge_cand_s = _evaluate_runs(
+        [candidate_answers], items, baseline_candidate(), use_llm_judge=use_llm_judge
+    )
+    _timing(payload, "judge", judge_base_s + judge_cand_s)
+    baseline_run = baseline_runs[0]
+    candidate_run = candidate_runs[0]
+    payload["baseline_runs"] = [baseline_run]
+    payload["candidate_runs"] = [candidate_run]
+    if use_llm_judge:
+        union = _judge_models_of([baseline_run, candidate_run])
+        if len(union) > 1:
+            _write_json(run_dir / "payload.json", payload)
+            raise RuntimeError(
+                f"sides judged by different models {sorted(union)}; "
+                "set MVP_JUDGE_MODEL or clear eval_methodology/mvp/cache"
+            )
+        payload["judge_models"] = sorted(union)
+
+    payload["latency"] = {
+        "baseline": _latency_stats(baseline_answers),
+        "candidate": _latency_stats(candidate_answers),
+    }
+
+    decide_started = time.monotonic()
+    per_metric = {}
+    paired_deltas = {}
+    for metric in ("faith", "citp"):
+        baseline_values, candidate_values, ids = paired_series(
+            _per_question(baseline_run),
+            _per_question(candidate_run),
+            metric,
+        )
+        if not baseline_values:
+            continue
+        decision = ab_decide(
+            baseline_values,
+            candidate_values,
+            primary_metric=metric,
+            gate_n=gate_n,
+            mode="non_regress",
+        )
+        per_metric[metric] = decision
+        payload[f"decision_{metric}"] = decision.to_dict()
+        paired_deltas[metric] = [
+            {
+                "question_id": qid,
+                "baseline": baseline_values[index],
+                "candidate": candidate_values[index],
+                "delta": candidate_values[index] - baseline_values[index],
+            }
+            for index, qid in enumerate(ids)
+        ]
+    payload["paired_deltas"] = paired_deltas
+    payload["decision"] = merge_hard_gate_decisions(per_metric).to_dict()
+    _timing(payload, "decide", time.monotonic() - decide_started)
+    return _finish(payload, run_dir, before)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run MVP v2 evaluation")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -576,8 +730,26 @@ def main(argv: list[str] | None = None) -> int:
     baseline.add_argument("--repeats", type=int, choices=(1, 2), default=1)
     compare = subparsers.choices["compare"]
     compare.add_argument("--gate-n", type=int, default=12)
+    compare_runs = subparsers.add_parser(
+        "compare-runs",
+        help="non-regression A/B between two stored baseline runs (code-change gate)",
+    )
+    compare_runs.add_argument("--baseline-run", type=Path, required=True)
+    compare_runs.add_argument("--candidate-run", type=Path, required=True)
+    compare_runs.add_argument("--dataset", type=Path, default=DATASET_JSON)
+    compare_runs.add_argument("--no-judge", action="store_true")
+    compare_runs.add_argument("--gate-n", type=int, default=12)
 
     args = parser.parse_args(argv)
+    if args.command == "compare-runs":
+        run_compare_runs(
+            baseline_run_dir=args.baseline_run,
+            candidate_run_dir=args.candidate_run,
+            dataset_path=args.dataset,
+            use_llm_judge=not args.no_judge,
+            gate_n=args.gate_n,
+        )
+        return 0
     common = {
         "dataset_path": args.dataset, "split": args.split, "limit": args.limit,
         "use_llm_judge": not args.no_judge, "fresh": args.fresh,

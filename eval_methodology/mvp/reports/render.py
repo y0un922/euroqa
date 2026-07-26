@@ -56,6 +56,16 @@ def _token_total(records: list[dict[str, Any]]) -> int:
     return total
 
 
+def _percentile(values: list[int], pct: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * pct
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (rank - lower)
+
+
 def _per_question_rows(run: dict[str, Any] | None) -> list[list[str]]:
     if not run:
         return []
@@ -91,7 +101,12 @@ def render_report(
     candidate = candidate_runs[0] if candidate_runs else None
     decision = payload.get("decision") or {}
     records = _answer_records(payload)
-    elapsed = [record.get("elapsed_ms") for record in records if isinstance(record.get("elapsed_ms"), int)]
+    elapsed = [
+        record.get("elapsed_ms")
+        for record in records
+        if isinstance(record.get("elapsed_ms"), int)
+        and record.get("status", "ok") == "ok"
+    ]
     models = {}
     for run in (baseline, candidate):
         if run:
@@ -178,6 +193,15 @@ def render_report(
             "## Ops",
             "",
             f"- 平均时延：{_fmt(sum(elapsed) / len(elapsed) if elapsed else None)} ms",
+            f"- P50 时延：{_fmt(_percentile(elapsed, 0.5))} ms",
+            f"- P95 时延：{_fmt(_percentile(elapsed, 0.95))} ms",
+            *[
+                f"- {side} 时延：mean {_fmt(stats.get('mean_ms'), 1)}"
+                f" / P50 {_fmt(stats.get('p50_ms'), 1)}"
+                f" / P95 {_fmt(stats.get('p95_ms'), 1)} ms (n={stats.get('n')})"
+                for side, stats in (payload.get("latency") or {}).items()
+                if isinstance(stats, dict)
+            ],
             f"- token 合计：{_token_total(records)}",
             f"- judge_fail_rate：{_fmt(aggregate.get('judge_fail_rate'), 2)}",
             "",
