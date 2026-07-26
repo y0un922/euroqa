@@ -81,8 +81,9 @@ class TestMergeAndDedup:
 
         cfg = retriever._config_for_top_k(5)
 
-        assert cfg.vector_top_k == 15
-        assert cfg.bm25_top_k == 15
+        # per-call top_k 只钳 rerank_top_n，候选池保持 .env 配置值
+        assert cfg.vector_top_k == 30
+        assert cfg.bm25_top_k == 30
         assert cfg.rerank_top_n == 5
         assert retriever.config.vector_top_k == 30
         assert retriever.config.bm25_top_k == 30

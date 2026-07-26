@@ -21,6 +21,8 @@ class RetrievalResult:
     groundedness: str = "not_grounded"
     resolved_refs: list[str] = field(default_factory=list)
     unresolved_refs: list[str] = field(default_factory=list)
+    # 每个输入 query 的向量+BM25 去重候选数（融合前），用于零命中判定
+    per_query_candidate_counts: dict[str, int] = field(default_factory=dict)
 
 
 def _result_entries(results: list[dict]) -> list[dict[str, Any]]:

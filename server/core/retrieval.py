@@ -1643,6 +1643,7 @@ class HybridRetriever:
         # 多角度检索：每条查询并发跑向量 + BM25
         vector_candidate_count = 0
         bm25_candidate_count = 0
+        per_query_candidate_counts: dict[str, int] = {}
 
         async def _vec_and_bm25(q: str) -> list[list[dict]]:
             nonlocal bm25_candidate_count, vector_candidate_count
@@ -1682,6 +1683,9 @@ class HybridRetriever:
             vec, bm25 = await asyncio.gather(_vector(), _bm25())
             vector_candidate_count += len(vec)
             bm25_candidate_count += len(bm25)
+            per_query_candidate_counts[q] = len(
+                {hit["chunk_id"] for hit in vec} | {hit["chunk_id"] for hit in bm25}
+            )
             if vec:
                 groups.append(vec)
             if bm25:
@@ -2030,21 +2034,19 @@ class HybridRetriever:
             groundedness=groundedness,
             resolved_refs=resolved_refs,
             unresolved_refs=unresolved_refs,
+            per_query_candidate_counts=per_query_candidate_counts,
         )
 
     def _config_for_top_k(self, top_k: int | None) -> ServerConfig:
-        """Return per-call retrieval limits without mutating shared config."""
+        """Return per-call retrieval limits without mutating shared config.
+
+        per-call top_k 只控制最终返回条数（rerank_top_n），
+        不缩小 vector/bm25 候选池——候选池大小由 .env 配置独立调节。
+        """
         if top_k is None:
             return self.config
         effective_top_k = min(max(int(top_k), 1), 50)
-        candidate_top_k = max(effective_top_k * 3, effective_top_k)
-        return self.config.model_copy(
-            update={
-                "vector_top_k": min(self.config.vector_top_k, candidate_top_k),
-                "bm25_top_k": min(self.config.bm25_top_k, candidate_top_k),
-                "rerank_top_n": effective_top_k,
-            }
-        )
+        return self.config.model_copy(update={"rerank_top_n": effective_top_k})
 
     async def close(self) -> None:
         """清理 ES 连接资源。"""

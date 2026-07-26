@@ -98,11 +98,19 @@ class EvidenceBundle:
         return len(self.chunks)
 
     def citable_chunks(self) -> list[Chunk]:
-        """Return chunks that may be cited in answer text, preserving bundle order."""
+        """Return citable chunks: primary chunks by rerank score, then supplements."""
+        scored = sorted(
+            zip(self.chunks, self.scores, strict=False),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+        primary = [chunk for chunk, _score in scored]
+        # 防御：chunks 多于 scores 时保留未计分的尾部
+        primary.extend(self.chunks[len(self.scores) :])
         return _merge_chunks(
             [],
             [
-                *self.chunks,
+                *primary,
                 *self.parent_chunks,
                 *self.ref_chunks,
                 *self.guide_chunks,

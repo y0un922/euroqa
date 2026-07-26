@@ -7,7 +7,7 @@ from server.core.retrieval import RetrievalResult
 
 DEFAULT_TOP_K = 8
 MIN_TOP_K = 3
-MAX_TOP_K = 12
+MAX_TOP_K = 16
 
 
 def base_filters(ctx: RunContextWrapper[QADeps] | QADeps) -> dict[str, object]:
@@ -60,4 +60,5 @@ def limit_retrieval_result(result: RetrievalResult, top_k: int) -> RetrievalResu
         groundedness=result.groundedness,
         resolved_refs=result.resolved_refs,
         unresolved_refs=result.unresolved_refs,
+        per_query_candidate_counts=result.per_query_candidate_counts,
     )

@@ -403,7 +403,82 @@ async def test_prepare_evidence_streamed_runs_bounded_assessments_before_stoppin
     assert assessment_calls == 2
     assert len(assessment_results) == 2
     assert len(prefetch_results) == 2
+    expected_top_k = orchestrator_module._round_top_k(deps.config, 1)
     assert retriever.calls == [
-        (["initial query"], orchestrator_module._INITIAL_TOP_K),
-        (["missing query"], orchestrator_module._ASSESSMENT_TOP_K),
+        (["initial query"], expected_top_k),
+        (["missing query"], expected_top_k),
     ]
+
+
+@pytest.mark.asyncio
+async def test_prepare_evidence_merges_subqueries_into_single_retrieve(monkeypatch):
+    async def fake_decompose_query(*_args, **_kwargs):
+        return DecomposedQuery(
+            rewritten_question="concrete strength and deformation",
+            sub_queries=["strength definitions", "deformation definitions"],
+            needs_retrieval=True,
+        )
+
+    async def fake_assess_evidence(*_args, **_kwargs):
+        return EvidenceAssessment(sufficient=True, missing_queries=[], reason="ok")
+
+    class RecordingRetriever:
+        def __init__(self):
+            self.calls = []
+            self.prefetch_calls = []
+
+        async def prefetch_vectors(self, query, filters=None):
+            self.prefetch_calls.append(query)
+            return [{"chunk_id": "orig-1", "source": "EN 1990", "score": 0.9}]
+
+        async def retrieve(self, queries, **kwargs):
+            self.calls.append((queries, kwargs))
+            return RetrievalResult(
+                chunks=[_make_chunk()],
+                parent_chunks=[],
+                scores=[0.8],
+                groundedness="partial",
+                per_query_candidate_counts={query: 1 for query in queries},
+            )
+
+    monkeypatch.setattr(orchestrator_module, "decompose_query", fake_decompose_query)
+    monkeypatch.setattr(orchestrator_module, "assess_evidence", fake_assess_evidence)
+    monkeypatch.setattr(
+        orchestrator_module, "outline_answer", AsyncMock(return_value={})
+    )
+    retriever = RecordingRetriever()
+    deps = QADeps(
+        config=ServerConfig(decompose_llm_model=""),
+        retriever=retriever,
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=ConversationState(conversation_id="conv-1", history=[]),
+    )
+
+    async for _item in orchestrator_module._prepare_evidence_for_agent_streamed(
+        req=QueryRequest(question="混凝土强度与变形？"),
+        deps=deps,
+        glossary={},
+    ):
+        pass
+
+    # 一轮 = 一次合并 retrieve 调用；rewritten 向量候选只预取一次并透传
+    assert len(retriever.calls) == 1
+    queries, kwargs = retriever.calls[0]
+    assert queries == ["strength definitions", "deformation definitions"]
+    assert kwargs["original_query"] == "concrete strength and deformation"
+    assert kwargs["prefetched_original_results"] == [
+        {"chunk_id": "orig-1", "source": "EN 1990", "score": 0.9}
+    ]
+    assert kwargs["top_k"] == orchestrator_module._round_top_k(deps.config, 2)
+    assert retriever.prefetch_calls == ["concrete strength and deformation"]
+    trace = [
+        entry
+        for entry in deps.bundle.tool_trace
+        if entry.get("tool") == "prefetch_retrieve"
+    ]
+    assert trace[0]["queries"] == ["strength definitions", "deformation definitions"]
+    assert trace[0]["per_query_candidate_counts"] == {
+        "strength definitions": 1,
+        "deformation definitions": 1,
+    }

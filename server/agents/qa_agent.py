@@ -350,10 +350,14 @@ def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:
                 input_items.append({"role": "assistant", "content": cleaned})
     input_items.append({"role": "user", "content": question})
     if deps.bundle.has_rag_evidence:
+        evidence_text = _format_evidence_context(
+            deps.bundle,
+            max_chars=deps.config.agent_evidence_max_chars,
+        )
         input_items.append(
             {
                 "role": "user",
-                "content": f"【预检索证据】\n{_format_evidence_context(deps.bundle)}",
+                "content": f"【预检索证据】\n{evidence_text}",
             }
         )
     if deps.bundle.outline:
@@ -395,21 +399,31 @@ def _raw_response_text_delta(event: RawResponsesStreamEvent) -> str:
     return ""
 
 
-def _format_evidence_context(bundle: EvidenceBundle) -> str:
+def _format_evidence_context(
+    bundle: EvidenceBundle,
+    max_chars: int | None = None,
+) -> str:
     chunks = bundle.citable_chunks()
     bundle.ensure_ref_ids(chunks)
     if not chunks:
         return "（当前没有可引用证据）"
-    lines: list[str] = []
+    blocks: list[str] = []
+    total_chars = 0
     for chunk in chunks:
         ref = bundle.ref_label_for(chunk)
         meta = chunk.metadata
         section = " > ".join(meta.section_path) if meta.section_path else "unknown"
         page = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "unknown"
         object_label = f" | {meta.object_label}" if meta.object_label else ""
-        lines.append(f"[{ref}] {meta.source} | {section} | p.{page}{object_label}")
-        lines.append(chunk.content)
-    return "\n\n".join(lines)
+        block = (
+            f"[{ref}] {meta.source} | {section} | p.{page}{object_label}"
+            f"\n\n{chunk.content}"
+        )
+        if max_chars is not None and blocks and total_chars + len(block) > max_chars:
+            break
+        blocks.append(block)
+        total_chars += len(block)
+    return "\n\n".join(blocks)
 
 
 def _raw_item_payload(item: object) -> object:

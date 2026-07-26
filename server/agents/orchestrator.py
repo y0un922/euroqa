@@ -40,6 +40,7 @@ from server.core.query_request import (
     conversation_id_from_request,
     uses_external_session,
 )
+from server.core.retrieval import RetrievalResult
 from server.errors import LLMUnavailableError
 from server.models.schemas import QueryRequest
 from server.retry import with_retry
@@ -51,10 +52,7 @@ _agent_semaphore: asyncio.Semaphore | None = None
 _agent_circuit_breaker: AsyncCircuitBreaker | None = None
 _AGENT_MAX_TURNS = 4
 _DEGRADED_RAG_REPLY = "已检索到相关规范证据，正在整理回答。"
-_INITIAL_TOP_K = 8
-_ASSESSMENT_TOP_K = 8
 _MAX_SUPPLEMENT_ROUNDS = 2
-_ZERO_HIT_TOP_K_MULTIPLIER = 2
 _MAX_ASSESSMENT_EVIDENCE_CHARS = 12000
 
 
@@ -227,34 +225,28 @@ async def _prepare_evidence_for_agent_streamed(
         return
 
     attempted_queries: list[str] = []
-    yield _prefetch_calling_progress(decomposed.sub_queries, _INITIAL_TOP_K, 1)
+    # rewritten_question 的向量补召回只预取一次，所有轮次复用
+    prefetch = getattr(deps.retriever, "prefetch_vectors", None)
+    original_candidates: list[dict] | None = None
+    if prefetch is not None:
+        prefetch_filters = merge_retrieval_filters(
+            base_filters(deps),
+            decomposed.filters,
+        )
+        original_candidates = await prefetch(
+            decomposed.rewritten_question,
+            filters=prefetch_filters,
+        )
+    initial_top_k = _round_top_k(deps.config, len(decomposed.sub_queries))
+    yield _prefetch_calling_progress(decomposed.sub_queries, initial_top_k, 1)
     await _retrieve_decomposed_queries(
         deps=deps,
         decomposed=decomposed,
-        top_k=_INITIAL_TOP_K,
+        top_k=initial_top_k,
+        prefetched_original_results=original_candidates,
     )
     attempted_queries.extend(_new_queries(decomposed.sub_queries, attempted_queries))
     yield _prefetch_result_progress(deps.bundle, decomposed.sub_queries, 1)
-
-    zero_hit_queries = _zero_hit_queries(deps.bundle, decomposed.sub_queries)
-    if zero_hit_queries:
-        zero_hit = DecomposedQuery(
-            rewritten_question=decomposed.rewritten_question,
-            sub_queries=zero_hit_queries,
-            implicit_context=decomposed.implicit_context,
-            needs_retrieval=True,
-            is_chitchat=False,
-            requested_objects=decomposed.requested_objects,
-            filters=decomposed.filters,
-        )
-        zero_hit_top_k = _INITIAL_TOP_K * _ZERO_HIT_TOP_K_MULTIPLIER
-        yield _prefetch_calling_progress(zero_hit.sub_queries, zero_hit_top_k, 1)
-        await _retrieve_decomposed_queries(
-            deps=deps,
-            decomposed=zero_hit,
-            top_k=zero_hit_top_k,
-        )
-        yield _prefetch_result_progress(deps.bundle, zero_hit.sub_queries, 1)
 
     for round_no in range(1, _MAX_SUPPLEMENT_ROUNDS + 1):
         yield AgentProgress(
@@ -337,15 +329,17 @@ async def _prepare_evidence_for_agent_streamed(
             filters=decomposed.filters,
         )
         supplement_round = round_no + 1
+        followup_top_k = _round_top_k(deps.config, len(followup.sub_queries))
         yield _prefetch_calling_progress(
             followup.sub_queries,
-            _ASSESSMENT_TOP_K,
+            followup_top_k,
             supplement_round,
         )
         await _retrieve_decomposed_queries(
             deps=deps,
             decomposed=followup,
-            top_k=_ASSESSMENT_TOP_K,
+            top_k=followup_top_k,
+            prefetched_original_results=original_candidates,
         )
         attempted_queries.extend(_new_queries(followup.sub_queries, attempted_queries))
         yield _prefetch_result_progress(
@@ -375,41 +369,49 @@ async def _prepare_evidence_for_agent_streamed(
         )
 
 
+def _round_top_k(config: ServerConfig, query_count: int) -> int:
+    """Per-round rerank budget: scales with sub-query count, capped by config."""
+    base = config.prefetch_rerank_top_n_base
+    extra = config.prefetch_rerank_top_n_per_extra_query * max(0, query_count - 1)
+    return min(base + extra, config.prefetch_rerank_top_n_max)
+
+
 async def _retrieve_decomposed_queries(
     *,
     deps: QADeps,
     decomposed: DecomposedQuery,
     top_k: int,
-) -> None:
+    prefetched_original_results: list[dict] | None = None,
+) -> RetrievalResult | None:
+    """Run one merged multi-query retrieval round (single fuse + rerank)."""
     if not decomposed.sub_queries:
-        return
+        return None
     required_filters = base_filters(deps)
     filters = merge_retrieval_filters(required_filters, decomposed.filters)
-    results = await asyncio.gather(
-        *[
-            deps.retriever.retrieve(
-                [query],
-                original_query=decomposed.rewritten_question,
-                filters=filters,
-                requested_objects=decomposed.requested_objects,
-                top_k=top_k,
-            )
-            for query in decomposed.sub_queries
-        ]
+    result = await deps.retriever.retrieve(
+        decomposed.sub_queries,
+        original_query=decomposed.rewritten_question,
+        filters=filters,
+        requested_objects=decomposed.requested_objects,
+        prefetched_original_results=prefetched_original_results,
+        top_k=top_k,
     )
-    for query, result in zip(decomposed.sub_queries, results, strict=True):
-        limited = limit_retrieval_result(result, top_k)
-        deps.bundle.add_retrieval(limited, query=query)
-        deps.bundle.tool_trace.append(
-            {
-                "tool": "prefetch_retrieve",
-                "query": query,
-                "top_k": top_k,
-                "chunk_count": len(limited.chunks),
-                "max_score": max(limited.scores) if limited.scores else None,
-                "groundedness": limited.groundedness,
-            }
-        )
+    limited = limit_retrieval_result(result, top_k)
+    deps.bundle.add_retrieval(limited, query="; ".join(decomposed.sub_queries))
+    deps.bundle.tool_trace.append(
+        {
+            "tool": "prefetch_retrieve",
+            "queries": list(decomposed.sub_queries),
+            "top_k": top_k,
+            "chunk_count": len(limited.chunks),
+            "max_score": max(limited.scores) if limited.scores else None,
+            "per_query_candidate_counts": dict(
+                getattr(result, "per_query_candidate_counts", None) or {}
+            ),
+            "groundedness": limited.groundedness,
+        }
+    )
+    return result
 
 
 def _prefetch_calling_progress(
@@ -441,6 +443,7 @@ def _prefetch_result_progress(
     queries: list[str],
     round_no: int,
 ) -> AgentProgress:
+    attempt = bundle.retrieval_attempts[-1] if bundle.retrieval_attempts else {}
     return AgentProgress(
         event=AgentStreamEvent(
             kind="tool_result",
@@ -451,9 +454,17 @@ def _prefetch_result_progress(
                     ensure_ascii=False,
                 )
             },
-            tool_result=_latest_prefetch_result_text(bundle, queries),
+            tool_result=json.dumps(
+                {
+                    "queries": queries,
+                    "chunk_count": attempt.get("chunk_count"),
+                    "max_score": attempt.get("max_score"),
+                    "groundedness": attempt.get("groundedness"),
+                },
+                ensure_ascii=False,
+            ),
             tool_trace=_latest_tool_trace(bundle.tool_trace, "prefetch_retrieve"),
-            summary=_prefetch_result_summary(bundle, queries),
+            summary=_prefetch_result_summary(bundle),
         )
     )
 
@@ -468,21 +479,6 @@ def _new_queries(queries: list[str], attempted_queries: list[str]) -> list[str]:
         seen.add(key)
         new_items.append(query)
     return new_items
-
-
-def _zero_hit_queries(bundle: EvidenceBundle, queries: list[str]) -> list[str]:
-    latest_by_query: dict[str, dict] = {}
-    query_keys = {query.strip().lower(): query for query in queries}
-    for attempt in bundle.retrieval_attempts:
-        query = str(attempt.get("query") or "")
-        key = query.strip().lower()
-        if key in query_keys:
-            latest_by_query[key] = attempt
-    return [
-        query
-        for key, query in query_keys.items()
-        if int(latest_by_query.get(key, {}).get("chunk_count") or 0) == 0
-    ]
 
 
 def _format_assessment_evidence(bundle: EvidenceBundle) -> str:
@@ -518,30 +514,10 @@ def _prefetch_calling_summary(queries: list[str], round_no: int) -> str:
     return f"第 {round_no} 轮并行检索：{preview}"
 
 
-def _prefetch_result_summary(bundle: EvidenceBundle, queries: list[str]) -> str:
-    query_set = set(queries)
-    attempts = [
-        attempt
-        for attempt in bundle.retrieval_attempts
-        if str(attempt.get("query")) in query_set
-    ]
-    chunk_count = sum(int(attempt.get("chunk_count") or 0) for attempt in attempts)
+def _prefetch_result_summary(bundle: EvidenceBundle) -> str:
+    attempt = bundle.retrieval_attempts[-1] if bundle.retrieval_attempts else {}
+    chunk_count = int(attempt.get("chunk_count") or 0)
     return f"本轮检索返回 {chunk_count} 条候选证据，累计 {bundle.chunk_count} 条去重证据。"
-
-
-def _latest_prefetch_result_text(bundle: EvidenceBundle, queries: list[str]) -> str:
-    query_set = set(queries)
-    attempts = [
-        {
-            "query": attempt.get("query"),
-            "chunk_count": attempt.get("chunk_count"),
-            "max_score": attempt.get("max_score"),
-            "groundedness": attempt.get("groundedness"),
-        }
-        for attempt in bundle.retrieval_attempts
-        if str(attempt.get("query")) in query_set
-    ]
-    return json.dumps(attempts, ensure_ascii=False)
 
 
 def _assessment_summary(sufficient: bool, missing_queries: list[str]) -> str:

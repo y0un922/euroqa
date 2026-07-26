@@ -93,6 +93,12 @@ class ServerConfig(BaseSettings):
     rerank_top_n: int = 10
     max_context_tokens: int = 4000
 
+    # Agent 预检索：多子查询合并检索的每轮 rerank 预算与证据上下文预算
+    prefetch_rerank_top_n_base: int = 8
+    prefetch_rerank_top_n_per_extra_query: int = 2
+    prefetch_rerank_top_n_max: int = 16
+    agent_evidence_max_chars: int = 30000
+
     conversation_ttl_hours: int = 24
     max_conversation_rounds: int = 3
 
