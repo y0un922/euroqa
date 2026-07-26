@@ -13,7 +13,7 @@ from typing import Any
 
 from eval_methodology.mvp.paths import CACHE_DIR
 
-PROMPT_SCHEMA_VERSION = "mvp-judge-v1"
+PROMPT_SCHEMA_VERSION = "mvp-judge-v5-ref-order"
 
 
 def _stable_dumps(obj: Any) -> str:
@@ -44,6 +44,7 @@ def make_cache_key(
     answer: str,
     context_chunks: list[dict[str, Any]] | list[str],
     citations: Any,
+    gold_evidence: list[dict[str, Any]] | None = None,
     prompt_schema_version: str = PROMPT_SCHEMA_VERSION,
     kind: str = "judge",
 ) -> str:
@@ -56,6 +57,10 @@ def make_cache_key(
         "answer": answer,
         "context_hash": context_content_hash(context_chunks),
         "citations": citations,
+        "gold_evidence": [
+            {"evidence_id": str(e.get("evidence_id") or ""), "quote": str(e.get("quote") or "")}
+            for e in (gold_evidence or [])
+        ],
     }
     return hashlib.sha256(_stable_dumps(blob).encode("utf-8")).hexdigest()
 

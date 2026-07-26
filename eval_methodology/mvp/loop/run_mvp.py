@@ -1,13 +1,14 @@
-"""MVP single-iteration orchestration.
-
-baseline ×2 → LocateBottleneck → precheck gates → candidate A/B → report.
-"""
+"""MVP v2: stored answers -> single judge -> three-state decision."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import shutil
+import subprocess
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,9 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from eval_methodology.mvp.candidate import (  # noqa: E402
+    CandidateConfig,
     baseline_candidate,
+    describe_candidate,
     treatment_candidate,
 )
 from eval_methodology.mvp.isolation import (  # noqa: E402
@@ -28,300 +31,561 @@ from eval_methodology.mvp.isolation import (  # noqa: E402
 from eval_methodology.mvp.loop.decision import (  # noqa: E402
     MetricSnapshot,
     ab_decide,
+    answer_diff_from_answers,
     candidate_precheck,
+    context_diff_from_answers,
     locate_bottleneck,
     merge_hard_gate_decisions,
     pick_single_var_action,
 )
+from eval_methodology.mvp.metrics.bootstrap import self_noise_bound  # noqa: E402
 from eval_methodology.mvp.metrics.e2e import paired_series  # noqa: E402
+from eval_methodology.mvp.metrics.judges.cache import JudgeCache  # noqa: E402
 from eval_methodology.mvp.metrics.run_eval import (  # noqa: E402
     _load_split_items,
-    eval_on_sidecar,
+    metrics_from_answers,
 )
 from eval_methodology.mvp.metrics.schemas import PerQuestionMetrics  # noqa: E402
 from eval_methodology.mvp.paths import (  # noqa: E402
-    ARTIFACTS_DIR,
     BASELINE_PORT,
     CANDIDATE_PORT,
+    CONTEXT_DIFF_MIN_QUESTIONS,
     DATASET_JSON,
-    REPORTS_DIR,
+    MVP_DATASET_VERSION,
+    RUNS_DIR,
 )
 from eval_methodology.mvp.reports.render import render_report  # noqa: E402
-from eval_methodology.mvp.runner.client import (  # noqa: E402
-    context_id_sequence,
-    context_sequences_differ,
-    query_stream,
+from eval_methodology.mvp.runner.answers import (  # noqa: E402
+    generate_answers,
+    load_answers,
 )
-from eval_methodology.mvp.runner.sidecar import SidecarHandle, start_sidecar  # noqa: E402
+from eval_methodology.mvp.runner.sidecar import start_sidecar  # noqa: E402
 
 
 def _utc() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _per_q_list(run: dict[str, Any]) -> list[PerQuestionMetrics]:
-    return [PerQuestionMetrics.model_validate(p) for p in run["per_question"]]
+def _stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
 
-def _context_diff_scan(
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _timing(payload: dict[str, Any], stage: str, seconds: float) -> None:
+    payload.setdefault("stage_timings", {})[f"{stage}_s"] = seconds
+    print(f"{stage}: {seconds:.3f}s")
+
+
+def _git_head() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=_PROJECT_ROOT, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _candidate_hash(candidate: CandidateConfig) -> str:
+    data = json.dumps(candidate.model_dump(), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(data.encode()).hexdigest()[:12]
+
+
+def _baseline_key(items: list[dict[str, Any]], split: str) -> str:
+    """Cache key for a baseline run: code + config + dataset + exact item set."""
+    ids_hash = hashlib.sha256(
+        ",".join(str(item["id"]) for item in items).encode()
+    ).hexdigest()[:12]
+    raw = ":".join(
+        [
+            _git_head(),
+            _candidate_hash(baseline_candidate()),
+            MVP_DATASET_VERSION,
+            split,
+            ids_hash,
+        ]
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _judge_models_of(runs: list[dict[str, Any]]) -> set[str]:
+    """Distinct models that produced non-failed judge verdicts in these runs."""
+    models: set[str] = set()
+    for run in runs:
+        models.update(run.get("judge_models") or [])
+    return models
+
+
+def _per_question(run: dict[str, Any]) -> list[PerQuestionMetrics]:
+    return [PerQuestionMetrics.model_validate(item) for item in run.get("per_question") or []]
+
+
+def _answer_dir(run_dir: Path, variant: str, repeat: int = 1) -> Path:
+    suffix = variant if repeat == 1 else f"{variant}_repeat_{repeat}"
+    return run_dir / "answers" / suffix
+
+
+def _checkpoint_callback(
+    payload: dict[str, Any],
+    payload_path: Path,
+    variant: str,
+):
+    def checkpoint(record: dict[str, Any]) -> None:
+        progress = payload.setdefault("answer_progress", {}).setdefault(variant, {})
+        progress[record["id"]] = record["status"]
+        _write_json(payload_path, payload)
+
+    return checkpoint
+
+
+def _generate_variant(
+    candidate: CandidateConfig,
+    items: list[dict[str, Any]],
+    run_dir: Path,
+    variant: str,
+    *,
+    port: int,
+    repeats: int,
+    payload: dict[str, Any],
+    payload_path: Path,
+) -> tuple[list[dict[str, dict[str, Any]]], float]:
+    started = time.monotonic()
+    handle = start_sidecar(candidate, port=port)
+    try:
+        handle.wait_ready(timeout_s=180.0)
+        answer_runs = []
+        for repeat in range(1, repeats + 1):
+            label = variant if repeat == 1 else f"{variant}_repeat_{repeat}"
+            print(f"=== answers: {label} ===")
+            directory = _answer_dir(run_dir, variant, repeat)
+            generate_answers(
+                handle,
+                items,
+                directory,
+                on_record=_checkpoint_callback(payload, payload_path, label),
+            )
+            answer_runs.append(load_answers(directory))
+        return answer_runs, time.monotonic() - started
+    finally:
+        handle.stop()
+
+
+def _stored_answer_runs(
+    run_dir: Path,
+    variant: str,
+    repeats: int,
+) -> list[dict[str, dict[str, Any]]]:
+    return [load_answers(_answer_dir(run_dir, variant, repeat)) for repeat in range(1, repeats + 1)]
+
+
+def _complete(answer_runs: list[dict[str, dict[str, Any]]], items: list[dict[str, Any]]) -> bool:
+    expected = {str(item["id"]) for item in items}
+    return bool(answer_runs) and all(
+        set(run) >= expected
+        and all(run[qid].get("status") == "ok" for qid in expected)
+        for run in answer_runs
+    )
+
+
+def _evaluate_runs(
+    answer_runs: list[dict[str, dict[str, Any]]],
+    items: list[dict[str, Any]],
+    candidate: CandidateConfig,
+    *,
+    use_llm_judge: bool,
+) -> tuple[list[dict[str, Any]], float]:
+    started = time.monotonic()
+    cache = JudgeCache()
+    runs = []
+    for answers in answer_runs:
+        result = metrics_from_answers(
+            answers,
+            items,
+            use_llm_judge=use_llm_judge,
+            cache=cache,
+        )
+        result["candidate"] = describe_candidate(candidate)
+        runs.append(result)
+    return runs, time.monotonic() - started
+
+
+def _self_noise(runs: list[dict[str, Any]]) -> dict[str, float]:
+    if len(runs) < 2:
+        return {}
+    first = _per_question(runs[0])
+    second = _per_question(runs[1])
+    out = {}
+    for metric in ("faith", "citp"):
+        left, right, _ids = paired_series(first, second, metric)
+        if left:
+            out[metric] = self_noise_bound(left, right)
+    return out
+
+
+def _finish(payload: dict[str, Any], run_dir: Path, before: Any) -> dict[str, Any]:
+    payload["finished_at"] = _utc()
+    payload_path = run_dir / "payload.json"
+    payload["_artifact_json"] = str(payload_path)
+    _write_json(payload_path, payload)
+
+    started = time.monotonic()
+    report_path = render_report(payload, out_dir=run_dir, ts=payload.get("run_id"))
+    _timing(payload, "report", time.monotonic() - started)
+    payload["_report_md"] = str(report_path)
+
+    after = take_snapshot()
+    isolation = compare_snapshots(before, after)
+    payload["isolation"] = isolation.to_dict()
+    _write_json(payload_path, payload)
+    render_report(payload, out_dir=run_dir, ts=payload.get("run_id"))
+    assert_isolation(isolation)
+    print(f"wrote {payload_path}")
+    print(f"wrote {report_path}")
+    return payload
+
+
+def _build_baseline(
     items: list[dict[str, Any]],
     *,
-    baseline_port: int = BASELINE_PORT,
-    candidate_port: int = CANDIDATE_PORT,
-) -> tuple[list[str], dict[str, Any]]:
-    """Compare ordered context chunk-id sets off vs on (no judge)."""
-    base_h: SidecarHandle | None = None
-    cand_h: SidecarHandle | None = None
-    diff_ids: list[str] = []
-    details: dict[str, Any] = {}
-    try:
-        base_h = start_sidecar(baseline_candidate(), port=baseline_port)
-        base_h.wait_ready(timeout_s=180.0)
-        cand_h = start_sidecar(treatment_candidate(), port=candidate_port)
-        cand_h.wait_ready(timeout_s=180.0)
-        for item in items:
-            qid = item["id"]
-            b = query_stream(base_h.stream_url, item["question"])
-            c = query_stream(cand_h.stream_url, item["question"])
-            b_seq = context_id_sequence(b)
-            c_seq = context_id_sequence(c)
-            # Ordered sequence compare (not set): reordering alone counts.
-            changed = context_sequences_differ(b_seq, c_seq)
-            details[qid] = {
-                "changed": changed,
-                "baseline_seq_n": len(b_seq),
-                "candidate_seq_n": len(c_seq),
-                "baseline_seq_head": list(b_seq[:8]),
-                "candidate_seq_head": list(c_seq[:8]),
-                "only_baseline": sorted(set(b_seq) - set(c_seq))[:10],
-                "only_candidate": sorted(set(c_seq) - set(b_seq))[:10],
-            }
-            if changed:
-                diff_ids.append(qid)
-    finally:
-        if cand_h is not None:
-            cand_h.stop()
-        if base_h is not None:
-            base_h.stop()
-    return diff_ids, details
+    split: str,
+    use_llm_judge: bool,
+    fresh: bool,
+    repeats: int,
+    baseline_port: int,
+) -> tuple[dict[str, Any], Path]:
+    key = _baseline_key(items, split)
+    run_dir = RUNS_DIR / f"baseline-{key}"
+    if fresh and run_dir.exists():
+        shutil.rmtree(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payload_path = run_dir / "payload.json"
+    payload = (
+        json.loads(payload_path.read_text(encoding="utf-8"))
+        if payload_path.is_file()
+        else {
+            "run_id": run_dir.name,
+            "mode": "baseline",
+            "cache_key": key,
+            "started_at": _utc(),
+            "split": split,
+            "n_items": len(items),
+            "item_ids": [item["id"] for item in items],
+            "stage_timings": {},
+        }
+    )
+    answer_runs = _stored_answer_runs(run_dir, "baseline", repeats)
+    if not _complete(answer_runs, items):
+        answer_runs, answer_s = _generate_variant(
+            baseline_candidate(),
+            items,
+            run_dir,
+            "baseline",
+            port=baseline_port,
+            repeats=repeats,
+            payload=payload,
+            payload_path=payload_path,
+        )
+        _timing(payload, "answers", answer_s)
+    else:
+        payload["reused_answers"] = True
+        _timing(payload, "answers", 0.0)
+
+    runs, judge_s = _evaluate_runs(
+        answer_runs,
+        items,
+        baseline_candidate(),
+        use_llm_judge=use_llm_judge,
+    )
+    if use_llm_judge:
+        models = _judge_models_of(runs)
+        if len(models) > 1:
+            # Mixed models mean stale cache entries from a previous judge backend.
+            # Live calls in the first pass pinned the current model, so one
+            # re-evaluation converges lookups onto it.
+            print(f"judge models mixed {sorted(models)}; re-judging baseline once")
+            runs, extra_s = _evaluate_runs(
+                answer_runs,
+                items,
+                baseline_candidate(),
+                use_llm_judge=use_llm_judge,
+            )
+            judge_s += extra_s
+            models = _judge_models_of(runs)
+            if len(models) > 1:
+                payload["judge_models"] = sorted(models)
+                _write_json(payload_path, payload)
+                raise RuntimeError(
+                    f"baseline judged by multiple models {sorted(models)}; "
+                    "set MVP_JUDGE_MODEL to pin the judge or clear "
+                    "eval_methodology/mvp/cache before rerunning"
+                )
+        payload["judge_models"] = sorted(models)
+    payload.update(
+        {
+            "judge_enabled": use_llm_judge,
+            "baseline_runs": runs,
+            "self_noise_bound": _self_noise(runs) if repeats == 2 else {},
+            "completed": True,
+        }
+    )
+    _timing(payload, "judge", judge_s)
+    _timing(payload, "decide", 0.0)
+    _write_json(payload_path, payload)
+    return payload, run_dir
 
 
-def run_mvp(
+def run_baseline(
     *,
     dataset_path: Path = DATASET_JSON,
     split: str = "dev",
     limit: int | None = None,
     use_llm_judge: bool = True,
-    use_llm_extract: bool = True,
-    skip_precheck_context: bool = False,
+    fresh: bool = False,
+    repeats: int = 1,
+    baseline_port: int = BASELINE_PORT,
 ) -> dict[str, Any]:
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    """Run or reuse the cached baseline."""
+    if repeats not in (1, 2):
+        raise ValueError("repeats must be 1 or 2")
     before = take_snapshot()
     items = _load_split_items(dataset_path, split, limit)
     if not items:
         raise RuntimeError(f"no items in split={split}")
+    payload, run_dir = _build_baseline(
+        items,
+        split=split,
+        use_llm_judge=use_llm_judge,
+        fresh=fresh,
+        repeats=repeats,
+        baseline_port=baseline_port,
+    )
+    return _finish(payload, run_dir, before)
 
+
+def run_compare(
+    *,
+    dataset_path: Path = DATASET_JSON,
+    split: str = "dev",
+    limit: int | None = None,
+    use_llm_judge: bool = True,
+    fresh: bool = False,
+    gate_n: int = 12,
+    baseline_port: int = BASELINE_PORT,
+    candidate_port: int = CANDIDATE_PORT,
+) -> dict[str, Any]:
+    """Run baseline selection, candidate answers, diff gate, and A/B decision."""
+    before = take_snapshot()
+    items = _load_split_items(dataset_path, split, limit)
+    if not items:
+        raise RuntimeError(f"no items in split={split}")
+    baseline_payload, _baseline_dir = _build_baseline(
+        items,
+        split=split,
+        use_llm_judge=use_llm_judge,
+        fresh=fresh,
+        repeats=1,
+        baseline_port=baseline_port,
+    )
+    baseline_run = baseline_payload["baseline_runs"][0]
+    run_dir = RUNS_DIR / f"compare-{_stamp()}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payload_path = run_dir / "payload.json"
     payload: dict[str, Any] = {
+        "run_id": run_dir.name,
+        "mode": "compare",
         "started_at": _utc(),
         "split": split,
         "n_items": len(items),
-        "item_ids": [i["id"] for i in items],
+        "item_ids": [item["id"] for item in items],
+        "baseline_cache_key": baseline_payload["cache_key"],
+        "baseline_runs": [baseline_run],
+        "stage_timings": {},
     }
 
-    try:
-        # --- baseline ×2 ---
-        print("=== baseline run 1/2 ===")
-        base_h = start_sidecar(baseline_candidate(), port=BASELINE_PORT)
-        try:
-            base_h.wait_ready(timeout_s=180.0)
-            run1 = eval_on_sidecar(
-                base_h,
-                items,
-                use_llm_judge=use_llm_judge,
-                use_llm_extract=use_llm_extract,
-            )
-            print("=== baseline run 2/2 ===")
-            run2 = eval_on_sidecar(
-                base_h,
-                items,
-                use_llm_judge=use_llm_judge,
-                use_llm_extract=use_llm_extract,
-            )
-        finally:
-            base_h.stop()
-
-        payload["baseline_runs"] = [run1, run2]
-        snap = MetricSnapshot.from_aggregate(run1["aggregate"])
-        bottleneck = locate_bottleneck(snap)
-        pick = pick_single_var_action(bottleneck)
-        payload["bottleneck"] = {
-            "stage": bottleneck.stage,
-            "reason": bottleneck.reason,
-            "signals": bottleneck.metric_signals,
+    decide_started = time.monotonic()
+    snapshot = MetricSnapshot.from_aggregate(baseline_run["aggregate"])
+    bottleneck = locate_bottleneck(snapshot)
+    pick = pick_single_var_action(bottleneck)
+    precheck = candidate_precheck(baseline=snapshot, pick=pick)
+    payload["bottleneck"] = {
+        "stage": bottleneck.stage,
+        "reason": bottleneck.reason,
+        "signals": bottleneck.metric_signals,
+    }
+    payload["pick"] = {
+        "action_id": pick.action_id,
+        "stage": pick.stage,
+        "config_knobs": pick.config_knobs,
+        "reason": pick.reason,
+    }
+    payload["precheck"] = {
+        "ok": precheck.ok,
+        "points_to_l4": precheck.points_to_l4,
+        "reasons": precheck.reasons,
+    }
+    decide_s = time.monotonic() - decide_started
+    if pick.action_id == "noop" or not precheck.ok:
+        payload["decision"] = {
+            "state": "inconclusive",
+            "reason": (
+                f"baseline does not justify candidate {pick.action_id}: "
+                + "; ".join(precheck.reasons)
+            ),
+            "primary_metric": "faith",
         }
-        payload["pick"] = {
-            "action_id": pick.action_id,
-            "stage": pick.stage,
-            "config_knobs": pick.config_knobs,
-            "reason": pick.reason,
-        }
+        _timing(payload, "decide", decide_s)
+        return _finish(payload, run_dir, before)
 
-        # --- precheck ---
-        if skip_precheck_context:
-            diff_ids, diff_details = [], {}
-            precheck_note = "context precheck skipped by flag"
-        else:
-            print("=== context-diff precheck (off vs on) ===")
-            diff_ids, diff_details = _context_diff_scan(items)
-            precheck_note = ""
-        pre = candidate_precheck(baseline=snap, context_diff_question_ids=diff_ids)
-        if precheck_note:
-            pre.reasons.append(precheck_note)
-        payload["precheck"] = {
-            "ok": pre.ok,
-            "points_to_l4": pre.points_to_l4,
-            "context_diff_n": pre.context_diff_n,
+    treatment = treatment_candidate(pick.config_knobs)
+    candidate_answers, answer_s = _generate_variant(
+        treatment,
+        items,
+        run_dir,
+        "candidate",
+        port=candidate_port,
+        repeats=1,
+        payload=payload,
+        payload_path=payload_path,
+    )
+    _timing(payload, "answers", answer_s)
+    baseline_answers = load_answers(_answer_dir(_baseline_dir, "baseline"))
+    decide_started = time.monotonic()
+    if pick.stage == "L4":
+        diff_kind = "context"
+        gate_fail_reason = "候选未改变检索路径"
+        diff_ids, diff_details = context_diff_from_answers(
+            baseline_answers, candidate_answers[0]
+        )
+    else:
+        diff_kind = "answer"
+        gate_fail_reason = "候选未改变答案"
+        diff_ids, diff_details = answer_diff_from_answers(
+            baseline_answers, candidate_answers[0]
+        )
+    decide_s += time.monotonic() - decide_started
+    payload["precheck"].update(
+        {
+            "diff_kind": diff_kind,
+            "diff_n": len(diff_ids),
+            "context_diff_n": len(diff_ids) if diff_kind == "context" else None,
             "diff_ids": diff_ids,
-            "reasons": pre.reasons,
             "details": diff_details,
         }
+    )
+    if len(diff_ids) < CONTEXT_DIFF_MIN_QUESTIONS:
+        payload["candidate_answer_records"] = list(candidate_answers[0].values())
+        payload["decision"] = {
+            "state": "inconclusive",
+            "reason": gate_fail_reason,
+            "primary_metric": "faith",
+        }
+        _timing(payload, "decide", decide_s)
+        return _finish(payload, run_dir, before)
 
-        if pick.action_id != "auto_cross_ref_closure_on":
-            payload["decision"] = {
-                "state": "inconclusive",
-                "reason": f"pick is {pick.action_id}, not MVP A candidate",
-            }
-            payload["stopped_before_candidate"] = True
-        elif not pre.ok:
-            payload["decision"] = {
-                "state": "inconclusive",
-                "reason": "candidate precheck failed: " + "; ".join(pre.reasons),
-            }
-            payload["stopped_before_candidate"] = True
-        else:
-            # --- candidate (×1; budget) ---
-            print("=== candidate run ===")
-            cand_h = start_sidecar(treatment_candidate(), port=CANDIDATE_PORT)
-            try:
-                cand_h.wait_ready(timeout_s=180.0)
-                cand_run = eval_on_sidecar(
-                    cand_h,
-                    items,
-                    use_llm_judge=use_llm_judge,
-                    use_llm_extract=use_llm_extract,
-                )
-            finally:
-                cand_h.stop()
-            payload["candidate_runs"] = [cand_run]
-
-            # Hard gates Faith+CitP (merged); CRec as regression diagnostic.
-            b_pq = _per_q_list(run1)
-            c_pq = _per_q_list(cand_run)
-            drop = float(run1["aggregate"].get("judge_drop_rate") or 0)
-            degraded = bool(run1["aggregate"].get("degraded_to_trend"))
-
-            def _repeat_series(metric: str) -> tuple[list[float], list[float]]:
-                m1 = {p.question_id: getattr(p, metric) for p in _per_q_list(run1)}
-                m2 = {p.question_id: getattr(p, metric) for p in _per_q_list(run2)}
-                common = sorted(
-                    qid
-                    for qid in set(m1) & set(m2)
-                    if m1[qid] is not None and m2[qid] is not None
-                )
-                return (
-                    [float(m1[q]) for q in common],
-                    [float(m2[q]) for q in common],
-                )
-
-            per_metric_decisions = {}
-            paired_deltas: dict[str, list[dict[str, Any]]] = {}
-            metric_modes = {
-                "faith": "improve",  # primary M
-                "citp": "non_regress",  # hard gate G
-                "crec": "non_regress",  # regression diagnostic
-            }
-            for metric, mode in metric_modes.items():
-                b_vals, c_vals, ids = paired_series(b_pq, c_pq, metric)
-                if not b_vals:
-                    continue
-                rep_a, rep_b = (
-                    _repeat_series(metric) if metric in ("faith", "citp") else ([], [])
-                )
-                dec = ab_decide(
-                    baseline_values=b_vals,
-                    candidate_values=c_vals,
-                    baseline_repeat_a=rep_a or None,
-                    baseline_repeat_b=rep_b or None,
-                    primary_metric=metric,
-                    effective_n=len(b_vals),
-                    judge_drop_rate=drop,
-                    degraded_to_trend=degraded,
-                    mode=mode,  # type: ignore[arg-type]
-                )
-                per_metric_decisions[metric] = dec
-                paired_deltas[metric] = [
-                    {
-                        "question_id": qid,
-                        "baseline": b_vals[i],
-                        "candidate": c_vals[i],
-                        "delta": c_vals[i] - b_vals[i],
-                    }
-                    for i, qid in enumerate(ids)
-                ]
-                payload[f"paired_ids_{metric}"] = ids
-                payload[f"decision_{metric}"] = dec.to_dict()
-
-            final = merge_hard_gate_decisions(
-                per_metric_decisions,
-                primary_metric="faith",
-                non_regress_metrics=("citp",),
-                regression_metrics=("crec",),
+    candidate_runs, judge_s = _evaluate_runs(
+        candidate_answers,
+        items,
+        treatment,
+        use_llm_judge=use_llm_judge,
+    )
+    payload["candidate_runs"] = candidate_runs
+    candidate_run = candidate_runs[0]
+    if use_llm_judge:
+        union = _judge_models_of([baseline_run, candidate_run])
+        if len(union) > 1:
+            # Baseline verdicts came from cache under a previous judge model while
+            # the candidate was judged live. Re-judge the stored baseline answers:
+            # the live calls pinned the current model, so lookups now converge.
+            print(f"judge models mixed {sorted(union)}; re-judging baseline once")
+            rejudged, extra_s = _evaluate_runs(
+                [baseline_answers],
+                items,
+                baseline_candidate(),
+                use_llm_judge=use_llm_judge,
             )
-            payload["decision"] = final.to_dict()
-            payload["paired_deltas"] = paired_deltas
-
-        payload["finished_at"] = _utc()
-    finally:
-        after = take_snapshot()
-        iso = compare_snapshots(before, after)
-        payload["isolation"] = iso.to_dict()
-        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-        out_json = ARTIFACTS_DIR / f"mvp_run_{ts}.json"
-        out_json.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            judge_s += extra_s
+            baseline_run = rejudged[0]
+            payload["baseline_runs"] = [baseline_run]
+            payload["judge_consistency"] = {
+                "rejudged_baseline": True,
+                "initial_models": sorted(union),
+            }
+            union = _judge_models_of([baseline_run, candidate_run])
+            if len(union) > 1:
+                payload["judge_models"] = sorted(union)
+                _timing(payload, "judge", judge_s)
+                _write_json(payload_path, payload)
+                raise RuntimeError(
+                    f"baseline and candidate judged by different models {sorted(union)}; "
+                    "set MVP_JUDGE_MODEL to pin the judge or clear "
+                    "eval_methodology/mvp/cache before rerunning"
+                )
+        payload["judge_models"] = sorted(union)
+    _timing(payload, "judge", judge_s)
+    decide_started = time.monotonic()
+    per_metric = {}
+    paired_deltas = {}
+    modes = {"faith": "improve", "citp": "non_regress"}
+    for metric, mode in modes.items():
+        baseline_values, candidate_values, ids = paired_series(
+            _per_question(baseline_run),
+            _per_question(candidate_run),
+            metric,
         )
-        payload["_artifact_json"] = str(out_json)
-        md_path = render_report(payload, out_dir=REPORTS_DIR, ts=ts)
-        payload["_report_md"] = str(md_path)
-        print(f"wrote {out_json}")
-        print(f"wrote {md_path}")
-        assert_isolation(iso)
-
-    return payload
+        if not baseline_values:
+            continue
+        decision = ab_decide(
+            baseline_values,
+            candidate_values,
+            primary_metric=metric,
+            gate_n=gate_n,
+            mode=mode,
+        )
+        per_metric[metric] = decision
+        payload[f"decision_{metric}"] = decision.to_dict()
+        paired_deltas[metric] = [
+            {
+                "question_id": qid,
+                "baseline": baseline_values[index],
+                "candidate": candidate_values[index],
+                "delta": candidate_values[index] - baseline_values[index],
+            }
+            for index, qid in enumerate(ids)
+        ]
+    payload["paired_deltas"] = paired_deltas
+    payload["decision"] = merge_hard_gate_decisions(per_metric).to_dict()
+    decide_s += time.monotonic() - decide_started
+    _timing(payload, "decide", decide_s)
+    return _finish(payload, run_dir, before)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run MVP single-iteration loop")
-    parser.add_argument("--dataset", type=Path, default=DATASET_JSON)
-    parser.add_argument("--split", type=str, default="dev")
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--no-llm-judge", action="store_true")
-    parser.add_argument("--no-llm-extract", action="store_true")
-    parser.add_argument(
-        "--skip-precheck-context",
-        action="store_true",
-        help="skip off→on context diff scan (debug only)",
-    )
+    parser = argparse.ArgumentParser(description="Run MVP v2 evaluation")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    for name in ("baseline", "compare"):
+        sub = subparsers.add_parser(name)
+        sub.add_argument("--dataset", type=Path, default=DATASET_JSON)
+        sub.add_argument("--split", default="dev")
+        sub.add_argument("--limit", type=int)
+        sub.add_argument("--no-judge", action="store_true")
+        sub.add_argument("--fresh", action="store_true")
+    baseline = subparsers.choices["baseline"]
+    baseline.add_argument("--repeats", type=int, choices=(1, 2), default=1)
+    compare = subparsers.choices["compare"]
+    compare.add_argument("--gate-n", type=int, default=12)
+
     args = parser.parse_args(argv)
-    run_mvp(
-        dataset_path=args.dataset,
-        split=args.split,
-        limit=args.limit,
-        use_llm_judge=not args.no_llm_judge,
-        use_llm_extract=not args.no_llm_extract,
-        skip_precheck_context=args.skip_precheck_context,
-    )
+    common = {
+        "dataset_path": args.dataset, "split": args.split, "limit": args.limit,
+        "use_llm_judge": not args.no_judge, "fresh": args.fresh,
+    }
+    if args.command == "baseline":
+        run_baseline(**common, repeats=args.repeats)
+    else:
+        run_compare(**common, gate_n=args.gate_n)
     return 0
 
 

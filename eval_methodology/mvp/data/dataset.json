@@ -27,11 +27,11 @@
       },
       "split": "test",
       "gold": {
-        "reference_answer": "根据候选池内证据，混凝土结构设计可采用以下分项系数：在承载能力极限状态的典型基本组合中，永久作用分项系数 γG=1.35，可变作用分项系数 γQ=1.50；混凝土材料分项系数 γc=1.50，钢筋材料分项系数 γs=1.15。正常使用极限状态计算中，材料性能的分项系数通常取 1.0。具体工程的作用组合及取值仍应结合适用的国家附录确定。",
+        "reference_answer": "根据候选池中的 Eurocode 资料，混凝土结构设计常用分项系数可归纳如下：\n\n- 承载能力极限状态（ULS）的典型作用分项系数：永久作用 γG = 1.35，可变作用 γQ = 1.50。具体组合中，EN 1990 式 (6.10a)/(6.10b) 对永久荷载、使用荷载和风荷载采用不同系数组合，例如永久+使用荷载可分别取 1.35G+1.05Q 或 1.25G+1.50Q；伴随可变作用还可能取 0.75。\n- 材料分项系数：混凝土 γc = 1.50，钢筋 γs = 1.15。\n- 正常使用极限状态（SLS）计算时，材料性能采用的分项系数通常为 1.0。\n\n具体工程仍应结合所采用的设计组合及相应国家附录确定。",
         "claims": [
           {
             "claim_id": "claim_1",
-            "text": "承载能力极限状态的典型基本组合中，永久作用分项系数 γG 可取 1.35。",
+            "text": "承载能力极限状态设计中，永久作用的典型分项系数 γG 为 1.35。",
             "status": "supported",
             "evidence_chunk_ids": [
               "54db97f8efccf4a8a44d81fbca24f2f8",
@@ -41,7 +41,7 @@
           },
           {
             "claim_id": "claim_2",
-            "text": "承载能力极限状态的典型基本组合中，可变作用分项系数 γQ 可取 1.50。",
+            "text": "承载能力极限状态设计中，可变作用的典型分项系数 γQ 为 1.50。",
             "status": "supported",
             "evidence_chunk_ids": [
               "54db97f8efccf4a8a44d81fbca24f2f8",
@@ -53,7 +53,18 @@
           },
           {
             "claim_id": "claim_3",
-            "text": "混凝土材料分项系数 γc 可取 1.50。",
+            "text": "按 EN 1990 式 (6.10a)/(6.10b) 的典型 STR 组合，永久荷载、使用荷载和风荷载的系数会随主导作用变化，例如永久+使用荷载可取 1.35G+1.05Q 或 1.25G+1.50Q，伴随可变作用可取 0.75。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "9688579d101aa7f2ccf09f7a2d24de51"
+            ],
+            "negative_chunk_ids": [
+              "54db97f8efccf4a8a44d81fbca24f2f8"
+            ]
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "混凝土的材料分项系数 γc 为 1.50。",
             "status": "supported",
             "evidence_chunk_ids": [
               "35d57a7076d7fb05618f174c1dbfd86e",
@@ -65,8 +76,8 @@
             ]
           },
           {
-            "claim_id": "claim_4",
-            "text": "钢筋材料分项系数 γs 可取 1.15。",
+            "claim_id": "claim_5",
+            "text": "钢筋的材料分项系数 γs 为 1.15。",
             "status": "supported",
             "evidence_chunk_ids": [
               "35d57a7076d7fb05618f174c1dbfd86e",
@@ -76,7 +87,7 @@
             "negative_chunk_ids": []
           },
           {
-            "claim_id": "claim_5",
+            "claim_id": "claim_6",
             "text": "正常使用极限状态计算中，材料性能的分项系数通常取 1.0。",
             "status": "supported",
             "evidence_chunk_ids": [
@@ -85,8 +96,8 @@
             "negative_chunk_ids": []
           },
           {
-            "claim_id": "claim_6",
-            "text": "具体工程的作用组合及分项系数取值应结合适用的国家附录确定。",
+            "claim_id": "claim_7",
+            "text": "分项系数的最终取值应结合相应国家附录确定。",
             "status": "supported",
             "evidence_chunk_ids": [
               "35eb4a9edcf9e2ca53e5fe6a931e26ba",
@@ -107,7 +118,33 @@
         ],
         "eligible_for_crec": true,
         "gold_claim_status": "supported",
-        "retrieval_gap_vs_system": []
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1990_2002/EN1990_2002.md",
+            "evidence_id": "ev01",
+            "quote": "(*) Variable actions are those considered in Table A1.1 NOTE 1 The γ values may be set by the National annex. The recommended set of values for γ are :  $\\gamma _ { \\mathrm { G j , s u p } } = 1 , 1 0$   $\\gamma _ { \\mathrm { G j , i n f } } = 0 { , } 9 0$   $\\gamma _ { \\mathrm { Q , 1 } } = 1 \\mathrm { , } 5 0$  where unfavourable (0 where favourable)  $\\gamma _ { \\mathrm { Q , i } } = 1 , 5 0$  where unfavourable (0 where favourable)",
+            "section": "EN 1990:2002 (E)"
+          },
+          {
+            "document_path": "EN1990_2002/EN1990_2002.md",
+            "evidence_id": "ev02",
+            "quote": "(1) The partial factors for actions for the ultimate limit states in the accidental and seismic design situations (expressions 6.11a to 6.12b) should be 1,0. - values are given in Table A1.1.",
+            "section": "A1.3.2 Design values of actions in the accidental and seismic design situations"
+          },
+          {
+            "document_path": "EN1990_2002/EN1990_2002.md",
+            "evidence_id": "ev03",
+            "quote": "(1) For serviceability limit states the partial factors for actions should be taken as 1,0 except if differently specified in EN 1991 to EN 1999.",
+            "section": "A1.4.1 Partial factors for actions"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "ev04",
+            "quote": "<table><tr><td rowspan=1 colspan=1>Design situations</td><td rowspan=1 colspan=1>Yc for concrete</td><td rowspan=1 colspan=1>Ys for reinforcing steel</td><td rowspan=1 colspan=1>Yys for prestressing steel</td></tr><tr><td rowspan=1 colspan=1>Persistent&amp;Transient</td><td rowspan=1 colspan=1>1.5</td><td rowspan=1 colspan=1>1,15</td><td rowspan=1 colspan=1>1,15</td></tr><tr><td rowspan=1 colspan=1>Accidental</td><td rowspan=1 colspan=1>1,2</td><td rowspan=1 colspan=1>1,0</td><td rowspan=1 colspan=1>1.0</td></tr></table>",
+            "section": "2.4.2.4 Partial factors for materials"
+          }
+        ]
       },
       "gold_status": "needs_human_review"
     },
@@ -271,22 +308,23 @@
       },
       "split": "holdout",
       "gold": {
-        "reference_answer": "根据候选池中的 Eurocode 2 条文，混凝土徐变与收缩主要受环境湿度、构件尺寸以及混凝土组成影响。徐变还受首次加载时混凝土的龄期（成熟度）、荷载持续时间和荷载大小影响；当加载时压应力较高时，还需考虑徐变的非线性。对于收缩，干燥收缩还受构件尺寸、形状和温度影响；基本收缩则与水胶比及混凝土强度有关。",
+        "reference_answer": "根据候选池中的 Eurocode 2 条文，混凝土徐变与收缩的主要影响因素包括：环境湿度或气候条件、构件的尺寸与形状、构件温度以及混凝土组成。基本收缩还与水灰比及由此相关的混凝土强度有关。对于徐变，还需考虑首次加载时混凝土的龄期（成熟度），以及荷载的持续时间和大小；当加载时压应力较高时，还应考虑徐变的非线性发展。",
         "claims": [
           {
             "claim_id": "claim_1",
-            "text": "环境湿度会影响混凝土的徐变与收缩。",
+            "text": "环境湿度或气候条件会影响混凝土徐变与收缩。",
             "status": "supported",
             "evidence_chunk_ids": [
               "eb8cc418a1026d54d4c8fcd40f3bb009",
               "38aa169478df9a081effd396beb31679",
-              "bb3c322a3a0937199dce5ba0aedf29be"
+              "bb3c322a3a0937199dce5ba0aedf29be",
+              "ad4cdde0af53b6447694577452b5f413"
             ],
             "negative_chunk_ids": []
           },
           {
             "claim_id": "claim_2",
-            "text": "构件尺寸会影响混凝土的徐变与收缩。",
+            "text": "构件尺寸会影响混凝土徐变与收缩。",
             "status": "supported",
             "evidence_chunk_ids": [
               "eb8cc418a1026d54d4c8fcd40f3bb009",
@@ -296,7 +334,27 @@
           },
           {
             "claim_id": "claim_3",
-            "text": "混凝土组成会影响混凝土的徐变与收缩。",
+            "text": "构件的尺寸和形状会影响干燥收缩的发展。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bb3c322a3a0937199dce5ba0aedf29be",
+              "ad4cdde0af53b6447694577452b5f413"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "构件温度会影响干燥收缩的发展。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bb3c322a3a0937199dce5ba0aedf29be",
+              "ad4cdde0af53b6447694577452b5f413"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "混凝土组成会影响混凝土徐变与收缩。",
             "status": "supported",
             "evidence_chunk_ids": [
               "eb8cc418a1026d54d4c8fcd40f3bb009",
@@ -305,7 +363,16 @@
             "negative_chunk_ids": []
           },
           {
-            "claim_id": "claim_4",
+            "claim_id": "claim_6",
+            "text": "基本收缩与水灰比以及由此相关的混凝土强度有关。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bb3c322a3a0937199dce5ba0aedf29be"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_7",
             "text": "首次施加荷载时混凝土的龄期或成熟度会影响徐变。",
             "status": "supported",
             "evidence_chunk_ids": [
@@ -315,7 +382,7 @@
             "negative_chunk_ids": []
           },
           {
-            "claim_id": "claim_5",
+            "claim_id": "claim_8",
             "text": "荷载的持续时间会影响混凝土徐变。",
             "status": "supported",
             "evidence_chunk_ids": [
@@ -326,31 +393,12 @@
             ]
           },
           {
-            "claim_id": "claim_6",
-            "text": "荷载或压应力的大小会影响混凝土徐变，高压应力下还需考虑徐变的非线性。",
+            "claim_id": "claim_9",
+            "text": "荷载或压应力的大小会影响混凝土徐变；较高压应力下需考虑徐变的非线性发展。",
             "status": "supported",
             "evidence_chunk_ids": [
               "eb8cc418a1026d54d4c8fcd40f3bb009",
               "38aa169478df9a081effd396beb31679"
-            ],
-            "negative_chunk_ids": []
-          },
-          {
-            "claim_id": "claim_7",
-            "text": "干燥收缩受构件尺寸、形状和温度影响。",
-            "status": "supported",
-            "evidence_chunk_ids": [
-              "bb3c322a3a0937199dce5ba0aedf29be",
-              "ad4cdde0af53b6447694577452b5f413"
-            ],
-            "negative_chunk_ids": []
-          },
-          {
-            "claim_id": "claim_8",
-            "text": "基本收缩与水灰比有关，并因而与混凝土强度有关。",
-            "status": "supported",
-            "evidence_chunk_ids": [
-              "bb3c322a3a0937199dce5ba0aedf29be"
             ],
             "negative_chunk_ids": []
           }
@@ -363,7 +411,27 @@
         ],
         "eligible_for_crec": true,
         "gold_claim_status": "supported",
-        "retrieval_gap_vs_system": []
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_1",
+            "quote": "NOTE 1 Both creep and shrinkage are subdivided into two components, basic creep and drying creep or basic shrinkage and drying shrinkage, respectively, due to the pronounced effect of the ambient climate conditions on the magnitude and the kinetics of the time-dependent deformations.",
+            "section": "B.3 General"
+          },
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_2",
+            "quote": "NOTE 2 The drying shrinkage strain develops slowly, since it is a function of the diffusion controlled migration of the water through the hardened concrete, which is affected by the size and shape, and the temperature of the member. The basic shrinkage strain develops during hardening of the concrete: the major part therefore develops in the early days after casting. Basic shrinkage is a function of the water/cement ratio and thus of the concrete strength.",
+            "section": "B.3 General"
+          },
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_3",
+            "quote": "$\\beta _ { \\mathrm { d c } , f _ { \\mathrm { c m } } }$ is a function to describe the effect of concrete strength on drying creep, see Formula (B.10);\n\n$\\beta _ { \\mathrm { d c , R H } }$ is a function to describe the effect of relative humidity and notional size on drying creep, see Formula (B.11);\n\n$\\boldsymbol { \\beta } _ { \\mathrm { d c } , t _ { 0 } }$ is a function to describe the effect of the adjusted concrete age at loading on drying creep, see Formula (B.12);\n\n$\\beta _ { \\mathrm { d c } , t - t _ { 0 } }$ is a function to describe the time development of drying creep, see Formula (B.13);",
+            "section": "B.5 Basic formulae for determining the creep coefficient"
+          }
+        ]
       },
       "gold_status": "needs_human_review"
     },
@@ -385,7 +453,150 @@
         "stratum": "v=borderline|c=positive"
       },
       "split": "dev",
-      "gold": null,
+      "gold": {
+        "reference_answer": "按 Eurocode 2，钢筋的主要特性包括：屈服强度（或 0.2% 规定塑性延伸强度）、最大实际屈服强度、抗拉强度、延性（以最大荷载时伸长率及抗拉强度/屈服强度比表征）、弯曲性能、与混凝土的黏结性能、截面尺寸及其公差、疲劳强度和可焊性。对于焊接钢筋网和钢筋桁架，还应考虑剪切强度与焊点强度。新版 Eurocode 2 将强度等级、延性等级以及直径或规格列为设计至少需要明确的基本属性，并可据此确定屈服强度、强屈比、最大荷载时伸长率和疲劳 S-N 曲线。总结而言，钢筋性能可概括为强度、延性与变形能力、黏结和加工连接性能、几何规格以及疲劳性能；这些特性共同决定钢筋的承载能力、变形能力、与混凝土协同工作的可靠性及循环荷载下的耐久表现。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "钢筋的主要强度特性包括屈服强度或0.2%规定塑性延伸强度。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f",
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ],
+            "negative_chunk_ids": [
+              "d2ca3991ca67d3c00e8e0e6fc858c268"
+            ]
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "钢筋的性能还包括最大实际屈服强度和抗拉强度。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f"
+            ],
+            "negative_chunk_ids": [
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "钢筋延性可由最大荷载时伸长率以及抗拉强度与屈服强度之比表征。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f",
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "钢筋的弯曲性能是其规定特性之一。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f"
+            ],
+            "negative_chunk_ids": [
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ]
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "钢筋与混凝土之间的黏结性能是钢筋的主要特性之一。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f"
+            ],
+            "negative_chunk_ids": [
+              "79951ffb4d13a62ebfd020cead4dd129"
+            ]
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "钢筋的截面尺寸及尺寸公差属于需要规定的特性。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f"
+            ],
+            "negative_chunk_ids": [
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ]
+          },
+          {
+            "claim_id": "claim_7",
+            "text": "疲劳强度是钢筋的重要性能，可通过疲劳S-N曲线描述。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f",
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ],
+            "negative_chunk_ids": [
+              "01268b18b409f278403f2ac54c3fd58a",
+              "827970d71497349f3a2206831f71f523"
+            ]
+          },
+          {
+            "claim_id": "claim_8",
+            "text": "可焊性是钢筋的规定特性之一。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f"
+            ],
+            "negative_chunk_ids": [
+              "43fde0e61a9c6f18e085a0a197df02b1"
+            ]
+          },
+          {
+            "claim_id": "claim_9",
+            "text": "对于焊接钢筋网和钢筋桁架，还需考虑剪切强度与焊点强度。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "380bfaca75c912b0f5c414bd52e47e4f"
+            ],
+            "negative_chunk_ids": [
+              "43fde0e61a9c6f18e085a0a197df02b1"
+            ]
+          },
+          {
+            "claim_id": "claim_10",
+            "text": "设计时至少应明确钢筋的强度等级、延性等级以及直径或规格。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "d3dbb363af61cce1e53b23d1bd4b85de"
+            ],
+            "negative_chunk_ids": [
+              "ae95e1a28c32f3d5ecc7bbf69355b44b"
+            ]
+          }
+        ],
+        "E_plus": [
+          "380bfaca75c912b0f5c414bd52e47e4f",
+          "d3dbb363af61cce1e53b23d1bd4b85de"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "(1)P The behaviour of reinforcing steel is specified by the following properties:\n\n\\- yield strength $( f _ { \\mathrm { y k } } \\circ \\mathsf { r } f _ { 0 , 2 \\mathrm { k } } )$\n\n\\- maximum actual yield strength $( \\pmb { f } _ { \\mathsf { y } , \\mathsf { m a x } } )$\n\n\\- tensile strength (ft)\n\n\\- ductility $( \\varepsilon _ { \\mathsf { u k } }$ and $f _ { \\mathrm { t } } / f _ { \\mathrm { y k } } )$",
+            "section": "3.2.2 Properties"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_2",
+            "quote": "(4)P The surface characteristics of ribbed bars shall be such to ensure adequate bond with the concrete.\n\n(5) Adequate bond may be assumed by compliance with the specification of projected rib area, $\\pmb { f } _ { \\mathsf { R } } .$\n\nNote: Minimum values of the relative rib area, $\\pmb { f } _ { \\mathrm { R } } ,$ , are given in the Annex C.\n\n(6)P The reinforcement shall have adequate bendability to allow the use of the minimum mandrel diameters specified in Table 8.1 and to allow rebending to be carried out.",
+            "section": "3.2.2 Properties"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_3",
+            "quote": "\\- bendability\n\n\\- bond characteristics $( { f } _ { \\mathsf { R } } ;$ See Annex C)\n\n\\- section sizes and tolerances\n\n\\- fatigue strength\n\n\\- weldability\n\n\\- shear and weld strength for welded fabric and lattice girders",
+            "section": "3.2.2 Properties"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -448,7 +659,65 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "dev",
-      "gold": null,
+      "gold": {
+        "reference_answer": "结构分析的目的是确定整个结构或其某一部分中的内力和弯矩分布，或者确定应力、应变及位移的分布，从而为结构验算提供作用效应。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "结构分析用于确定整个结构或其某一部分中的内力和弯矩分布。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f",
+              "f21de74919a1c486f9f1972893f749be",
+              "afa986f785f04c22e70947ae7c68db69"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "结构分析也可用于确定整个结构或其某一部分中的应力、应变和位移分布。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "805e3ab30f6fc54691c197bc66d6b12b",
+              "20d0a12f8a24e4b9ed88501eadae6c9f",
+              "f21de74919a1c486f9f1972893f749be"
+            ],
+            "negative_chunk_ids": [
+              "2ddff19fbe547c4d1b64165c3b91c36a",
+              "26e7e1d249dd04aac5f0b63d6fd9744c"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "结构分析所得结果可作为后续结构或截面验算的作用效应。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f",
+              "f21de74919a1c486f9f1972893f749be"
+            ],
+            "negative_chunk_ids": [
+              "805e3ab30f6fc54691c197bc66d6b12b"
+            ]
+          }
+        ],
+        "E_plus": [
+          "20d0a12f8a24e4b9ed88501eadae6c9f",
+          "805e3ab30f6fc54691c197bc66d6b12b",
+          "afa986f785f04c22e70947ae7c68db69",
+          "f21de74919a1c486f9f1972893f749be"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1990_2002/EN1990_2002.md",
+            "evidence_id": "evidence_1",
+            "quote": "procedure or algorithm for determination of action effects in every point of a structure",
+            "section": "structural analysis"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -469,7 +738,79 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "holdout",
-      "gold": null,
+      "gold": {
+        "reference_answer": "当线性应变分布假设不成立时，可能需要在以下部位进行局部分析：支座附近、集中荷载作用处、梁柱交汇处、锚固区以及截面变化处。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "支座附近可能需要进行局部分析。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f"
+            ],
+            "negative_chunk_ids": [
+              "f43dad1e3b5f0dba39f3109a688c390e"
+            ]
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "集中荷载作用处可能需要进行局部分析。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f"
+            ],
+            "negative_chunk_ids": [
+              "f43dad1e3b5f0dba39f3109a688c390e",
+              "87adfbbd9371960d7d95ff1b1db23dbe"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "梁柱交汇处可能需要进行局部分析。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f"
+            ],
+            "negative_chunk_ids": [
+              "87adfbbd9371960d7d95ff1b1db23dbe"
+            ]
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "锚固区可能需要进行局部分析。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "截面变化处可能需要进行局部分析。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "20d0a12f8a24e4b9ed88501eadae6c9f"
+            ],
+            "negative_chunk_ids": [
+              "87adfbbd9371960d7d95ff1b1db23dbe"
+            ]
+          }
+        ],
+        "E_plus": [
+          "20d0a12f8a24e4b9ed88501eadae6c9f"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "(2) Local analyses may be necessary where the assumption of linear strain distribution is not valid, e.g.:\n\nin the vicinity of supports\n\nlocal to concentrated loads\n\nin beam-column intersections\n\nin anchorage zones\n\nat changes in cross section.",
+            "section": "5.1.1 General requirements"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -490,7 +831,88 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "test",
-      "gold": null,
+      "gold": {
+        "reference_answer": "根据构件的性质和功能，结构构件可分为梁、柱、楼板（slabs）、墙、板（plates）、拱、壳等类型。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "按性质和功能，结构构件包括梁。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "按性质和功能，结构构件包括柱。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "按性质和功能，结构构件包括楼板（slabs）。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "按性质和功能，结构构件包括墙。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "按性质和功能，结构构件包括板（plates）。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "按性质和功能，结构构件包括拱。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_7",
+            "text": "按性质和功能，结构构件包括壳。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "a59daacabce9639899320cf648bb3362"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "a59daacabce9639899320cf648bb3362"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "(1)P The elements of a structure are classified, by consideration of their nature and function, as beams, columns, slabs, walls, plates, arches, shells etc. Rules are provided for the analysis of the commoner of these elements and of structures consisting of combinations of these elements.",
+            "section": "5.3.1 Structural models for overall analysis"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -553,7 +975,73 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "test",
-      "gold": null,
+      "gold": {
+        "reference_answer": "在截面承载力计算中，假定平截面保持平面，因此混凝土应变沿截面高度呈线性分布；受压区混凝土应力按规范设计应力分布确定，可采用抛物线—矩形分布：上升段按 σcd = fcd[1-(1-εc/εc2)^2]，随后取恒定值 fcd。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "截面在受力后仍保持平面，因此混凝土应变沿截面高度呈线性分布。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "421c7e98dbf150af58106bd6118911db",
+              "8cdc75ff75ec632f1739eb476037bb9d"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "混凝土受压应力应根据规范规定的设计应力分布确定。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "8cdc75ff75ec632f1739eb476037bb9d",
+              "421c7e98dbf150af58106bd6118911db"
+            ],
+            "negative_chunk_ids": [
+              "13904fc93aac1a1e01e5d1b21eadf3ee"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "受压区可采用抛物线—矩形应力分布：上升段为 σcd = fcd[1-(1-εc/εc2)^2]，随后为恒定应力 fcd。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "6c3d1b43eb874dd2ed4fd8c4d2b16d6a"
+            ],
+            "negative_chunk_ids": [
+              "c458c77c7989e03803f974461075e619",
+              "13904fc93aac1a1e01e5d1b21eadf3ee"
+            ]
+          }
+        ],
+        "E_plus": [
+          "421c7e98dbf150af58106bd6118911db",
+          "6c3d1b43eb874dd2ed4fd8c4d2b16d6a",
+          "8cdc75ff75ec632f1739eb476037bb9d"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_1",
+            "quote": "(2) When determining the ultimate moment resistance of reinforced or prestressed concrete crosssections, the following assumptions shall be made:\n\n— plane sections remain plane;",
+            "section": "8.1.1 General"
+          },
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_2",
+            "quote": "(1) For the design of cross-sections, the following stress distribution may be used, see Figure 8.2c) (compressive strain shown positive):\n\n$$\n\\sigma _ { \\mathrm { c d } } = \\left\\{ \\begin{array} { c } { f _ { \\mathrm { c d } } \\left[ 1 - \\left( 1 - \\frac { \\varepsilon _ { \\mathrm { c } } } { \\varepsilon _ { \\mathrm { c } 2 } } \\right) ^ { 2 } \\right] } \\\\ { f _ { \\mathrm { c d } } } \\end{array} \\right.\n$$\n\n$$\n\\mathrm { f o r } 0 \\le \\varepsilon _ { \\mathrm { c } } \\le \\varepsilon _ { \\mathrm { c } 2 }\n$$\n\n$$\n\\mathrm { f o r } \\varepsilon _ { \\mathrm { c } 2 } \\leq \\varepsilon _ { \\mathrm { c } } \\leq \\varepsilon _ { \\mathrm { c u } }\\tag{8.4}\n$$",
+            "section": "8.1.2 Stress distribution in the compression zones"
+          },
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_3",
+            "quote": "(2) Alternatively, a rectangular stress block distribution as given in Figure 8.2d) may be assumed.",
+            "section": "8.1.2 Stress distribution in the compression zones"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -574,7 +1062,38 @@
         "stratum": "v=borderline|c=positive"
       },
       "split": "holdout",
-      "gold": null,
+      "gold": {
+        "reference_answer": "根据候选池中的 Eurocode 2 条文，混凝土压碎（极限压缩）应变限值为 εcu = 0.0035，即 3.5‰。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "混凝土的极限压缩应变（压碎应变限值）εcu 为 0.0035，即 3.5‰。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "3d1ef865eb4c25e50fbc54e559bc8989"
+            ],
+            "negative_chunk_ids": [
+              "befe7c47a01960fb85a2cba7cc7f2ff7",
+              "18ee1e040c5c653da7e57255c5d5ecfc",
+              "9750033f314188bc80284e2279440b0a"
+            ]
+          }
+        ],
+        "E_plus": [
+          "3d1ef865eb4c25e50fbc54e559bc8989"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_1",
+            "quote": "$$\n\\varepsilon _ { \\mathrm { c } } < \\varepsilon _ { \\mathrm { c u 1 } } [ \\% _ { 0 } ] = 2 , 8 + 1 4 \\cdot ( 1 - f _ { \\mathrm { c m } } / 1 0 8 ) ^ { 4 } \\leq 3 , 5 \\ \\%\\tag{5.10}\n$$",
+            "section": "5.1.6 Design assumptions"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -595,7 +1114,43 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "dev",
-      "gold": null,
+      "gold": {
+        "reference_answer": "在极限承载力状态下，混凝土受压区高度应满足：对于 C50/60 及以下强度等级，x/d 不应大于 0.45；对于 C55/67 及以上强度等级，x/d 不应大于 0.35。其中 x 为受压区高度，d 为截面有效高度。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "对于 C50/60 及以下强度等级的混凝土，极限状态下受压区相对高度限值为 x/d ≤ 0.45。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bca17be5c2ef1d155b5e6941032bfff5"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "对于 C55/67 及以上强度等级的混凝土，极限状态下受压区相对高度限值为 x/d ≤ 0.35。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bca17be5c2ef1d155b5e6941032bfff5"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "bca17be5c2ef1d155b5e6941032bfff5"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "(2) In regions of yield hinges, $x _ { \\mathrm { u } } / d$ shall not exceed the value 0,45 for concrete strength classes less than or equal to C50/60, and 0,35 for concrete strength classes greater than or equal to C55/67.",
+            "section": "5.6.3 Rotation capacity"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -616,7 +1171,56 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "dev",
-      "gold": null,
+      "gold": {
+        "reference_answer": "按候选池中的 EC2 资料，弯矩重分布系数 δ（重分布后弯矩/重分布前弯矩）的限值取决于钢筋延性等级：B、C 级钢筋 δ ≥ 0.70，即弯矩最多重分布 30%；A 级钢筋 δ ≥ 0.80，即最多重分布 20%。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "弯矩重分布系数 δ 是重分布后弯矩与重分布前弯矩之比。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bca17be5c2ef1d155b5e6941032bfff5"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "采用 B 级或 C 级钢筋时，δ 不得小于 0.70，因此弯矩重分布幅度不得超过 30%。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bca17be5c2ef1d155b5e6941032bfff5"
+            ],
+            "negative_chunk_ids": [
+              "f28e65255099d62a08e27b16ef78e436"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "采用 A 级钢筋时，δ 不得小于 0.80，因此弯矩重分布幅度不得超过 20%。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "bca17be5c2ef1d155b5e6941032bfff5"
+            ],
+            "negative_chunk_ids": [
+              "f28e65255099d62a08e27b16ef78e436"
+            ]
+          }
+        ],
+        "E_plus": [
+          "bca17be5c2ef1d155b5e6941032bfff5"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "evidence_1",
+            "quote": "$\\geq 0 , 7$ where Class B or Class C reinforcing steel or prestressing steel is used (see Table 5.5);\n\n$\\ge 0 , 8$ where Class A reinforcing steel is used (see Table 5.5).",
+            "section": "7.3.2 Linear elastic analysis with redistribution"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -658,7 +1262,49 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "dev",
-      "gold": null,
+      "gold": {
+        "reference_answer": "钢结构截面承载力计算采用材料分项安全系数 γM0 = 1.0。该值是 EC3-1-1 的推荐值，具体工程仍应核对所在国家的国家附录。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "钢结构截面承载力计算的材料分项安全系数为 γM0 = 1.0。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "d2c7f9bfd0575fb034d5bf7fad1c5399",
+              "0d6cab1499eb5c0cbc5d6e1dc23f7f44",
+              "c24bb1cb8c215880938b329f94f6aacc"
+            ],
+            "negative_chunk_ids": [
+              "7505f830b2f5af076474a02dfb2ad971"
+            ]
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "EC3 的材料分项安全系数可能由国家附录规定，因此具体工程应核对适用的国家附录。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "c24bb1cb8c215880938b329f94f6aacc"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "0d6cab1499eb5c0cbc5d6e1dc23f7f44",
+          "c24bb1cb8c215880938b329f94f6aacc",
+          "d2c7f9bfd0575fb034d5bf7fad1c5399"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "BSEN1992-1-1-2023/BSEN1992-1-1-2023.md",
+            "evidence_id": "e1",
+            "quote": "<table><tr><td rowspan=1 colspan=1>Design situations —Limit states</td><td rowspan=1 colspan=1>γs for reinforcing andprestressing steel</td><td rowspan=1 colspan=1>γcand $\\gamma _ { \\mathbf { C E } }$ forconcrete</td><td rowspan=1 colspan=1>γv for shear and punchingresistance without shearreinforcement</td></tr><tr><td rowspan=1 colspan=1>Persistent and transientdesign situation</td><td rowspan=1 colspan=1>1,15</td><td rowspan=1 colspan=1>1,50ª</td><td rowspan=1 colspan=1>1,40</td></tr><tr><td rowspan=1 colspan=1>Fatigue design situation</td><td rowspan=1 colspan=1>1,15</td><td rowspan=1 colspan=1>1,50</td><td rowspan=1 colspan=1>1,40</td></tr><tr><td rowspan=1 colspan=1>Accidental design situation</td><td rowspan=1 colspan=1>1,00</td><td rowspan=1 colspan=1>1,15</td><td rowspan=1 colspan=1>1,15</td></tr><tr><td rowspan=1 colspan=1>Serviceability limit state</td><td rowspan=1 colspan=1>1,00</td><td rowspan=1 colspan=1>1,00</td><td rowspan=1 colspan=1></td></tr><tr><td rowspan=1 colspan=4>NOTE The partial factors for materials correspond to geometrical deviations of Tolerance Class 1 andExecution Class 2 in EN 13670.</td></tr><tr><td rowspan=1 colspan=4>a  The value for γce applies when the indicative value for the elastic modulus according 5.1.4(2) is used. A valueγcE = 1,3 applies when the elastic modulus is determined according to 5.1.4(1).</td></tr></table>",
+            "section": "4.3.3 Partial factors for materials"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -721,7 +1367,107 @@
         "stratum": "v=borderline|c=unknown"
       },
       "split": "dev",
-      "gold": null,
+      "gold": {
+        "reference_answer": "需要考虑二阶效应的基本情形是：结构变形对受力效应或结构行为产生不可忽略的影响，特别是可能显著影响结构整体稳定性，或影响关键截面达到承载能力极限状态时。对混凝土结构，若二阶效应超过相应一阶效应的10%，通常不能忽略；对独立受压构件，当长细比 λ 达到或超过限值 λ_lim 时，应考虑二阶效应。双向弯曲时可分别在两个主平面检查，并在长细比超过限值的方向考虑。柔性支撑体系以及柱、墙、桩、拱、壳等受轴力且变形敏感的结构尤其需要检查。对钢结构，当变形显著增大作用效应或改变结构行为时应考虑；以弹性临界荷载系数判断时，α_cr≤10 通常表示需要考虑二阶效应。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "当二阶效应可能显著影响结构整体稳定性或关键截面达到承载能力极限状态时，应考虑二阶效应。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "107f2ee9f628472272593d3ed895a559"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "对于混凝土结构，二阶效应超过相应一阶效应的10%时，不能按规范的简化条件忽略。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "735c85e6aaf48669ace640477acf418a",
+              "0c957f1a152c5b95919fb3f29416e25e"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "对于独立受压构件，当长细比 λ 达到或超过限值 λ_lim 时，应考虑二阶效应；低于该限值时可忽略。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "4bc56ca0247d150c54790ea1c522c724",
+              "8f00cd7aefd77726450fc11686f0e858"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "双向弯曲时，可在各主弯曲平面分别检查长细比，并只在超过长细比限值的方向考虑二阶效应。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "4bc56ca0247d150c54790ea1c522c724",
+              "2e236a4f7e089fe7dcdb38b3c5c1b2bb"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "柱、墙、桩、拱、壳等受轴力且其行为明显受变形影响的构件或结构，以及采用柔性支撑体系的结构，需要重点检查二阶效应。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "38ddff7b946dcc6581fc06e1452757dd"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "对于钢结构，当变形显著增大作用效应或显著改变结构行为时，应考虑二阶效应。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "871cfdfa7691f685f6640bad444604e2"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_7",
+            "text": "对于钢结构，以弹性临界荷载系数判断时，α_cr≤10通常需要考虑二阶效应。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "0930ba4fc82bdd12476c9412532b09a8"
+            ],
+            "negative_chunk_ids": [
+              "871cfdfa7691f685f6640bad444604e2"
+            ]
+          }
+        ],
+        "E_plus": [
+          "0930ba4fc82bdd12476c9412532b09a8",
+          "0c957f1a152c5b95919fb3f29416e25e",
+          "107f2ee9f628472272593d3ed895a559",
+          "2e236a4f7e089fe7dcdb38b3c5c1b2bb",
+          "38ddff7b946dcc6581fc06e1452757dd",
+          "4bc56ca0247d150c54790ea1c522c724",
+          "735c85e6aaf48669ace640477acf418a",
+          "871cfdfa7691f685f6640bad444604e2",
+          "8f00cd7aefd77726450fc11686f0e858"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1993-1-1_2005/EN1993-1-1_2005.md",
+            "evidence_id": "evidence_1",
+            "quote": "(2) The effects of the deformed geometry (second-order effects) should be considered if they increase the action effects significantly or modify significantly the structural behaviour.",
+            "section": "5.2.1 Effects of deformed geometry of the structure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_2",
+            "quote": "(1)P Second order effects (see EN 1990 Section 1) shall be taken into account where they are likely to affect the overall stability of a structure significantly and for the attainment of the ultimate limit state at critical sections.",
+            "section": "5.1.4 Second order effects"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -784,7 +1530,211 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "test",
-      "gold": null,
+      "gold": {
+        "reference_answer": "预应力在 Eurocode 中通常作为永久作用处理，其效应可采用两种等效方式计入：作为外部作用，或作为由预应变、预曲率形成的抗力。采用哪种方式都应保持作用效应与截面抗力计算的一致性，避免重复计入；预应力产生的弯矩和轴力应纳入相应作用组合。\n\n在承载能力极限状态（ULS）中，预应力多数情况下是有利作用，通常采用有利预应力分项系数；但在外预应力稳定验算中，预应力增大可能不利，此时应采用不利值，局部效应验算也应按不利预应力考虑。抗弯承载力验算时，若把预应力作为外部作用，预应力筋的抗力仅计入其超过已有预应力应力的增量；若在抗力侧考虑，则可按预应力筋完整设计强度计入。还应防止预应力筋失效导致构件脆性破坏。\n\n在正常使用极限状态（SLS）中，预应力作为永久作用进入相应作用组合，并按其上、下特征值或规范规定的最大、最小效应考虑。它形成的轴力和弯矩会参与混凝土应力、开裂及变形等验算；例如裂缝控制中的截面轴力应包含相关组合下预应力的特征值。\n\n在疲劳验算中，可采用规范给出的有利预应力分项系数值；EN 1992-1-1:2004 的推荐值为 1.0。设计时还应按时间和位置采用扣除即时损失及长期损失后的有效预应力，因为摩擦、锚具回缩、混凝土瞬时变形、混凝土收缩与徐变以及预应力钢材松弛都会改变各极限状态验算中的实际预应力效应。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "预应力应归类为永久作用。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "65eca110841acd91ef75049331c2aa7d",
+              "31c6bb966bd201823c230ad786d69db9",
+              "a94ae3a44a81812f70a87ba583da5f10"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "预应力效应可作为外部作用，也可作为由预应变和预曲率形成的抗力考虑。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "06037f30e436ad8db4dc51439a3d59d5",
+              "70f3e81616230b327c8d9a467d544605",
+              "55ee490f61a14dee631072a8604a2f7e"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "预应力应进入作用组合，其效应应计入施加于结构的内力矩和轴力。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "06037f30e436ad8db4dc51439a3d59d5",
+              "8e9988280ce7a184e7c780f04f250df3"
+            ],
+            "negative_chunk_ids": [
+              "26402bfa5794d336253e06410af16245",
+              "313e604813e2e62bf5060fbe8dd59e43"
+            ]
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "承载能力极限状态验算中，预应力在多数情况下属于有利效应，应采用有利预应力分项系数；持久和暂时设计状况的推荐值为1.0。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "7601aaa5d70bd73b7ecf4dff721db055",
+              "3da80095a78d9815acf6800e08c0a9d8",
+              "9d3c4b22a392c5742be1e3d599759bc4"
+            ],
+            "negative_chunk_ids": [
+              "e2f426cfbcb58e2ec39c3353ef0cc6f0",
+              "65371a1f72ed4a6e203be15a4b2ea8e4"
+            ]
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "外预应力稳定极限状态中，预应力增大可能产生不利影响，此时应采用不利预应力值；规范推荐的整体分析分项系数为1.3。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "7601aaa5d70bd73b7ecf4dff721db055",
+              "3da80095a78d9815acf6800e08c0a9d8",
+              "9d3c4b22a392c5742be1e3d599759bc4"
+            ],
+            "negative_chunk_ids": [
+              "6c2d4ff457b69c62c07c199290bd4402"
+            ]
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "预应力局部效应验算应采用不利预应力分项系数。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "7601aaa5d70bd73b7ecf4dff721db055"
+            ],
+            "negative_chunk_ids": [
+              "3da80095a78d9815acf6800e08c0a9d8",
+              "9d3c4b22a392c5742be1e3d599759bc4"
+            ]
+          },
+          {
+            "claim_id": "claim_7",
+            "text": "ULS抗弯验算中，若预应力作为外部作用，预应力筋抗力应限于设计强度减去已有设计预应力应力；若预应力在抗力侧考虑，则可限于预应力筋完整设计强度。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "10f7d041f88e2de3075b9cdbeed05173"
+            ],
+            "negative_chunk_ids": [
+              "06037f30e436ad8db4dc51439a3d59d5",
+              "8e9988280ce7a184e7c780f04f250df3"
+            ]
+          },
+          {
+            "claim_id": "claim_8",
+            "text": "应避免预应力筋失效导致构件发生脆性破坏。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "06037f30e436ad8db4dc51439a3d59d5",
+              "8e9988280ce7a184e7c780f04f250df3"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_9",
+            "text": "正常使用极限状态中，预应力应按相应作用组合计入；裂缝控制所用轴力应考虑预应力特征值。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "313e604813e2e62bf5060fbe8dd59e43",
+              "0fc5e2a9cb09f6cd39c4920dbd406bcb"
+            ],
+            "negative_chunk_ids": [
+              "6c2d4ff457b69c62c07c199290bd4402"
+            ]
+          },
+          {
+            "claim_id": "claim_10",
+            "text": "预应力宜用上、下特征值表示；对于ULS，在其他 Eurocode 允许时可采用单一特征值。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "65eca110841acd91ef75049331c2aa7d",
+              "31c6bb966bd201823c230ad786d69db9"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_11",
+            "text": "用于ULS的有利预应力分项系数推荐值1.0也可用于疲劳验算。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "7601aaa5d70bd73b7ecf4dff721db055",
+              "3da80095a78d9815acf6800e08c0a9d8",
+              "9d3c4b22a392c5742be1e3d599759bc4"
+            ],
+            "negative_chunk_ids": [
+              "03c3f4e59435b13e01d3a8f7d7962b5b"
+            ]
+          },
+          {
+            "claim_id": "claim_12",
+            "text": "各极限状态验算采用的有效预应力应考虑位置、时间、即时损失和长期损失的影响。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "1d7c57ba4782942f71d714bdeef634e3",
+              "49b45c790f1f72695987a2df3a582e15",
+              "6d9ca271662be6e59561d0be8d544132"
+            ],
+            "negative_chunk_ids": [
+              "5060ad455a1e70448979674e693473a0",
+              "298a98da66a2abe1b74c3da8c8c658dc",
+              "379fbbb1b2fcf8b6de8516c6ce1b6eb3",
+              "3cc186a2b0abe86938475e453037cbc5"
+            ]
+          }
+        ],
+        "E_plus": [
+          "06037f30e436ad8db4dc51439a3d59d5",
+          "0fc5e2a9cb09f6cd39c4920dbd406bcb",
+          "10f7d041f88e2de3075b9cdbeed05173",
+          "1d7c57ba4782942f71d714bdeef634e3",
+          "313e604813e2e62bf5060fbe8dd59e43",
+          "31c6bb966bd201823c230ad786d69db9",
+          "3da80095a78d9815acf6800e08c0a9d8",
+          "49b45c790f1f72695987a2df3a582e15",
+          "55ee490f61a14dee631072a8604a2f7e",
+          "65eca110841acd91ef75049331c2aa7d",
+          "6d9ca271662be6e59561d0be8d544132",
+          "70f3e81616230b327c8d9a467d544605",
+          "7601aaa5d70bd73b7ecf4dff721db055",
+          "8e9988280ce7a184e7c780f04f250df3",
+          "9d3c4b22a392c5742be1e3d599759bc4",
+          "a94ae3a44a81812f70a87ba583da5f10"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "(2) The effects of prestressing may be considered as an action or a resistance caused by prestrain and precurvature. The bearing capacity should be calculated accordingly.\n\n(3) In general prestress is introduced in the action combinations defined in EN 1990 as part of the loading cases and its effects should be included in the applied internal moment and axial force.",
+            "section": "5.10.1 General"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_2",
+            "quote": "(1) In general the design value of the prestressing force may be determined by $P _ { \\mathrm { d , t } } ( \\mathsf { x } ) =$ $\\varkappa _ { \\sf P } , P _ { \\sf m , t } ( \\sf x )$ (see 5.10.3 (4) for the definition of $P _ { \\mathrm { m , t } } ( \\mathsf { x } ) )$ and 2.4.2.2 for $\\gamma _ { \\mathsf { p } }$\n\n(2) For prestressed members with permanently unbonded tendons, it is generally necessary to take the deformation of the whole member into account when calculating the increase of the stress in the prestressing steel.",
+            "section": "5.10.8 Effects of prestressing at ultimate limit state"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_3",
+            "quote": "$( 1 ) \\mathsf { P }$ For serviceability and fatigue calculations allowance shall be made for possible variations in prestress. Two characteristic values of the prestressing force at the serviceability limit state are estimated from:\n\n$$\nP _ { \\mathrm { k , s u p } } = r _ { \\mathrm { s u p } } P _ { \\mathrm { m , t } } \\left( x \\right)\\tag{5.47}\n$$\n\n$$\nP _ { \\mathrm { k , i n f } } = r _ { \\mathrm { i n f } } P _ { \\mathrm { m , t } } ( \\mathsf { x } )\\tag{5.48}\n$$",
+            "section": "5.10.9 Effects of prestressing at serviceability limit state and limit state of fatigue"
+          },
+          {
+            "document_path": "EN1990_2002/EN1990_2002.md",
+            "evidence_id": "evidence_4",
+            "quote": "(1) The general format of effects of actions should be :\n\n$$\nE _ { d } = E \\Big \\{ G _ { k , j } ; P ; A _ { d } ; ( \\psi _ { 1 , 1 } \\mathrm { o r } \\psi _ { 2 , 1 } ) Q _ { k , 1 } ; \\psi _ { 2 , i } Q _ { k , i } \\Big \\} \\quad j \\geq 1 ; i > 1\\tag{6.11a}\n$$",
+            "section": "6.4.3.3 Combinations of actions for accidental design situations"
+          },
+          {
+            "document_path": "EN1990_2002/EN1990_2002.md",
+            "evidence_id": "evidence_5",
+            "quote": "(1) The general format of effects of actions should be :\n\n$$\nE _ { d } = E \\Big \\{ G _ { k , j } ; P ; A _ { E d } ; \\psi _ { 2 , i } Q _ { k , i } \\Big \\} \\quad j \\geq 1 ; i \\geq 1\\tag{6.12a}\n$$",
+            "section": "6.4.3.4 Combinations of actions for seismic design situations"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -805,7 +1755,118 @@
         "stratum": "v=borderline|c=positive"
       },
       "split": "test",
-      "gold": null,
+      "gold": {
+        "reference_answer": "一般剪切验证应在所有关键控制截面进行：首先检查 τEd ≤ 2τRdc,min；满足时可省略详细抗剪验算。否则，若 τEd ≤ τRd,c，则不需要按计算配置抗剪钢筋；若 τEd > τRd,c，则应按相应条款设计抗剪钢筋。即使计算表明不需要抗剪钢筋，线性构件仍可能需要按第12条配置最小抗剪钢筋；对于静定结构中有效高度 d > 500 mm 的线性构件，应配置最小抗剪钢筋。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "剪切承载力应在所有关键控制截面进行验证。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "e8cf43020180dfe647efc2551ec3c1aa",
+              "61b700ba31eec4674d69610bf7284546"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "当 τEd ≤ 2τRdc,min 时，可以省略详细抗剪验算。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "61b700ba31eec4674d69610bf7284546",
+              "97c1276e8df3f4324f6457c6bd6b8298"
+            ],
+            "negative_chunk_ids": [
+              "c2f603a419b239c5d588bb38fcdeaa8c"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "当 τEd ≤ τRd,c 时，不需要按计算配置抗剪钢筋。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "e8cf43020180dfe647efc2551ec3c1aa",
+              "61b700ba31eec4674d69610bf7284546"
+            ],
+            "negative_chunk_ids": [
+              "814084ae08cd3b786dea3bd4377d7416"
+            ]
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "当 τEd > τRd,c 时，应按相应条款设计抗剪钢筋。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "e8cf43020180dfe647efc2551ec3c1aa",
+              "61b700ba31eec4674d69610bf7284546"
+            ],
+            "negative_chunk_ids": [
+              "1d0f5523dd7e296bc2652a50e0cd911e",
+              "dd922c70f98df41964a5cacc98e554bc"
+            ]
+          },
+          {
+            "claim_id": "claim_5",
+            "text": "即使计算上不需要抗剪钢筋，线性构件仍可能需要按第12条配置最小抗剪钢筋。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "e8cf43020180dfe647efc2551ec3c1aa",
+              "61b700ba31eec4674d69610bf7284546"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_6",
+            "text": "对于静定结构中有效高度 d > 500 mm 的线性构件，应配置最小抗剪钢筋。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "e8cf43020180dfe647efc2551ec3c1aa",
+              "61b700ba31eec4674d69610bf7284546"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "61b700ba31eec4674d69610bf7284546",
+          "97c1276e8df3f4324f6457c6bd6b8298",
+          "e8cf43020180dfe647efc2551ec3c1aa"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "$V _ { \\sf R d , c }$ is the design shear resistance of the member without shear reinforcement.\n\n$V _ { \\sf R d , s }$ is the design value of the shear force which can be sustained by the yielding shear reinforcement.\n\n$V _ { \\sf R d , m a x }$ is the design value of the maximum shear force which can be sustained by the member, limited by crushing of the compression struts.",
+            "section": "6.2.1 General verification procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_2",
+            "quote": "(3) In regions of the member where $V _ { \\sf E d } \\leq V _ { \\sf R d , c }$ no calculated shear reinforcement is necessary. $V _ { \\mathsf { E d } }$ is the design shear force in the section considered resulting from external loading and prestressing (bonded or unbonded).",
+            "section": "6.2.1 General verification procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_3",
+            "quote": "(4) When, on the basis of the design shear calculation, no shear reinforcement is required, minimum shear reinforcement should nevertheless be provided according to 9.2.2. The minimum shear reinforcement may be omitted in members such as slabs (solid, ribbed or hollow core slabs) where transverse redistribution of loads is possible.",
+            "section": "6.2.1 General verification procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_4",
+            "quote": "(5) In regions where $V _ { \\sf E d } > V _ { \\sf R d , c }$ according to Expression (6.2), sufficient shear reinforcement should be provided in order that $V _ { \\sf E d } \\leq V _ { \\sf R d }$ (see Expression (6.8)).\n\n(6) The sum of the design shear force and the contributions of the flanges, $V _ { \\mathsf { E d } } - V _ { \\mathsf { c c d } } - V _ { \\mathsf { t d } }$ should not exceed the permitted maximum value $V _ { \\sf R d , m a x }$ (see 6.2.3), anywhere in the member.",
+            "section": "6.2.1 General verification procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_5",
+            "quote": "(7) The longitudinal tension reinforcement should be able to resist the additional tensile force caused by shear (see 6.2.3 (7)).",
+            "section": "6.2.1 General verification procedure"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -910,7 +1971,83 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "holdout",
-      "gold": null,
+      "gold": {
+        "reference_answer": "需要进行剪力筋计算设计的构件，其关键判据是构件某区域的设计剪力 V_Ed 超过无剪力筋构件的设计抗剪承载力 V_Rd,c。此类构件按桁架模型进行抗剪设计，并配置与构件纵轴成 45°～90°的剪力筋；剪力筋可采用箍筋、弯起钢筋或适当锚固的钢筋笼、梯架等形式。",
+        "claims": [
+          {
+            "claim_id": "claim_1",
+            "text": "当构件某区域的设计剪力 V_Ed 超过无剪力筋时的设计抗剪承载力 V_Rd,c，该区域需要进行剪力筋计算设计。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "b8e0a37d0e2bd873041e7511e3c4b571"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_2",
+            "text": "需要剪力筋的构件按桁架模型进行抗剪设计。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "25a844d0b9a105fa6372f511d5869c47"
+            ],
+            "negative_chunk_ids": [
+              "b8e0a37d0e2bd873041e7511e3c4b571"
+            ]
+          },
+          {
+            "claim_id": "claim_3",
+            "text": "剪力筋与构件纵轴的夹角应为 45°～90°。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "140b8d1c81683514f925b8ce8f9eeca6"
+            ],
+            "negative_chunk_ids": []
+          },
+          {
+            "claim_id": "claim_4",
+            "text": "剪力筋可由箍筋、弯起钢筋，或在受压区和受拉区适当锚固的钢筋笼、梯架等组成。",
+            "status": "supported",
+            "evidence_chunk_ids": [
+              "140b8d1c81683514f925b8ce8f9eeca6"
+            ],
+            "negative_chunk_ids": []
+          }
+        ],
+        "E_plus": [
+          "140b8d1c81683514f925b8ce8f9eeca6",
+          "25a844d0b9a105fa6372f511d5869c47",
+          "b8e0a37d0e2bd873041e7511e3c4b571"
+        ],
+        "eligible_for_crec": true,
+        "gold_claim_status": "supported",
+        "retrieval_gap_vs_system": [],
+        "evidence": [
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_1",
+            "quote": "(5) In regions where $V _ { \\sf E d } > V _ { \\sf R d , c }$ according to Expression (6.2), sufficient shear reinforcement should be provided in order that $V _ { \\sf E d } \\leq V _ { \\sf R d }$ (see Expression (6.8)).",
+            "section": "6.2.1 General verification procedure"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_2",
+            "quote": "(1) The design of members with shear reinforcement is based on a truss model (Figure 6.5).",
+            "section": "6.2.3 Members requiring design shear reinforcement"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_3",
+            "quote": "(3) For members with vertical shear reinforcement, the shear resistance, $V _ { \\mathrm { R d } }$ is the smaller value of:",
+            "section": "6.2.3 Members requiring design shear reinforcement"
+          },
+          {
+            "document_path": "EN1992-1-1_2004/EN1992-1-1_2004.md",
+            "evidence_id": "evidence_4",
+            "quote": "(7) The longitudinal tension reinforcement should be able to resist the additional tensile force caused by shear (see 6.2.3 (7)).",
+            "section": "6.2.1 General verification procedure"
+          }
+        ]
+      },
       "gold_status": null
     },
     {
@@ -931,27 +2068,6 @@
         "stratum": "v=pass|c=positive"
       },
       "split": "test",
-      "gold": null,
-      "gold_status": null
-    },
-    {
-      "id": "Q31",
-      "question": "其他通用问题：",
-      "existing_correctness": "网页没正确显示LaTex格式公式",
-      "existing_completeness": null,
-      "existing_hallucination": null,
-      "existing_verdict": null,
-      "question_type": null,
-      "source": "excel",
-      "labels": {
-        "correctness": "positive",
-        "completeness": "unknown",
-        "hallucination_signal": "unknown",
-        "verdict": "unknown",
-        "confidence": "medium",
-        "stratum": "v=unknown|c=positive"
-      },
-      "split": "dev",
       "gold": null,
       "gold_status": null
     }

@@ -77,7 +77,7 @@
 \maketitle
 
 \begin{abstract}
-本文讨论检索增强生成（Retrieval-Augmented Generation，RAG）系统的评估与迭代，对象是欧标（EN\,199x）中文问答系统。该系统已跑通端到端链路，并持久化答案、引用、检索上下文与分块得分、证据评估轨迹、工具调用、token 用量及时延。人工标注目前只有甲方约 30 道评估题（正确性、完整性、多余/编造、总体判定四列自由文本）。在此条件下，本文给出：结构化评测集的构造方式（参考答案等 gold 字段由闭源模型生成，属弱监督）；从 RAGAS、RAGChecker、DeepEval、TruLens、ARES 中选取的端到端与诊断指标及其形式化定义；以及按流水线环节划分的候选改动集合与 A/B 接受规则——定位到某一环节后，只在该环节的有限旋钮上做单变量试验。指标均标明计算口径、数据依赖与当前能否直接计算。
+检索增强生成（Retrieval-Augmented Generation，RAG）系统上线之后，如何在缺少大规模人工标注的条件下判断``一次改动是否带来了真实改善''，是工程迭代中的核心问题。本文以一个已投入运行的欧标（EN\,199x）中文问答系统为对象，给出一套小样本条件下可重复的评估与迭代方法。评估侧以四个核心指标刻画系统质量：忠实度（Faith）与引用精确率（CitP）度量答案生成质量并承担版本门禁，未解析引用率与上下文证据召回率作为确定性诊断信号，分别定位交叉引用补充与检索覆盖两类问题。迭代侧构成一个闭环：先由基线指标定位瓶颈环节，再依据诊断——行动矩阵选择单一变量的改动（更新参数或切换算法），通过配对 bootstrap 得到同题差值的置信区间，最终作出接受、拒绝或证据不足的三态判定。为控制评判成本，方法引入基线缓存、候选合理性前置门与检索路径差异门三道低成本闸门，使无效实验在进入昂贵的模型评判之前即被截停。本文仅描述已实现并可运行的流程；未纳入的指标及其取舍理由统一列于附录。
 \end{abstract}
 
 \clearpage
@@ -88,649 +88,314 @@
 \section{引言}
 % ============================================================
 
-本文为已在运行的欧标中文 RAG 问答系统整理一套可重复的评估与迭代流程。在线路径大致为：问题进入后先做查询分解，再对每个子查询做向量与 BM25 双路检索，经 RRF 融合与交叉编码器重排，补充父块与证据评估，最后由生成端组织带引用的中文答案。过程数据已落盘。标注侧目前只有甲方约 30 道题的 Excel，四列为正确性、完整性、多余/编造与总体判定（A/B/C）。样本太少时，单独报一个准确率意义不大，更适合做版本间成对比较，并用置信区间约束结论。
+\subsection{背景与问题}
 
-正文侧重方法：写清系统保存了哪些结果、哪些参数确实可调，而不绑定某一版代码路径。指标沿用现有框架，不另起一套名字。改动则限制在真实旋钮上——如 \texttt{vector\_top\_k}、\texttt{bm25\_top\_k}、\texttt{rerank\_top\_n} 与重排模型、分解与补检索相关逻辑、生成 prompt 与引用后处理等。流程上按``看哪项指标变差 $\rightarrow$ 落到哪一环 $\rightarrow$ 在该环候选里改一项 $\rightarrow$ 再判定是否接受''推进。
+面向专业规范文本的问答系统正越来越多地采用 RAG 架构\cite{rag}：先从语料库中检索与问题相关的段落，再由大语言模型依据检索结果生成带引用的回答。本文的研究对象是一个欧洲结构设计标准（EN\,199x 系列）的中文问答系统。与开放域问答不同，规范问答对答案的\emph{可追溯性}有硬性要求——每一条结论都应能落回规范条文；同时规范文本内部存在大量交叉引用（如``见 EN 1990:2002, 6.4.3.2(2)''），检索阶段能否补全这些引用直接影响答案质量。
 
-本文不讨论：需要重训生成器的方案（如 Self-RAG 的 reflection token\cite{selfrag}）；依赖开放网搜的纠错（如 CRAG\cite{crag}，与固定规范库冲突）；依赖外部独立知识源的核验（如 FActScore\cite{factscore}）；需要数百条人工标注训练 judge 的校准（如 ARES 的 PPI\cite{ares}）；以及改前端、重采用户反馈一类工作。
+这样的系统进入迭代期后，评估面临三重约束。其一，\textbf{人工标注稀缺}：可用的人工资产仅为客户试用期给出的 30 道题及若干自由文本评语，没有与当前系统答案一一对应的正误标签，也没有领域专家可持续参与标注。其二，\textbf{评判成本高}：以大模型充当评判者（LLM-as-judge\cite{zheng2023judge}）虽可替代人工，但每题评判都有可观的时间与费用开销，未经成本控制的评估流程会慢到无法支撑日常迭代。其三，\textbf{小样本统计}：几十道题的规模不足以宣称绝对准确率，任何版本结论都必须携带不确定性说明。
+
+\subsection{方法概述与设计原则}
+
+针对上述约束，本文方法遵循四条设计原则：\textbf{指标少而有用}——正文只保留能直接驱动迭代决策的四个指标，其余移入附录；\textbf{评判只用一把尺}——每题由一个与生成端不同族的评判模型一次性完成事实拆分与判定，配合内容寻址缓存，保证基线与候选版本在完全相同的标准下比较；\textbf{流程只有一条}——日常快速迭代与里程碑全量评估复用同一条管线，仅运行参数不同；\textbf{结论以可运行实现为准}——凡代码尚未实现的指标、门禁与调度机制一律不进入正文。
+
+在这些原则之下，一轮完整的迭代包含五步：建立（或复用）基线评估；由基线指标的短板定位问题所在的流水线环节；依据诊断——行动矩阵（第\ref{sec:matrix}节）选择\emph{单一变量}的改动；在隔离环境中运行候选版本并与基线做同题配对比较；依据置信区间作出接受、拒绝或证据不足的三态判定。其中第三步的矩阵是整个闭环的枢纽：它规定了``哪个指标不达标，应当去调哪个环节的哪些参数、换哪些算法''，因此本文以最大篇幅刻画该矩阵及其使用规则。
+
+\subsection{讨论范围}
+
+本文不讨论需要重新训练生成模型的方案（如 Self-RAG\cite{selfrag}）、依赖开放网络搜索的检索纠错（如 CRAG\cite{crag}）、依赖外部独立知识源的事实核验（如 FActScore 的原始设定\cite{factscore}），以及需要数百条人工标注来校准评判器的方法（如 ARES 的预测驱动推断\cite{ares}）。这些方向或超出当前工程资源，或与``无人工标注''的前提冲突；相关取舍连同暂缓的指标一并记录于附录~\ref{app:deferred}。
+
+本文其余部分组织如下：第\ref{sec:related}节回顾相关工作；第\ref{sec:system}节给出被评估系统的流水线分层，为后文的瓶颈定位建立坐标系；第\ref{sec:dataset}节描述评估数据集；第\ref{sec:metrics}节定义评估指标；第\ref{sec:iteration}节展开迭代方法论；第\ref{sec:limitations}节讨论局限；第\ref{sec:conclusion}节总结全文。
 
 % ============================================================
-\section{数据集构建}
+\section{相关工作}
+\label{sec:related}
 % ============================================================
 
-\subsection{唯一标注资产}
+\subsection{RAG 评估框架}
 
-甲方 Excel 是目前唯一的人工标注输入，约 30 道题。每条记录包含四列自由文本评分：
+近年出现了多个通用 RAG 评估框架。RAGAS\cite{ragas} 提出以忠实度（faithfulness）为核心、区分检索质量与生成质量的分层评估思想；RAGChecker\cite{ragchecker} 将答案拆解为细粒度 claim 并检查其与引用证据的对应关系；TruLens\cite{trulens} 强调``答案——上下文''支持关系的可观测性；ARES\cite{ares} 关注小样本条件下的区间估计；DeepEval\cite{deepeval} 提供测试驱动的评测组织方式。表~\ref{tab:survey}汇总了各框架对本文的启发与实际落地。本文不追求框架指标的全集，而只保留能由现有数据稳定计算、且能驱动单变量决策的部分；切块粒度、嵌入模型选择、HyDE\cite{hyde}、ColBERT\cite{colbert} 等检索侧专项改进作为候选动作纳入矩阵，但其评估仍复用同一管线。
 
-\begin{itemize}[leftmargin=2.5em]
-  \item \textbf{正确性}：答案在事实上是否正确（允许部分正确）。
-  \item \textbf{完整性}：答案是否覆盖该题的要点。
-  \item \textbf{多余/编造}：是否存在无据可查或凭空生成的内容。
-  \item \textbf{总体判定}：A（可直接用）、B（需修改）、C（不能用，需重写）。
-\end{itemize}
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{主流 RAG 评估框架的启发与本文落地}\label{tab:survey}
+\begin{tabular}{@{}lll@{}}
+\toprule
+框架 & 保留的启发 & 本文落地 \\
+\midrule
+RAGAS\cite{ragas} & 忠实度与检索诊断分层 & Faith、CRec \\
+RAGChecker\cite{ragchecker} & claim 与引用级判断 & Faith、CitP \\
+TruLens\cite{trulens} & 答案--上下文支持关系 & Faith 的解释框架 \\
+ARES\cite{ares} & 小样本区间估计 & 配对 bootstrap \\
+DeepEval\cite{deepeval} & 测试驱动评测组织 & 逐题持久化与报告 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-上述字段均为自由文本而非结构化标签，因此首先需要进行归一化。
+\subsection{以大模型为评判者}
 
-\subsection{人工标签归一化}
+以大模型为评判者的可靠性与偏置已有系统研究：评判者存在位置偏好、冗长偏好等系统性偏差\cite{zheng2023judge,ye2024justice}，且当评判模型与被评模型同族时存在自我偏好\cite{wataoka2024selfpref}。结构化输出的评分方式（如 G-Eval\cite{geval}）可降低解析歧义。本文据此作出两项设计决策：评判模型与生成模型取不同模型族，以缓解自我偏好；评判结论仅用于\emph{同题配对的相对比较}而非绝对打分，使多数系统性偏差在做差时得到部分抵消（详见第\ref{sec:judge}节与第\ref{sec:limitations}节）。
 
-归一化将自由文本映射为有序类别。表~\ref{tab:normalize} 给出映射方案。做法是先由闭源模型根据自由文本内容建议映射，再逐条人工复核——自由文本中包含``公式表达不完整''''首段存在消极声明''等难以机械归类的信号，复核不可省略。归一化结果按题号对齐，每条记录包含四个维度的类别标签及归一化可信度（高/低两档）。可信度低的题仅进入开发集，不进入保留集。
+\subsection{RAG 系统的参数调优}
+
+已有工作表明，RAG 系统各环节的超参数（召回数量、重排截断、上下文预算等）对端到端质量影响显著且相互耦合\cite{wang2024best,ammar2025hyper}。这支持本文``单变量迭代''的取向：一次只改一个变量，才能把观测到的指标变化归因到具体改动上。
+
+% ============================================================
+\section{系统概述与流水线分层}
+\label{sec:system}
+% ============================================================
+
+被评估系统的在线问答路径依次为：查询理解（中文问题的分解与改写）、混合检索（稠密向量检索\cite{dpr}与 BM25 稀疏检索\cite{bm25}并行召回）、融合与重排（倒数排名融合后经交叉编码器重排\cite{monobert,nogueira2019}）、上下文补充（补入被切块截断的父块，并沿规范交叉引用图扩展相关条文）、答案生成（生成带 \texttt{[Ref-$N$]} 引用标记的中文回答）。
+
+为使``指标异常''能落到``具体环节''，本文将该路径划分为五个层级，记作 L1--L5（表~\ref{tab:stages}）。这一分层是后文瓶颈定位与诊断——行动矩阵的坐标系：每个核心指标的异常都映射到一个或两个层级，每个层级下挂一组可改动的参数与可替换的算法。
 
 \begin{table}[!htbp]
 \centering\small
-\setlength{\tabcolsep}{6pt}
-\renewcommand{\arraystretch}{1.15}
-\caption{人工标签的归一化映射}\label{tab:normalize}
-\begin{tabular}{@{}lll@{}}
+\caption{在线问答流水线的五级分层}\label{tab:stages}
+\begin{tabularx}{\textwidth}{@{}clXX@{}}
 \toprule
-维度 & 原始来源 & 归一化类别（有序） \\
+层级 & 环节 & 职责 & 可观测产物 \\
 \midrule
-正确性 & Excel 正确性 & correct / partial / incorrect \\
-完整性 & Excel 完整性 & complete / partial / incomplete \\
-多余/编造 & Excel 多余/编造 & none / minor / major \\
-总体质量 & Excel 总体判定 & pass / minor-revise / major-revise / reject \\
+L1 & 查询理解 & 问题分解、改写与扩展 & 扩展后的查询集合 \\
+L2 & 混合召回 & 向量与 BM25 并行召回候选块 & 两路召回列表 \\
+L3 & 融合与重排 & 倒数排名融合、交叉编码器重排、截断 & 重排后的有序块列表 \\
+L4 & 上下文补充 & 父块补全、交叉引用闭包 & 最终有序上下文、引用解析记录 \\
+L5 & 答案生成 & 依据上下文生成带引用的回答 & 答案文本、\texttt{[Ref-$N$]} 标记、token 用量 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
-\subsection{参考字段生成（弱监督）}
+评测基础设施完整保存每题的最终答案、进入生成阶段的\emph{有序}上下文、交叉引用解析结果（已解析与未解析的集合）、token 用量与时延。这一可观测资产决定了本文方法的适用边界：它适合做同题配对的版本比较与环节级诊断，而不适合以几十道题宣称总体人群意义上的绝对准确率。
 
-归一化仅解决质量标签；多数指标还需要参考答案（reference answer）、可核验说法（gold claims）、支持证据（gold evidence）与负样本（negative chunks）。这些字段由闭源模型生成，本质为弱监督。生成流程如下：
+% ============================================================
+\section{评估数据集}
+\label{sec:dataset}
+% ============================================================
 
-\begin{enumerate}[leftmargin=2.5em]
-  \item 以某一模型家族（如 GPT 系）为生成端：以原始问题为输入生成参考答案，再将参考答案拆分为可独立核验的原子说法（atomic claims）。该``长文本 $\rightarrow$ 原子事实''思路与 FActScore\cite{factscore} 及 RAGChecker\cite{ragchecker} 的 claim 级评估一致。
-  \item 对每条说法，从语料库中定位支持它的分块作为 gold evidence。定位方式不限——可由模型阅读分块后判断支持关系，也可由人工辅助检索——但标准是``该分块在语料中确实存在且确实支持该说法''，而非``当前检索器能够召回''。若当前检索配置召不到某条 gold evidence，不丢弃该证据，而标注为检索缺口（retrieval gap）保留——此正是召回类指标应暴露的问题。
-  \item 从语料中选取话题相近但不支持对应说法的分块作为负样本，用于噪声侵入率等诊断指标。
-  \item 换用另一模型家族（如 Claude 系）对上一步结果做反向核验：验证每条 gold evidence 是否确实支持对应说法，参考答案是否存在事实错误或遗漏。两家不一致处标注后交人工复核。
-\end{enumerate}
+\subsection{人工资产与冻结划分}
 
-\textbf{独立性约束}：用于生成参考答案与 gold evidence 的模型家族，必须与后续评估所用 LLM-as-judge 的模型家族不同，以避免``同一模型族既造金标又打分''的循环验证风险。
+原始人工资产为客户试用期 Excel 中的 31 行记录；其中末行``其他通用问题''为界面反馈备注而非问题，予以剔除，实际入集 30 道题。每题附有正确性、完整性、多余/编造与总体判定四列自由文本评语。这些历史评语被归一化为分层字段，仅用于保证数据划分中题型与质量分布大致均衡；由于评语针对的是历史版本的答案，与当前系统答案不存在一一对应关系，本文不将其用作正误标签。
 
-质量校验关注三点：(i) gold evidence 必须能在语料中定位到（而非仅被模型``认为存在''）；(ii) 拆出的说法应与人工评分中的完整性判断高度吻合；(iii) 记录两模型家族的同意率，作为参考质量的元指标。
+30 道题被冻结划分为开发集（15 题）、测试集（9 题）与保留集（6 题）三个互不重叠的子集。日常迭代默认在开发集上进行；测试集与保留集留待里程碑评估与最终确认，避免开发过程中的隐性过拟合。划分一经冻结不再变动，作为可复现的数据资产存在。
 
-\subsection{数据划分}
+\subsection{参考证据（gold）的构建与使用边界}
 
-归一化后的约 30 道题拆为三套互不重叠的题目集：
+为支持检索侧的确定性诊断，本文为每题构建参考证据：由一个模型（Codex 族）通读冻结语料，产出参考答案、原子 claims 与证据引文候选；再由另一族模型（Claude 族）对 claims 与证据的支持关系做独立复审；最后以确定性文本匹配校验每条证据引文确能在语料中逐字定位。该流程沿用原子事实核验的思想\cite{factscore,ragchecker}，以双模型交叉复审代替单模型自证。
 
-\begin{itemize}[leftmargin=2.5em]
-  \item \textbf{开发集}（dev，约 15 道，50\%）：日常迭代的主评估集。每轮单变量改动后在 dev 上评估并做 A/B 判定；允许反复使用。
-  \item \textbf{测试集}（test，约 9 道，30\%）：阶段性 checkpoint。每 $k$ 轮（建议 $k\in\{3,4,5\}$）调用一次，用于检测对 dev 的过拟合。
-  \item \textbf{保留集}（holdout，约 6 道，20\%）：仅在里程碑版本合并时使用一次。核心纪律是``只看不调''——一旦根据 holdout 结果回头改参，即构成数据泄露。
-\end{itemize}
+30 道题中，15 题的参考答案被标记为\emph{语料可完整支持}（supported），9 题为\emph{部分支持}（mixed），6 题为\emph{语料缺口}（corpus\_gap，即现有语料不足以回答）。只有 supported 且证据引文非空的 15 题进入证据召回指标的分母；其余题保留在数据集中，参与不依赖参考证据的指标。需要强调的是：该参考证据未经领域专家复核，故仅用作\emph{诊断}信号，不参与版本门禁，也不能作为业务真值或上线签字依据。
 
-划分采用分层抽样：按题目类别（概念题、参数查找、宽泛题等）与总体质量（pass / minor-revise / major-revise / reject）交叉分组，再按约 $5{:}3{:}2$ 比例从各组抽样，以保证各集合分布大致均衡。
+\subsection{数据集的能与不能}
 
-dev 仅约 15 道题，单次点估计波动较大。因此除报告均值外，一律附带配对 bootstrap 置信区间，并固定参与比较的题集合（judge 分歧剔除后的有效样本需写入当轮日志）。留一交叉验证在此样本量下与全样本均值几乎等价，\textbf{不}作为稳健性保证，仅可作可选敏感性检查。划分方案一经确定即写入版本号并与代码版本绑定；日常迭代期间不修改划分，holdout 不参与日常调参。
-
-\subsection{这套数据能做什么、不能做什么}
-
-能做：两个版本比高低、找短板、看有没有回退、相对 gold 估完整性。不能做：给出有统计意义的绝对准确率、外推到未见规范、代替结构专业人员签字。根子仍是题少、gold 弱监督、以及语料与考题同源。
+综上，该数据集能够回答三类问题：候选版本相对基线是否改善；问题主要出在生成环节还是检索环节；候选改动是否真正改变了检索路径。它不能给出绝对准确率结论，也不能替代结构专业人员对规范答案的审核。为此，所有评估报告均保留逐题结果、有效配对题号与不确定性区间，供人工追溯。
 
 % ============================================================
 \section{评估指标}
+\label{sec:metrics}
 % ============================================================
 
-\subsection{指标筛选原则}
-
-指标不求多。入选条件是：(i) 已有成熟框架、计算口径清楚；(ii) 数据系统已保存或评测集能补齐；(iii) 三十题量级下仍能做成对比较或给区间。每项写清定义、出处、数据依赖、能否直接算、以及门槛类型。
-
-可算性分三类：
-\begin{itemize}[leftmargin=2.5em]
-  \item \textbf{立即可算}：所需数据已在流水线中保存，部署 judge 即可执行。
-  \item \textbf{搭完数据集可算}：依赖 gold claims 或 gold evidence。
-  \item \textbf{需小改动可算}：需新增少量埋点或改写少量代码（如重排序退化标志）。
-\end{itemize}
-
-门槛类型分三类：硬门槛（一旦显著退化即拒绝该版本）、软门槛（不可超出预设上界）、趋势参考（只看方向，不设硬阈值）。
-
-\subsection{统一符号}
+\subsection{符号与指标体系}
 \label{sec:notation}
 
-全文采用如下统一符号。对单条评测样本，记：
-\begin{itemize}[leftmargin=2.5em]
-  \item $q$：用户查询；$a$：系统生成答案；$a^{\star}$：参考答案（弱监督）。
-  \item $C=\{c_1,\ldots,c_m\}$：进入生成阶段的检索上下文，按重排序后顺序排列；$m$ 由截断量与 token 预算共同决定。
-  \item $\mathcal{S}(a)=\{s_1,\ldots,s_{|\mathcal{S}(a)|}\}$：由答案 $a$ 拆出的原子说法集合。
-  \item $\mathcal{G}=\{g_1,\ldots,g_{|\mathcal{G}|}\}$：由 $a^{\star}$ 拆出的 gold claims。
-  \item $E^{+}\subseteq \mathcal{U}$：支持 $\mathcal{G}$ 的 gold evidence 分块集合；$\mathcal{U}$ 为语料库全体分块。
-  \item $E^{-}\subseteq \mathcal{U}$：负样本分块（话题相近但不支持对应说法）。
-  \item $\mathrm{supp}(s,C)\in\{0,1\}$：说法 $s$ 是否被 $C$ 中至少一个分块所支持（由 LLM-as-judge 或 NLI 判定）。
-  \item $\mathrm{Cite}(a)$：答案中出现的引用标记所指向的源分块集合。
-  \item $y\in\{\text{pass},\text{minor-revise},\text{major-revise},\text{reject}\}$：人工总体质量标签；$\hat{y}$ 为 judge 给出的同口径判定。
-\end{itemize}
-对含 $n$ 道题的评测集，指标默认先逐题计算，再对题取平均；需要排名感知时在题内先聚合。
+对单条样本，记 $q$ 为问题，$a$ 为系统答案，$C=(c_1,\ldots,c_m)$ 为进入生成阶段的有序上下文，$\mathcal{S}(a)$ 为从答案中拆出的原子 claims 集合，$E^+$ 为经交叉复审的证据引文集合。交叉引用解析结果分为未解析集合 $U$ 与已解析集合 $R$。版本比较总是先逐题计算指标，再在基线与候选\emph{共同}具有非空值的题上配对。
 
-\subsection{端到端指标（LLM-as-judge）}
+四个核心指标的分工如下：\textbf{Faith}（忠实度）是主改善指标，承担版本门禁；\textbf{CitP}（引用精确率）是非回归门，防止候选以牺牲引用纪律换取其他指标；\textbf{unresolved\_ref\_rate}（未解析引用率，下文简记 URR）与\textbf{CRec}（上下文证据召回率）是两个不依赖模型评判的确定性诊断信号，分别指向 L4 与 L1/L2 环节，不参与门禁。前两者由评判模型给出，后两者由确定性规则计算——这一分工使得``贵的指标管决策、便宜的指标管定位''。
 
-端到端指标由 LLM 裁判对最终答案打分，回答``答案本身好不好''。裁判模型家族必须与生成端不同，以减轻自评偏置\cite{zheng2023judge,wataoka2024selfpref}。每道题由两个家族分别打分；不一致的题标注存疑、从硬门槛分母中剔除，并在报告中写明剔除数量与剔除前分母。为避免小样本下的选择性净化，设定：(1) 剔除后有效样本数不得低于 15，否则该轮整体仅作趋势参考；(2) 若剔除率超过 $30\%$，该轮整体仅作趋势参考，并检查 judge prompt 或拆分规范是否需要调整。
+\subsection{评判者设计}
+\label{sec:judge}
 
-\subsubsection{忠实度（Faithfulness）}
+Faith 与 CitP 由单一模型族的评判者给出。每题仅调用一次：评判者在一次结构化输出中完成答案的原子 claims 拆分、每条 claim 是否被上下文支持的判定，以及答案中每个 \texttt{[Ref-$N$]} 引用是否在内容上支持相邻表述的判定\cite{geval}。评判模型族与答案生成端不同族，以缓解自我偏好\cite{wataoka2024selfpref}；实际解析到的模型标识如实记入报告，不以接口名称代替模型身份。
 
-将答案拆为原子说法，逐条判断是否被检索上下文支持，取支持率\cite{ragas,trulens}：
+评判失败（超时或输出不合规）的题，其 Faith 与 CitP 记为空值并计入评判失败率；当一轮评估的失败率超过 $30\%$ 时，该轮聚合结果降级为趋势参考，不用于版本判定。评判结果按内容寻址缓存：缓存键绑定模型族、实际模型标识、prompt 与输出模式版本、问题、答案及有序上下文的内容哈希。因此同一答案与上下文永不重复评判——这既控制成本，也保证基线与候选在字面意义上被``同一把尺''度量。超时、重试等实现参数见附录~\ref{app:impl}。
+
+\subsubsection{忠实度（Faith）}
+
+Faith 衡量答案中的原子 claims 被检索上下文支持的比例\cite{ragas,trulens}：
 \begin{equation}
-  \mathrm{Faith}(a,C)
-  \;=\;
-  \frac{1}{|\mathcal{S}(a)|}
-  \sum_{s\in\mathcal{S}(a)}
-  \mathrm{supp}(s,C)\,,
-  \qquad
-  |\mathcal{S}(a)|>0\,.
+  \mathrm{Faith}(a,C)=\frac{1}{|\mathcal{S}(a)|}
+  \sum_{s\in\mathcal{S}(a)}\mathrm{supp}(s,C),
+  \qquad |\mathcal{S}(a)|>0,
   \label{eq:faith}
 \end{equation}
-数据需求：答案 $a$ 与上下文 $C$（立即可算）。门槛：硬门槛。
+其中 $\mathrm{supp}(s,C)\in\{0,1\}$ 表示 claim $s$ 是否被上下文 $C$ 支持。claims 为空或评判失败时该题记空值。Faith 低意味着答案在``编造''上下文没有的内容，直接指向生成环节（L5）的事实约束问题。版本判定中 Faith 采用 improve 模式：候选必须显著优于基线才可接受。
 
-\subsubsection{幻觉率与非幻觉率}
+\subsubsection{引用精确率（CitP)}
 
-幻觉率定义为不被任何检索分块支持的说法比例\cite{ragchecker}：
+CitP 衡量答案给出的引用在内容级是否成立\cite{ragchecker}：
 \begin{equation}
-  \mathrm{Hall}(a,C)
-  \;=\;
-  1-\mathrm{Faith}(a,C)\,.
-  \label{eq:hall}
-\end{equation}
-为统一``越高越好''方向，版本接受规则中使用非幻觉率 $\mathrm{NonHall}(a,C)=\mathrm{Faith}(a,C)$。数据需求同忠实度；门槛：硬门槛。
-
-\subsubsection{答案完整性（Claim Recall）}
-
-以 gold claims 被答案覆盖的比例衡量完整性\cite{ragchecker}：
-\begin{equation}
-  \mathrm{Comp}(a,\mathcal{G})
-  \;=\;
-  \frac{1}{|\mathcal{G}|}
-  \sum_{g\in\mathcal{G}}
-  \mathrm{covered}(g,a)\,,
-  \label{eq:comp}
-\end{equation}
-其中 $\mathrm{covered}(g,a)\in\{0,1\}$ 表示 gold claim $g$ 是否被答案 $a$ 语义覆盖（由 judge 判定）。数据需求：答案 $+$ gold claims（搭完数据集可算）。门槛：趋势参考。
-
-\subsubsection{答案正确性（Rubric Correctness）}
-
-采用 G-Eval 风格的有序量表\cite{geval,deepeval}。记 $\mathrm{rubric}(a,a^{\star})\in\{1,2,3,4,5\}$ 为相对参考答案的事实一致性评分，则
-\begin{equation}
-  \mathrm{Corr}(a,a^{\star})
-  \;=\;
-  \frac{\mathrm{rubric}(a,a^{\star})-1}{4}
-  \;\in\;[0,1]\,.
-  \label{eq:corr}
-\end{equation}
-归一化到 $[0,1]$ 是为了与其余指标在回归检查中共用同一量纲。数据需求：答案 $+$ 参考答案（搭完数据集可算）。门槛：趋势参考。
-
-\subsubsection{引用精确率（Citation Precision）}
-
-对答案中的每个引用标记，判断其是否指向真实存在且内容与被引用说法匹配的源分块\cite{ragchecker}：
-\begin{equation}
-  \mathrm{CitP}(a,C)
-  \;=\;
-  \frac{1}{|\mathrm{Cite}(a)|}
-  \sum_{r\in\mathrm{Cite}(a)}
-  \mathrm{valid}(r;a,C)\,,
-  \qquad
-  |\mathrm{Cite}(a)|>0\,.
+  \mathrm{CitP}(a,C)=\frac{1}{|\mathrm{Cite}(a)|}
+  \sum_{r\in\mathrm{Cite}(a)}\mathrm{valid}(r;a,C),
   \label{eq:citp}
 \end{equation}
-$\mathrm{valid}(r;a,C)=1$ 当且仅当引用 $r$ 既在有效源范围内，又在内容级与对应说法一致。若答案无任何引用且系统要求强制引用，则该题 $\mathrm{CitP}=0$。注意：仅检查引用编号是否在合法范围内的``引用有效性''是格式检查，与此处内容级 $\mathrm{CitP}$ 不同。数据需求：答案 $+$ 源分块 $+$ 上下文（立即可算，需 judge prompt）。门槛：硬门槛。
+其中 $\mathrm{Cite}(a)$ 为答案中的 \texttt{[Ref-$N$]} 引用集合，$\mathrm{valid}$ 判断被引上下文是否支持引用处的相邻表述。答案非空但未给出任何引用时，CitP 记为 $0$（惩罚``有断言无出处''）；答案为空时记空值。版本判定中 CitP 采用 non-regress 模式：不要求候选提升，但显著回归即拒绝。
 
-\subsubsection{总体判定匹配}
+\subsection{确定性诊断指标}
 
+\subsubsection{上下文证据召回率（CRec）}
+
+CRec 回答``回答该题所需的关键证据是否被检索带回''。对每条参考证据引文做 Unicode 规范化与空白归一化后，检查其是否\emph{逐字}出现在任一上下文块中：
 \begin{equation}
-  \mathrm{Match}
-  \;=\;
-  \frac{1}{n}
-  \sum_{i=1}^{n}
-  \mathbf{1}\!\left[\hat{y}_i = y_i\right]\,.
-  \label{eq:match}
-\end{equation}
-数据需求：答案 $+$ 人工总体质量（立即可算）。门槛：趋势参考。
-
-表~\ref{tab:e2e} 汇总端到端指标的来源、可算性与门槛；形式化定义见式\eqref{eq:faith}--\eqref{eq:match}。
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.15}
-\caption{端到端评估指标汇总}\label{tab:e2e}
-\begin{tabular}{@{}llllll@{}}
-\toprule
-指标 & 符号 & 来源 & 数据 & 可算性 & 门槛 \\
-\midrule
-忠实度 & $\mathrm{Faith}$~\eqref{eq:faith} & RAGAS+TruLens\cite{ragas,trulens} & $a,C$ & 即时 & 硬 \\
-幻觉率 & $\mathrm{Hall}$~\eqref{eq:hall} & RAGChecker\cite{ragchecker} & $a,C$ & 即时 & 硬 \\
-答案完整性 & $\mathrm{Comp}$~\eqref{eq:comp} & RAGChecker claim recall\cite{ragchecker} & $a,\mathcal{G}$ & 数据集 & 趋势 \\
-答案正确性 & $\mathrm{Corr}$~\eqref{eq:corr} & G-Eval/DeepEval\cite{geval,deepeval} & $a,a^{\star}$ & 数据集 & 趋势 \\
-引用精确率 & $\mathrm{CitP}$~\eqref{eq:citp} & RAGChecker citation prec.\cite{ragchecker} & $a,C$ & 即时 & 硬 \\
-总体判定匹配 & $\mathrm{Match}$~\eqref{eq:match} & rubric 思路\cite{deepeval} & $a,y$ & 即时 & 趋势 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{诊断指标（确定性或半确定性计算）}
-
-诊断指标主要从过程数据计算，回答``问题出在哪一层''。
-
-\subsubsection{上下文召回率（gold-evidence chunk recall）}
-
-\begin{equation}
-  \mathrm{CRec}(C,E^{+})
-  \;=\;
-  \frac{|E^{+}\cap C|}{|E^{+}|}\,,
-  \qquad
-  |E^{+}|>0\,.
+  \mathrm{CRec}(C,E^+)=\frac{\sum_{e\in E^+}\mathbf{1}\!\left[\mathrm{quote}(e)\subseteq C\right]}{|E^+|},
+  \qquad |E^+|>0.
   \label{eq:crec}
 \end{equation}
-此处采用 \textbf{分块级} gold-evidence 覆盖率：衡量 $E^{+}$ 中有多少证据块落入 $C$。它与 RAGAS 的 claim 级 context recall\cite{ragas} 相关但不完全等价——若一条 claim 有多块等价证据，未召回冗余块也会拉低本指标。构造 $E^{+}$ 时应尽量为每条 claim 指定最小充分证据集，以减轻冗余惩罚。数据需求：$C,E^{+}$（搭完数据集可算）。门槛：趋势参考。
+与 RAGAS 等框架用模型判断上下文相关性不同，CRec 采用确定性字符串匹配，零成本、零噪声。它只在 15 道 supported 题上计算；由于参考证据未经人工复核，CRec 仅作 L1/L2 检索覆盖的诊断信号，不参与门禁。
 
-\subsubsection{上下文精确率（排名感知）}
+\subsubsection{未解析引用率（URR）}
 
-采用 ranking-aware 形式\cite{ragas}。记 $r_i=\mathbf{1}[c_i\in E^{+}]$（或与 $E^{+}$ 高度相关的软判定），前 $k$ 位精确率为
-$\mathrm{P@}k=\frac{1}{k}\sum_{i=1}^{k}r_i$，则
+规范文本的交叉引用能否被闭包补全是本系统特有的质量维度。设 $U$、$R$ 分别为一题中未解析与已解析的交叉引用集合，
 \begin{equation}
-  \mathrm{CPrec}(C,E^{+})
-  \;=\;
-  \frac{
-    \sum_{k=1}^{m} \mathrm{P@}k\cdot r_k
-  }{
-    \max\!\left(1,\ \sum_{k=1}^{m} r_k\right)
-  }\,.
-  \label{eq:cprec}
+  \mathrm{URR}=\frac{|U|}{|U|+|R|},
+  \label{eq:urr}
 \end{equation}
-数据需求：$C,E^{+}$（搭完数据集可算）。门槛：趋势参考。
+当本题不存在引用解析需求（$|U|+|R|=0$）时定义 $\mathrm{URR}=0$。URR 偏高说明上下文补充环节（L4）未能追平规范内部的引用链，是触发 L4 候选动作的前置条件（第\ref{sec:gates}节）。
 
-\subsubsection{噪声侵入率}
+\subsection{运行指标}
 
-\begin{equation}
-  \mathrm{Noise}(C,E^{-})
-  \;=\;
-  \frac{|E^{-}\cap C|}{|C|}\,,
-  \qquad
-  |C|>0\,.
-  \label{eq:noise}
-\end{equation}
-对应 RAGChecker 的 noise sensitivity 思想\cite{ragchecker}。数据需求：$C,E^{-}$（搭完数据集可算）。门槛：趋势参考。
-
-\subsubsection{证据覆盖率}
-
-记 $C_{\mathrm{ev}}\subseteq C$ 为实际进入证据评估阶段的分块集合（可从工具调用轨迹还原），则
-\begin{equation}
-  \mathrm{ECov}(C_{\mathrm{ev}},E^{+})
-  \;=\;
-  \frac{|E^{+}\cap C_{\mathrm{ev}}|}{|E^{+}|}\,.
-  \label{eq:ecov}
-\end{equation}
-用于区分``检索未召回''与``召回后在截断/准入中被丢弃''。数据需求：$C_{\mathrm{ev}}$（工具轨迹）与 $E^{+}$（gold evidence），故\textbf{搭完数据集可算}，而非仅凭轨迹即可算。门槛：趋势参考。
-
-\subsubsection{重排序退化率}
-
-\begin{equation}
-  \mathrm{RDeg}
-  \;=\;
-  \frac{1}{n}
-  \sum_{i=1}^{n}
-  \mathbf{1}\!\left[\mathrm{rerank\_failed}_i=1\right]\,.
-  \label{eq:rdeg}
-\end{equation}
-其中 $\mathrm{rerank\_failed}_i$ 表示第 $i$ 题重排序服务失败并触发全零得分兜底。数据需求：需新增退化标志（需小改动可算）。门槛：软门槛。
-
-\subsubsection{自评校准度}
-
-系统置信度信号 $u_i\in\{\text{高},\text{中},\text{低}\}$ 与 judge 忠实度 $\mathrm{Faith}_i$ 之间的有序一致率，采用 Kendall 等级相关：
-\begin{equation}
-  \tau
-  \;=\;
-  \frac{
-    N_c - N_d
-  }{
-    \sqrt{(N_0-T_u)(N_0-T_f)}
-  }\,,
-  \label{eq:tau}
-\end{equation}
-其中 $N_0=\binom{n}{2}$，$N_c$/$N_d$ 为一致/不一致对数目，$T_u$、$T_f$ 分别为 $u$ 与 $\mathrm{Faith}$ 上的 ties 修正项。由于 $u$ 仅三档且 $n$ 较小，ties 较多，$\tau$ 仅作粗略趋势，不宜赋予稳定校准解释。数据需求：系统置信度 $+$ $\mathrm{Faith}$（立即可算）。门槛：趋势参考。
-
-\subsubsection{运维类指标}
-
-端到端时延的 P50/P95、每题 token 总用量、agent 步数（证据评估与补充检索轮次）直接由日志统计，本文不另给形式化定义；均作为软门槛或趋势参考使用。
-
-此外，\textbf{重排序分数分布}以 gold evidence 在重排序得分中的排名中位数及 P25/P75 描述，属描述性诊断，不设单一标量公式。
-
-表~\ref{tab:diag} 汇总诊断指标。
-
-\begin{table}[!htbp]
-\centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.15}
-\caption{诊断层评估指标汇总}\label{tab:diag}
-\begin{tabular}{@{}llllll@{}}
-\toprule
-指标 & 符号 & 来源 & 数据 & 可算性 & 门槛 \\
-\midrule
-上下文召回率 & $\mathrm{CRec}$~\eqref{eq:crec} & RAGAS\cite{ragas} & $C,E^{+}$ & 数据集 & 趋势 \\
-上下文精确率 & $\mathrm{CPrec}$~\eqref{eq:cprec} & RAGAS ranking-aware\cite{ragas} & $C,E^{+}$ & 数据集 & 趋势 \\
-噪声侵入率 & $\mathrm{Noise}$~\eqref{eq:noise} & RAGChecker\cite{ragchecker} & $C,E^{-}$ & 数据集 & 趋势 \\
-证据覆盖率 & $\mathrm{ECov}$~\eqref{eq:ecov} & 通用诊断 & $C_{\mathrm{ev}},E^{+}$ & 数据集 & 趋势 \\
-重排序退化率 & $\mathrm{RDeg}$~\eqref{eq:rdeg} & 运维 & 退化标志 & 小改 & 软 \\
-自评校准度 & $\tau$~\eqref{eq:tau} & 通用诊断 & 置信度$+\mathrm{Faith}$ & 即时 & 趋势 \\
-时延/token/步数 & 分位数/均值 & 日志 & 日志字段 & 即时 & 软/趋势 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{为什么不纳入更多指标}
-
-RAGAS 的 answer relevancy 度量答案是否直接回应问题\cite{ragas}。在许多 RAG 场景中，忠实度低的答案往往也答非所问，二者可能相关；但在欧标问答中亦可能出现``忠实但不切题''或``切题但依据不足''，故在样本量增大前暂不纳入。RAGAS 的 entity recall 依赖命名实体边界，对中文欧标文本（公式编号、条款号、材料参数）边界定义不明确，暂不纳入。ARES 的 PPI 校准需要数百量级人工标注\cite{ares}，本项目仅约 30 题，不满足条件。TruLens 的 context relevance 在计算上接近上下文精确率的简化版\cite{trulens}，保留后者即可。DeepEval 与 RAGChecker 的 hallucination 口径重叠，取 RAGChecker 版本\cite{ragchecker,deepeval}。Self-RAG、CRAG、FActScore 等因训练成本或外部知识源依赖而剔除，但其局部思想（原子事实核验、低置信时重试）已吸收到 gold 构造与瓶颈映射中\cite{selfrag,crag,factscore}。
-
-\subsection{LLM-as-judge 的偏置控制}
-
-LLM 裁判常见问题包括位置偏置\cite{zheng2023judge}、自评偏置\cite{wataoka2024selfpref}，以及偏爱冗长、偏爱``看起来权威''的表述等\cite{ye2024justice}。实践上采用三道约束：裁判与生成不同模型族（只能减弱自评偏置，不能指望消掉）；成对比较时交换顺序各判一次并取保守结果；每题两家打分，一致才进硬门槛。即便如此仍可能有残余偏差，因此 judge 指标一律带 bootstrap 区间，里程碑版本再抽人工复核。
+除上述四个质量指标外，每轮报告随附单题答案生成时延、token 用量、评判失败率与各阶段耗时。它们不参与版本判定，用于解释成本与稳定性，并为``评估流程本身是否够快''提供依据。
 
 % ============================================================
 \section{迭代方法论}
+\label{sec:iteration}
 % ============================================================
 
-\subsection{系统现状与可调范围}
-\label{sec:levers}
+\subsection{总体框架}
 
-下面先按实现写清在线链路和旋钮，再谈``指标差时动哪一环''。描述以当前 \texttt{server} 配置与编排为准（\texttt{ServerConfig}、\texttt{HybridRetriever}、agent 预取与生成），不把实验目录或未接线字段算成日常可调项。
+迭代方法论回答的问题是：\emph{评估完成之后，下一步改什么、怎么确认改对了}。本文将其组织为一个五步闭环：
 
-\subsubsection{在线链路（实现形态）}
-
-一次问答大致经过：
-\begin{enumerate}[leftmargin=2.5em]
-  \item \textbf{查询分解}：\texttt{decompose\_query} 产出改写问句、子查询列表、是否闲聊/是否需要检索、结构化过滤条件等。主路径上分解是常开的，不是环境变量开关。
-  \item \textbf{混合检索}：对每个子查询并发做稠密检索（Milvus）与 BM25（Elasticsearch）；原始中文问句另作一路向量补召回（不对中文再做 BM25，以免污染英文索引）。多路结果用 RRF 融合（实现中 $k_{\mathrm{RRF}}=60$）\cite{rag,bm25,dpr}，再按来源做跨文档截断。
-  \item \textbf{重排序}：交叉编码器（默认 \texttt{BAAI/bge-reranker-v2-m3}）对融合后的候选打分并截断到 \texttt{rerank\_top\_n}\cite{monobert,nogueira2019}。失败时回退为未重排的前 $n$ 条，目前缺少显式退化标志（对应后文 $\mathrm{RDeg}$ 需小改动）。
-  \item \textbf{上下文扩展}：按 \texttt{parent\_chunk\_id} 取父块并入证据包；可选交叉引用闭包由 \ctt{retrieval\_auto\_cross\_ref\_closure} 控制（默认关）。
-  \item \textbf{证据评估与补检索}：对证据覆盖做评估；零命中时可放大 \texttt{top\_k} 重试，评估指出缺口时再补检索，补充轮次有上限（实现中最多 2 轮）。生成 agent 还可调用 \texttt{search}/\texttt{lookup\_object} 做纠正性补证，最大轮次为代码常量（当前为 4）。
-  \item \textbf{生成}：在预检索证据与大纲约束下写中文答案，引用须落在已出现的 \texttt{[Ref-$N$]} 上；引用编号另有后处理对齐。系统对外置信度由重排分映射：最高分 $\ge 0.85$ 为高、$\ge 0.5$ 为中，否则为低（规则映射，不是模型直接输出的概率）。
+\begin{enumerate}
+  \item \textbf{基线}：建立或复用当前版本在冻结题集上的完整评估（答案、上下文、四指标）；
+  \item \textbf{定位}：按固定优先级检查基线指标，将短板映射到流水线层级（第\ref{sec:locate}节）；
+  \item \textbf{选择动作}：在诊断——行动矩阵中，从该层级的候选动作里选取\emph{恰好一个}变量的改动（第\ref{sec:matrix}节）；
+  \item \textbf{配对比较}：在隔离环境运行候选版本，与基线做同题配对的 bootstrap 区间估计（第\ref{sec:decide}节）；
+  \item \textbf{判定与归档}：接受则候选并入新基线，拒绝则回退，证据不足则按第\ref{sec:after}节的规则处置；无论结果如何，逐题产物与判定理由均归档。
 \end{enumerate}
 
-\textbf{未实现或不走主路径的项}：HyDE\cite{hyde}；纯向量/纯 BM25 的在线切换（主路径固定双路）；ColBERT 类晚交互重排\cite{colbert}。配置里虽有 \texttt{query\_expansion\_llm\_*}、\texttt{max\_context\_tokens} 等字段，但前者主要用于离线/实验检索脚本，后者在当前 agent 主路径中几乎不起截断作用——日常迭代不以它们为优先旋钮。
+单变量原则是整个闭环的前提：RAG 各环节超参数相互耦合\cite{wang2024best,ammar2025hyper}，一次改动多个变量将使指标变化无法归因，闭环退化为盲目搜索。
 
-\subsubsection{旋钮分级}
+\subsection{瓶颈定位}
+\label{sec:locate}
 
-按改动成本分成三档。
+瓶颈定位以基线聚合指标为输入，按\textbf{固定优先级}依次检查，命中即停：
 
-\textbf{配置级}（改环境变量 / \texttt{ServerConfig} 即可，默认值见括号）：
-\begin{itemize}[leftmargin=2.5em]
-  \item 召回：\texttt{vector\_top\_k}（30）、\texttt{bm25\_top\_k}（30）；
-  \item 重排：\texttt{rerank\_top\_n}（10）、\texttt{rerank\_model}/\texttt{rerank\_provider}；
-  \item 超时：重排请求、agent、整请求三类 deadline（配置项 \texttt{*\_timeout\_seconds}）；
-  \item 可选：交叉引用闭包（默认关）、\texttt{agentic\_search\_enabled}（默认关，实验向）。
-\end{itemize}
-agent 预取会把单次检索的有效 \texttt{top\_k} 压到实现常量（如初始 8），故``改全局 \texttt{vector\_top\_k}''与``预取实际候选数''未必一一对应，调参时对照日志中的 \texttt{top\_k}。
-
-\textbf{prompt / 代码级}（改模板或少量常量，需发版）：
-\begin{itemize}[leftmargin=2.5em]
-  \item 分解与评估：\texttt{decompose} 的 prompt 与输出约束；证据评估与大纲生成逻辑；
-  \item 生成：QA agent 系统指令（引用纪律、证据不足时的表述、补工具条件等）；
-  \item 常量：补充检索轮次上限、agent \texttt{max\_turns}、groundedness 分界（0.85 / 0.5）、RRF 的 $k$、跨文档每源上限等。
-\end{itemize}
-
-\textbf{专项工程}（成本高，不进日常单变量循环）：
-\begin{itemize}[leftmargin=2.5em]
-  \item 更换 \texttt{embedding\_model} 并重建向量索引；
-  \item 调整切块策略 / 重叠并重建 Milvus 与 ES；
-  \item 引入 HyDE、更换检索范式、接入 ColBERT 类重排等未实现路线。
-\end{itemize}
-
-上述取舍与已有 RAG 调参研究\cite{wang2024best,ammar2025hyper} 一致：召回量与重排截断影响面大且便宜；chunk size 与嵌入模型影响面大但重建贵。
-
-\subsection{瓶颈定位：两层结构}
-\label{sec:bottleneck}
-
-原则两条：先分清层，再在该层里一次只改一个旋钮。
-记 $k_{\mathrm{vec}}{=}\texttt{vector\_top\_k}$、$k_{\mathrm{bm25}}{=}\texttt{bm25\_top\_k}$、
-$k_{\mathrm{rr}}{=}\texttt{rerank\_top\_n}$，$k_{\mathrm{pref}}$ 为预取截断常量。
-表~\ref{tab:bottleneck-stage} 做指标$\to$环节映射；
-表~\ref{tab:stage-algos} 给出环节内有限候选（整表不拆页）。
-
-\begin{table}[H]
-\centering
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.1}
-\caption{瓶颈定位（第一层）：指标劣化 $\rightarrow$ 环节 $L_i$}\label{tab:bottleneck-stage}
-\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
-\toprule
-指标劣化 & 优先环节（进入表~\ref{tab:stage-algos} 的 $\mathcal{A}_{L}$） \\
-\midrule
-$\mathrm{CRec}$$\downarrow$ & $L_1$（分解）$\to L_2$（$k_{\mathrm{vec}}/k_{\mathrm{bm25}}$） \\
-$\mathrm{CRec}$$\checkmark$ 且 $\mathrm{CPrec}$$\downarrow$/$\mathrm{Noise}$$\uparrow$ & $L_3$（重排模型/$k_{\mathrm{rr}}$）$\to L_4$（截断/父块） \\
-$\mathrm{CRec}$$\checkmark$ 且 $\mathrm{ECov}$$\downarrow$ & $L_4$（父块/截断）$\to L_5$（评估后补检索） \\
-$\mathrm{CRec}$/$\mathrm{ECov}$$\checkmark$ 且 $\mathrm{Comp}$$\downarrow$ & $L_5$；先看是否大量``证据不足/无法确定'' \\
-$\mathrm{Faith}$$\downarrow$ 或 $\mathrm{Hall}$$\uparrow$ & $L_5$（生成指令/引用约束；可收紧补检索） \\
-$\mathrm{CitP}$$\downarrow$ & $L_5$（引用后处理与 \texttt{[Ref-$N$]} 纪律） \\
-$\mathrm{Match}$$\downarrow$、其余正常 & $L_5$ 或\textbf{人工逐题}（结构/风险）；勿只改语气 \\
-时延/token 超标 & $L_2$ 减 $k$；$L_3$ 减 $k_{\mathrm{rr}}$；$L_5$ 限补检索/轮次 \\
-$\mathrm{RDeg}$$\uparrow$ & $L_3$ 运维：超时/失败回退；先排障再换模型 \\
-$\tau$ 差 & \textbf{规则项}：groundedness$\to$置信度（0.85/0.5），不进选参 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-% 表五就地放置且满宽；说明紧跟表后，避免 FloatBarrier 把后文挤到下页造成半页空白
-\begin{table}[H]
-\centering
-\setlength{\tabcolsep}{5pt}
-\renewcommand{\arraystretch}{1.08}
-\caption{环节—候选动作（第二层；与当前实现对齐）}
-\label{tab:stage-algos}
-\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}X l c@{}}
-\toprule
-候选动作（方法 + 文献） & 旋钮（实现侧） & 级别 \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{$L_1$ 查询分解与补查询}}\\
-\cmidrule(lr){1-3}
-查询分解 $\to$ 多子查询\cite{wang2024best} & 分解 prompt & 代码 \\
-零命中重写 / 评估驱动补查询 & 补充轮次上限（现 2） & 代码 \\
-闲聊/免检索短路 & 路由判定逻辑 & 代码 \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{$L_2$ 混合检索}（固定：向量\cite{dpr,rag}+BM25\cite{bm25}+RRF）}\\
-\cmidrule(lr){1-3}
-调节双路召回量 & $k_{\mathrm{vec}},\,k_{\mathrm{bm25}}$ & 配置 \\
-中文原句向量补召回（已内置） & 是否保留该支路 & 代码 \\
-更换嵌入模型 & \texttt{embedding\_model}（重建） & 专项 \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{$L_3$ 重排序}}\\
-\cmidrule(lr){1-3}
-交叉编码器重排\cite{monobert,nogueira2019} & \texttt{rerank\_model}、$k_{\mathrm{rr}}$ & 配置 \\
-失败回退未重排序（已有） & 超时；补退化标志 & 配置 \\
-ColBERT 类晚交互\cite{colbert} & --- & 未实现 \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{$L_4$ 上下文组装}}\\
-\cmidrule(lr){1-3}
-重排后截断 + 预取 $k_{\mathrm{pref}}$\cite{ammar2025hyper} & $k_{\mathrm{rr}}$、预取常量 & 配置 \\
-父块扩展（\texttt{parent\_chunk\_id}） & 是否取父块 & 代码 \\
-跨文档上限 / 交叉引用闭包 & 每源上限；\texttt{auto\_cross\_ref} & 配置 \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{$L_5$ 证据评估与生成}}\\
-\cmidrule(lr){1-3}
-引用纪律与 \texttt{[Ref-$N$]} 后处理\cite{ragchecker} & agent 指令；后处理 & 代码 \\
-证据不足时拒答/标明缺口\cite{crag,selfrag} & 生成指令；评估逻辑 & 代码 \\
-groundedness $\to$ 置信度 & 0.85 / 0.5 & 代码 \\
-限制 agent 轮次 / 补检索 & \texttt{max\_turns}；补充轮次 & 代码 \\
-\midrule
-\multicolumn{3}{@{}l}{\textbf{$L_6$ 专项（默认不进入日常选参）}}\\
-\cmidrule(lr){1-3}
-切块策略（窗口/结构）\cite{wang2024best} & chunk size、overlap & 专项 \\
-HyDE\cite{hyde}；纯向量/纯 BM25 消融 & --- & 未实现 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\noindent
-表~\ref{tab:stage-algos}「级别」四档互斥，顺序为\textbf{配置 $>$ 代码}；\textbf{专项/未实现}默认排除。
-配置改 \texttt{ServerConfig}/环境变量；代码改 prompt 或常量；专项含重建索引；未实现仅文献对照。
-表中 \texttt{auto\_cross\_ref} 为交叉引用闭包开关缩写。
-\textbf{使用规则}：
-（1）由表~\ref{tab:bottleneck-stage} 得 $L^{\star}$，人工/规则项直接转人工；
-（2）在 $\mathcal{A}_{L^{\star}}$ 只选配置或代码，优先配置，\textbf{一次只动一个}；
-（3）维护 $\mathrm{tried}[L]$，连续 $t{=}2$ 次无增益则换下一环；
-（4）专项/未实现不进日常 \textsc{PickSingleVarAction}。
-日常旋钮压缩为双路 $k$、重排与截断、分解/补检索与生成约束\cite{bm25,dpr,rag,monobert}。
-
-\subsection{版本接受规则}
-
-判定时把方向统一：硬门槛一律``越高越好''，软门槛一律``越低越好''。因 $\mathrm{NonHall}=\mathrm{Faith}$（式\eqref{eq:hall}），硬门槛集合里只留一项，避免重复计数：
-\begin{align}
-  G &= \{\mathrm{Faith},\ \mathrm{CitP}\}\,, \\
-  S &= \{\mathrm{LatencyP95},\ \mathrm{TokenCost},\ \mathrm{RDeg}\}\,.
-\end{align}
-报告中可并行列出 $\mathrm{Hall}=1-\mathrm{Faith}$ 便于阅读，但不单独进入 $G$。本轮主优化指标为 $M$（例如 $\mathrm{Comp}$）。回归集 $R$ 为全部``越高越好''的端到端与诊断指标（不含 $M$ 自身及已在 $S$ 中的指标）。对方向为``越低越好''且不在 $S$ 中的指标（如 agent 步数），进入回归检查前先取负号，统一为``越高越好''。
-
-给定基线版本 $v$ 与候选版本 $v'$，接受 $v'$ 需同时满足：
-\begin{enumerate}[leftmargin=2.5em, label=(\arabic*)]
-  \item 硬门槛不退化：$\forall g\in G,\ g(v')\ge g(v)-\epsilon_g$；
-  \item 软门槛不破线：$\forall s\in S,\ s(v')\le s_{\max}$；
-  \item 主指标有改善：$M(v')\ge M(v)+\delta$；
-  \item 无显著回归：$\forall r\in R\setminus\{M\},\ r(v')\ge r(v)-\epsilon_r$。
+\begin{enumerate}
+  \item $\mathrm{Faith}<0.85$：瓶颈判为 L5（生成事实约束）；
+  \item 否则若 $\mathrm{CitP}<0.80$：瓶颈判为 L5（引用纪律）；
+  \item 否则若 $\mathrm{URR}\ge 0.15$：瓶颈判为 L4（交叉引用补充）；
+  \item 否则若 $\mathrm{CRec}<0.70$：瓶颈判为 L1/L2（检索覆盖）；
+  \item 均未命中：无明确瓶颈，本轮不产生自动候选。
 \end{enumerate}
 
-\subsection{阈值的统计校准}
+将主指标置于优先级首位的理由是：Faith 是版本门禁的直接对象，若生成环节本身失真，检索侧的改善无法透过失真的生成层反映到主指标上，先行修复上游反而浪费评判预算。诊断信号（URR、CRec）排在其后，用于主指标健康时的精细定位。固定优先级还保证了定位结果可复现：同一份基线永远给出同一个瓶颈判定。
 
-$\epsilon_g$、$\epsilon_r$ 与 $\delta$ 的默认值均设为 $0.05$（在 $[0,1]$ 量表上），但实际使用时在开发集上做配对 bootstrap 校准：对 $v$ 与 $v'$ 在同一批 $n$ 道题上的逐题指标值配对，做 $B=1000$ 次有放回重采样，计算每次重采样的差值均值，取 $2.5\%$ 与 $97.5\%$ 分位数作为差值的 $95\%$ 置信区间。若某指标 bootstrap 区间宽度超过 $0.1$，则该指标本轮仅作趋势参考，不进入硬门槛。若硬门槛指标被降级为趋势参考的比例超过半数，本轮整体仅作趋势参考。时延与成本的软门槛上界取 $s_{\max}=1.2\times$ 基线对应值。
+\subsection{诊断——行动矩阵}
+\label{sec:matrix}
 
-\subsection{迭代主循环}
-
-算法~\ref{alg:loop} 给出迭代主循环。每次仅改一个变量；评估在门禁集 $G_{\mathrm{set}}=D_{\mathrm{dev}}\cup F$ 上进行（$F$ 为历史失败样本）；测试集每 $k$ 轮做 checkpoint；holdout 仅在里程碑流程单独调用。
-
-\begin{algorithm}[!t]
-\caption{IterativeImprovementLoop}\label{alg:loop}
-\begin{algorithmic}[1]
-\State $v\gets$ 基线；$F\gets$\Call{LoadFailures}{}; $G_{set}\gets D_{dev}\cup F$
-\State $\mathrm{tried}[L]\gets\emptyset\ \forall L$；$\text{iter}\gets 0$
-\While{预算未耗尽}
-    \State $R_v\gets$\Call{RunEval}{$v,G_{set}$}；$L^{\star}\gets$\Call{LocateBottleneck}{$R_v$}
-    \If{$L^{\star}$ 为人工项 \textbf{or}（硬门槛达标 \textbf{and} $M$ 无改善空间）} \State \textbf{break} \EndIf
-    \State $a\gets$\Call{PickSingleVarAction}{$L^{\star},\mathrm{tried}[L^{\star}]$}
-    \If{$a=\bot$} \State 切换下一环节或 \textbf{break} \EndIf
-    \State $v'\gets$\Call{ApplyAction}{$v,a$}; $R_{v'}\gets$\Call{RunEval}{$v',G_{set}$}
-    \State $\text{dec}\gets$\Call{ABDecide}{$R_v,R_{v'}$} \Comment{accept/reject/inconclusive}
-    \State $\mathrm{tried}[L^{\star}]\gets\mathrm{tried}[L^{\star}]\cup\{a\}$；$\text{iter}\gets\text{iter}+1$
-    \If{$\text{dec}=\text{accept}$}
-        \State 快照 $(v_{\mathrm{prev}},F_{\mathrm{prev}})$；令 $v_{\mathrm{cand}}\gets v'$，$F_{\mathrm{cand}}\gets F\cup$\Call{NewFailures}{$R_{v'}$}
-        \If{$\text{iter}\bmod k=0$ \textbf{and} \Call{CheckpointGate}{$v_{\mathrm{cand}},D_{test}$}$=0$}
-            \State 恢复 $(v,F)\gets(v_{\mathrm{prev}},F_{\mathrm{prev}})$；$G_{set}\gets D_{dev}\cup F$；\textbf{continue}
-        \EndIf
-        \State 提交 $v\gets v_{\mathrm{cand}}$，$F\gets F_{\mathrm{cand}}$；\Call{SaveFailures}{$F$}
-        \State $G_{set}\gets D_{dev}\cup F$；清空 $\mathrm{tried}$
-    \ElsIf{$\text{dec}=\text{inconclusive}$}
-        \State 仅记趋势，不更新 $v$
-    \Else
-        \State 记录拒绝原因
-    \EndIf
-\EndWhile
-\State \Return $\{v\}$ \Comment{预算耗尽且硬门槛未达标时附诊断报告}
-\end{algorithmic}
-\end{algorithm}
-
-\subsection{A/B 判定伪代码}
-
-算法~\ref{alg:ab} 给出 A/B 判定的流程骨架。$\epsilon_g$、$\epsilon_r$、$\delta$ 与 $s_{\max}$ 由 bootstrap 校准确定；$G$、$S$、$M$、$R$ 为预定义集合。\textsc{LocateBottleneck} 返回优先环节 $L^{\star}$，\textsc{PickSingleVarAction} 再查表~\ref{tab:stage-algos} 得到 $a\in\mathcal{A}_{L^{\star}}$。辅助函数约定见第~\ref{sec:helpers} 节。
-
-\begin{algorithm}[!t]
-\caption{ABDecide（门禁集；配对 bootstrap 三态）}\label{alg:ab}
-\begin{algorithmic}[1]
-\Require 基线/候选在同一批题上的逐题指标（用于配对 bootstrap）
-\Ensure $\text{dec}\in\{\text{accept},\text{reject},\text{inconclusive}\}$，以及 reason
-\State 对每个相关指标 $m$，由配对 bootstrap 得差值区间 $[d_L^{(m)},d_U^{(m)}]$
-\State $\text{hard\_fail}\gets 0$；$\text{hard\_inc}\gets 0$；$\text{reason}\gets[\,]$
-\For{$g \in G$} \Comment{硬门槛：不可显著退化}
-    \If{$d_U^{(g)} < -\epsilon_g$} $\text{hard\_fail}\gets 1$；$\text{reason}.\text{append}(g)$
-    \ElsIf{区间跨越 $-\epsilon_g$} $\text{hard\_inc}\gets\text{hard\_inc}+1$
-    \EndIf
-\EndFor
-\If{$\text{hard\_fail}=1$} \State \Return $\text{reject}$ \EndIf
-\For{$s \in S$}
-    \If{$s(R_{v'}) > s_{\max}$} \State \Return $\text{reject}$ \EndIf
-\EndFor
-\If{$d_U^{(M)} < \delta$} \State \Return $\text{reject}$ \Comment{主指标无改善} \EndIf
-\For{$r \in R\setminus\{M\}$}
-    \If{$d_U^{(r)} < -\epsilon_r$} \State \Return $\text{reject}$ \EndIf
-\EndFor
-\If{$\text{hard\_inc}>|G|/2$ \textbf{or} $M$ 的区间跨越 $\delta$}
-    \State \Return $\text{inconclusive}$ \Comment{仅趋势参考，不更新基线}
-\EndIf
-\If{$d_L^{(M)}\ge\delta$ \textbf{and} 全部硬门槛 $d_L^{(g)}\ge -\epsilon_g$}
-    \State \Return $\text{accept}$
-\EndIf
-\State \Return $\text{inconclusive}$
-\end{algorithmic}
-\end{algorithm}
-
-\subsection{配对 Bootstrap 判定}
-
-当样本量仅 $15$--$20$ 道题时，点估计不可靠。对 $v$ 与 $v'$ 的逐题指标配对 $(x_i,y_i)_{i=1}^n$，做 $B=1000$ 次有放回重采样，得到差值均值序列 $\{\bar{d}_b\}_{b=1}^{B}$ 及其 $95\%$ 区间 $[d_L,d_U]$。判定规则：
-
-\begin{itemize}[leftmargin=2.5em]
-  \item 硬门槛 $g\in G$：若 $d_L\ge -\epsilon_g$ 则通过；若 $d_U<-\epsilon_g$ 则拒绝；若区间跨越 $-\epsilon_g$，该指标本轮仅作趋势参考。
-  \item 主指标 $M$：若 $d_L\ge\delta$ 则通过；若 $d_U<\delta$ 则拒绝；跨越则仅作趋势参考。
-  \item 回归集 $R$：若 $d_U<-\epsilon_r$ 则拒绝；若 $d_L\ge -\epsilon_r$ 则通过；跨越则仅作趋势参考。
-\end{itemize}
-
-若硬门槛中被降级为趋势参考的比例超过半数，本轮整体仅作趋势参考，不更新基线。算法~\ref{alg:ab} 中的阈值比较是上述区间判定在伪代码层的简化表达。
-
-\subsection{辅助函数约定}
-\label{sec:helpers}
-
-\begin{itemize}[leftmargin=2.5em]
-  \item \textsc{RunEval}$(v,D)$：在集合 $D$ 上跑完整链路，按式\eqref{eq:faith}--\eqref{eq:tau} 与表~\ref{tab:e2e}、\ref{tab:diag} 计算指标，返回指标字典。
-  \item \textsc{LocateBottleneck}$(R)$：按表~\ref{tab:bottleneck-stage} 将最劣未达标指标映射为 $L^{\star}$ 或``人工/运维项''；硬门槛优先。
-  \item \textsc{PickSingleVarAction}$(L^{\star},\mathrm{tried})$：从 $\mathcal{A}_{L^{\star}}\setminus\mathrm{tried}$ 中选动作；仅允许标签为配置或 prompt/代码；优先配置；若为空返回 $\bot$。
-  \item \textsc{ApplyAction}$(v,a)$：在 $v$ 的配置副本上执行 $a$，生成 $v'$；$v$ 保持不变。
-  \item \textsc{NewFailures}$(R)$：返回硬门槛未达标或总体判定为 reject 的题号。
-  \item \textsc{LoadFailures}$()$ / \textsc{SaveFailures}$(F)$：失败样本集的持久化读写；首次为空集。
-  \item \textsc{CheckpointGate}$(v,D_{test})$：在 test 上配对 bootstrap；任一硬门槛显著退化则返回 0，否则返回 1。
-  \item \textsc{HoldoutGate}$(v,D_{hold})$：逻辑同 CheckpointGate，仅里程碑合并时调用。
-\end{itemize}
-
-\subsection{回归与失败回流}
-
-每接受一个版本，将该轮硬门槛未过或总体质量为 reject 的题目追加到失败样本集 $F$ 并持久化。$F$ 作为门禁集一部分参与后续评估，防止已修复题回退。$F$ 跨迭代累积、不重置。若 $F$ 持续膨胀而硬门槛未见改善，应退回上一稳定版本并更换调参杠杆（换环节或换 $\mathcal{A}_L$ 内另一候选）。
-
-% ============================================================
-\section{已有工作的取舍}
-% ============================================================
-
-\subsection{框架对比}
-
-表~\ref{tab:survey} 汇总五个主流 RAG 评估框架与本文取舍。
+定位到层级后，``改什么''由诊断——行动矩阵（表~\ref{tab:matrix}）给出。矩阵每行对应一个流水线层级，列出触发该行的指标信号、可调整的参数类动作、可替换的算法类动作，以及各动作当前的接入状态。矩阵是迭代闭环的枢纽：它把``指标不达标''翻译成``有限的、可执行的改动清单''，后续每一轮迭代都从中取一个动作。
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{1.15}
-\caption{RAG 评估框架对比与本文取舍}\label{tab:survey}
-\begin{tabular}{@{}lllll@{}}
+\caption{诊断——行动矩阵：指标信号 $\to$ 流水线层级 $\to$ 候选动作}\label{tab:matrix}
+\begin{tabularx}{\textwidth}{@{}llXXl@{}}
 \toprule
-框架 & 核心思路 & 主要指标 & 判别 & gold \\
+层级 & 触发信号 & 参数类动作 & 算法类动作 & 接入状态 \\
 \midrule
-RAGAS\cite{ragas} & 组件化（检索+生成） & faith./relev./ctx P-R & LLM-judge & 部分 free \\
-ARES\cite{ares} & PPI 校准+区间 & ctx/ans relev., faith. & 轻量+LLM+PPI & 大量标注 \\
-RAGChecker\cite{ragchecker} & claim/引用级诊断 & claim P-R, hall., noise & LLM+NLI & 可 free \\
-DeepEval\cite{deepeval} & 测试驱动+rubric & G-Eval, faith., hall. & LLM (rubric) & 可 free \\
-TruLens\cite{trulens} & Q--C--R 三要素 & ctx/ground./ans relev. & LLM (CoT) & free \\
+L1 查询理解 & CRec $<0.70$（与 L2 共享） & 多查询扩展数量；改写开关 & HyDE 式假设文档检索\cite{hyde} & 候选池 \\
+L2 混合召回 & CRec $<0.70$（与 L1 共享） & 向量召回量；BM25 召回量；融合权重 & 更换嵌入模型；调整稠密/稀疏配比 & 待解锁 \\
+L3 融合重排 & （无独立信号） & 重排截断数量；上下文预算 & 更换重排模型\cite{monobert}；后期交互式检索\cite{colbert} & 待解锁 \\
+L4 上下文补充 & URR $\ge 0.15$ & 父块扩展深度 & 交叉引用自动闭包：关 $\to$ 开 & \textbf{已自动化} \\
+L5 答案生成 & Faith $<0.85$ 或 CitP $<0.80$ & 生成温度；上下文块数预算 & 收紧生成 prompt 的事实约束与引用纪律；更换生成模型 & 候选池 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
-\subsection{采纳与剔除理由}
+三种接入状态的含义与使用规则如下。
 
-\textbf{采纳}：RAGAS 的 faithfulness 为 ref-free（仅需 $a$ 与 $C$）\cite{ragas}，适合当前标注稀缺设定；其 context precision/recall 在本文中作为诊断指标，\textbf{计算依赖} $E^{+}$（搭完数据集可算），口径沿用 RAGAS。RAGChecker 的 claim/citation 级精确率—召回率与幻觉定义构成式\eqref{eq:faith}--\eqref{eq:citp} 的方法基础\cite{ragchecker}。DeepEval / G-Eval 的点量表用于 $\mathrm{Corr}$\cite{geval,deepeval}。TruLens 的三要素框架用于组织``答案—问题—上下文''关系\cite{trulens}。ARES 的区间思想在小样本下以配对 bootstrap 实现\cite{ares}。
+\textbf{已自动化}：动作已接入主循环的自动候选选择，定位命中即可无人工介入地完成整轮比较。当前唯一经过真实数据流验证的自动动作是 L4 的交叉引用自动闭包开关——已验证该开关确实改变检索输出，且可经由隔离环境的配置注入生效。
 
-\textbf{剔除}：ARES 需数百量级标注训练轻量 judge\cite{ares}，本项目约 30 题不足。Self-RAG 需强化学习重训生成器\cite{selfrag}，本项目生成端为闭源模型。CRAG 的开放网搜回退与固定 Eurocode 语料冲突\cite{crag}，但``低置信则细化查询或重试''保留在瓶颈映射中。FActScore 依赖外部知识源\cite{factscore}，本项目语料即知识边界；其原子事实拆分已并入 gold claims 构造。
+\textbf{待解锁}：动作语义明确，但当前主路径存在初始截断常量的钳制，使 L2/L3 的召回量与重排截断参数在一定范围内\emph{不改变最终输出}。在该钳制解除并验证旋钮确实产生输出差异之前，将这些动作纳入自动选择只会浪费评估预算，故暂列为待解锁。这一状态本身即是矩阵的产出之一：它把``调了没用的参数''显式登记为工程债，而不是留给试错。
 
-\subsection{调参与检索组件参考}
+\textbf{候选池}：动作真实有效但需人工实施（如修改生成 prompt、更换模型），实施后仍走完全相同的配对比较管线获得三态判定。换言之，矩阵不要求所有动作自动化，但要求\emph{所有动作的效果确认方式一致}。
 
-调参侧主要参照 Wang 等对切块、嵌入、检索与重排的系统实验\cite{wang2024best}，以及 Ammar 等对 chunk size、召回量、重排截断的影响面分析\cite{ammar2025hyper}。组件层面则对应 DPR\cite{dpr}、BM25\cite{bm25}、RAG\cite{rag}、交叉编码器重排\cite{monobert,nogueira2019}；ColBERT\cite{colbert} 与 HyDE\cite{hyde} 仅作对照。结合本系统实现：日常优先动 $k_{\mathrm{vec}}$、$k_{\mathrm{bm25}}$、$k_{\mathrm{rr}}$ 与重排模型；切块与嵌入更换算专项；HyDE 与纯单路检索未接主路径。
+两点补充。其一，CRec 无法区分 L1 与 L2：证据未被带回可能因为查询没问对，也可能因为召回没捞到。区分依靠一次人工检视——检查扩展后的查询集合是否覆盖了证据所在条文的术语；这是当前流程中唯一需要人工判断的定位步骤。其二，L3 暂无独立信号：当 CRec 正常而 Faith 偏低、且逐题检视发现关键证据被排序挤出上下文窗口时，应怀疑重排环节；建立 L3 的独立信号（如证据在重排后的排名统计）列为后续工作。
+
+\subsection{成本闸门}
+\label{sec:gates}
+
+评判是流程中最昂贵的操作，因此主循环在评判之前设置三道低成本闸门，使注定无效的实验尽早终止：
+
+\textbf{基线缓存}。基线评估按代码版本、基线配置与数据集版本三元组缓存；三者均未变化时直接复用既有基线，不重复生成与评判。强制重跑仅在里程碑档位使用。
+
+\textbf{候选合理性门}。自动候选须与瓶颈定位一致方可运行：例如 L4 动作要求基线 $\mathrm{URR}\ge 0.15$。定位指向其他层级而无相应自动动作时，本轮直接以``证据不足''结束，不产生任何生成与评判开销——把``方向不对''的结论从一小时压缩到一秒。
+
+\textbf{检索路径差异门}。候选答案生成完成后、进入评判之前，逐题比较基线与候选的有序上下文块序列。发生变化的题目不足 3 题时，判定候选未真正改变检索路径，本轮以``证据不足''结束并跳过评判——配置开关未生效、改动被上游钳制吸收等常见的``假候选''在此被拦截。序列比较是纯内存操作，成本可忽略；顺序变化亦计入差异，因为顺序影响生成。
+
+\subsection{主循环}
+
+算法~\ref{alg:loop}给出主循环的完整控制流，其中候选答案逐题落盘、支持断点续跑，单题失败不终止整轮（实现细节见附录~\ref{app:impl}）。
+
+\begin{algorithm}[H]
+\caption{单管线三态比较主循环}\label{alg:loop}
+\begin{algorithmic}[1]
+\Require 冻结题集 $D$，有效配对下限 $\mathrm{gate\_n}=12$
+\State $B\gets$\Call{LoadOrRunBaseline}{$D$} \Comment{按代码版本、配置、数据版本缓存}
+\State $L\gets$\Call{LocateBottleneck}{$B$} \Comment{固定优先级：Faith $\to$ CitP $\to$ URR $\to$ CRec}
+\State $a\gets$\Call{PickAction}{$L$} \Comment{诊断——行动矩阵中该层级的自动动作}
+\If{$a$ 为空，或 $a$ 的前置信号未达阈值}
+  \State \Return inconclusive \Comment{候选合理性门；不产生任何评估开销}
+\EndIf
+\State $A_C\gets$\Call{RunCandidateAnswers}{$a,D$} \Comment{隔离环境；逐题落盘、断点续跑}
+\State $A_B\gets$\Call{LoadAnswers}{$B$}
+\State $K\gets$\Call{OrderedContextDiff}{$A_B,A_C$}
+\If{$|K|<3$}
+  \State \Return inconclusive \Comment{检索路径差异门；跳过候选评判}
+\EndIf
+\State $J_C\gets$\Call{JudgeCandidate}{$A_C$} \Comment{基线评判结果自缓存读取}
+\State \Return \Call{ABDecide}{$B,J_C,\mathrm{gate\_n}$} \Comment{三态判定，见第\ref{sec:decide}节}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{配对 bootstrap 与三态判定}
+\label{sec:decide}
+
+设基线与候选在第 $i$ 个共同有效题上的指标值分别为 $x_i$ 与 $y_i$，逐题差值 $d_i=y_i-x_i$。以固定随机种子对 $\{d_i\}$ 做 $B=1000$ 次有放回配对重采样，取均值差的经验 $95\%$ 置信区间 $[d_L,d_U]$\cite{ares}。判定阈值取 $\epsilon=\delta=0.05$，有效配对下限 $\mathrm{gate\_n}=12$，区间宽度上限 $0.1$：
+
+\begin{itemize}[leftmargin=2.5em]
+  \item 有效配对数 $n<\mathrm{gate\_n}$：inconclusive（样本不足以支撑任何方向的结论）；
+  \item 任一指标满足 $d_U<-\delta$：reject（存在显著回归）；
+  \item Faith（improve 模式）：$d_L>+\epsilon$ 且区间宽度不超过 $0.1$ 时 accept，否则 inconclusive；
+  \item CitP（non-regress 模式）：未见显著回归且区间宽度不超过 $0.1$ 时通过；宽度超限时 inconclusive；
+  \item 合并规则：任一指标 reject 则整体 reject；Faith accept 且 CitP 门通过才整体 accept；其余情形均为 inconclusive。
+\end{itemize}
+
+区间宽度上限的作用是防止``碰巧显著''：区间过宽说明逐题差值高度不稳定，即便端点越过阈值也只作探索性结论。评判失败率超过 $30\%$ 的轮次整体降级为趋势参考，不进入上述判定。
+
+\subsection{判定后的动作}
+\label{sec:after}
+
+\textbf{accept}：候选改动并入代码或基线配置，代码版本随之变化，下一轮自动以新版本重建基线；旧基线及其判定报告归档留痕。\textbf{reject}：改动回退，判定理由（哪个指标、区间端点）写入报告，该动作在矩阵中标记``已试、显著回归''，避免重复试探。\textbf{inconclusive}：按触发原因分流——因样本不足触发的，可扩大划分（如从开发集转向全量）后重试同一动作；因差异门触发的，说明动作未生效，应先排查配置注入或上游钳制；因区间过宽触发的，记为探索性结论，供后续合并证据。三种出口都不允许``悄悄重跑直到显著''：每轮判定连同随机种子与逐题差值一并归档，重复运行同一比较得到同一结论。
+
+\subsection{运行档位}
+
+日常与里程碑复用同一条管线。\textbf{日常档}在开发集上运行，复用基线缓存，一轮的边际成本主要是候选答案生成与增量评判。\textbf{里程碑档}在全量题集上强制重建基线并重复两次：两次基线之间的指标波动作为自噪声（self-noise）写入报告，为解读候选差值提供参照——若候选带来的差值与自噪声同量级，即便区间显著也应谨慎解读。自噪声仅作展示，不改变判定阈值。
 
 % ============================================================
-\section{落地约束}
+\section{局限与讨论}
+\label{sec:limitations}
 % ============================================================
 
-\textbf{数据}：大约 30 题只适合成对比较和看趋势，不宜报单独准确率。gold 是弱监督，人工标签归一化也有边界模糊，结果宜用区间表述。
+\textbf{单评判者的偏差}。单一评判模型无法消除位置偏置、风格偏好与绝对分数的校准误差\cite{zheng2023judge,ye2024justice}。本文以三重手段控制风险：评判者与生成端不同族；内容寻址缓存保证基线与候选使用同一把尺；结论只取同题差值与置信区间。因此方向性结论（候选是否优于基线）可用于迭代决策，绝对分数（如 Faith$=0.85$ 的含义）仍应谨慎解读。
 
-\textbf{指标}：$\mathrm{CRec}$、$\mathrm{CPrec}$、$\mathrm{ECov}$ 依赖 $E^{+}$，要等评测集建完；$\mathrm{RDeg}$ 要在重排失败回退处加标志。对外置信度来自重排分规则（$\ge 0.85$/$\ge 0.5$），不是生成模型概率，$\tau$ 校准的是这条映射。
+\textbf{参考证据未经人工复核}。gold 由双模型交叉复审产生，可能存在两模型共同的盲区。本文将其严格限定在诊断用途，任何版本门禁都不依赖 gold；一旦获得领域专家复核，附录~\ref{app:deferred}中依赖 gold 的指标（如答案完整性）可按原定义启用。
 
-\textbf{迭代}：默认一次改一个旋钮。若怀疑 $k$ 与截断强交互，先在 dev 做两因子小网格再决定是否放开。切块、换嵌入、HyDE 等不进日常循环；在线检索保持混合，不做纯向量/纯 BM25 切换。
+\textbf{小样本}。30 题的规模决定了本方法只能支撑相对比较。有效配对下限与区间宽度上限把``样本不足''显式转化为 inconclusive，而非给出虚假的确定性；代价是细小但真实的改善可能需要多轮积累证据才能被接受。
 
-\textbf{上线}：评估只给出相对表现和区间，不能代替``能不能上线''的业务决定；后者仍须规范领域人员把关。
+\textbf{矩阵的覆盖缺口}。L3 缺少独立诊断信号，L1 与 L2 共享信号需一次人工区分；L2/L3 的参数动作受上游钳制待解锁。矩阵的价值在于把这些缺口显式登记为工程债并给出解锁条件，而非掩盖它们。
+
+% ============================================================
+\section{结论}
+\label{sec:conclusion}
+% ============================================================
+
+本文面向一个已上线的欧标中文 RAG 问答系统，给出了小样本、无持续人工标注条件下的评估与迭代方法：四个各司其职的核心指标（门禁两个、诊断两个），一个与生成端不同族、带内容寻址缓存的单评判者，以及以诊断——行动矩阵为枢纽的单变量迭代闭环。三道成本闸门使无效实验在进入昂贵评判前即被截停，配对 bootstrap 的三态判定则把小样本的不确定性显式暴露在每一次版本决策中。方法的全部构件均有可运行实现支撑；后续工作按矩阵登记的缺口推进：解除召回截断钳制以解锁 L2/L3 参数动作、建立 L3 的独立诊断信号，以及在获得专家复核后启用依赖参考证据的门禁指标。
 
 \clearpage
 % ============================================================
@@ -819,7 +484,7 @@ ICLR 2024. arXiv:2310.11511.
 
 \bibitem{crag}
 S.~Yan, J.~Gu, Y.~Zhu, Z.~Ling.
-\emph{Corrective Retrieval Augmented Generation.}
+\emph{Co{}rrective Retrieval Augmented Generation.}
 arXiv:2401.15884, 2024.
 \url{https://arxiv.org/abs/2401.15884}
 
@@ -864,41 +529,98 @@ arXiv:2410.02736, 2024.
 \clearpage
 \appendix
 
-\section{编译命令}
+% ============================================================
+\section{实现细节}
+\label{app:impl}
+% ============================================================
+
+本附录汇总正文有意省略的实现参数与工程约定，全部与 \ctt{eval\_methodology/mvp/} 下的代码常量一致。
+
+\subsection{隔离与候选注入}
+
+基线与候选均以独立子进程（sidecar）运行被评估服务，候选配置仅以环境变量注入子进程，主项目的 \texttt{.env} 不被写入。每轮运行前后记录 git 脏文件集合与 \texttt{.env} 的 SHA-256：若出现 \ctt{eval\_methodology/} 之外的新脏路径或环境文件变化，判定隔离失败并在报告中标记。
+
+\subsection{答案资产与断点续跑}
+
+答案按运行标识、版本（baseline/candidate）与题号分层存放于 \ctt{artifacts/runs/<run\_id>/answers/<variant>/<qid>.json}。每题完成即以临时文件原子替换写入；断点续跑时跳过状态为成功的题，单题失败记录错误类型与信息，整轮继续。缓存与续跑均以这些文件为唯一事实来源。
+
+\subsection{评判者实现参数}
+
+评判通过命令行客户端请求符合 JSON Schema 的结构化输出，默认使用 Claude 族，可经环境变量 \texttt{MVP\_JUDGE\_FAMILY} 切换为 Codex 族。单次调用超时 180 秒，失败后重试 1 次。prompt 仅包含前 30 个有序上下文块，每块截断至 800 字符；客户端禁用工具调用。缓存键为内容寻址哈希，绑定模型族、实际解析到的模型标识、prompt/schema 版本、问题、答案与有序上下文内容。
+
+\subsection{基线缓存与判定常量}
+
+基线缓存键由 \texttt{git rev-parse HEAD}、基线配置哈希与数据集版本号三部分组成；\texttt{--fresh} 强制重建。判定常量：$B=1000$（固定种子）、$\epsilon=\delta=0.05$、$\mathrm{gate\_n}=12$、区间宽度上限 $0.1$、评判失败率降级阈值 $30\%$、检索路径差异门 3 题、URR 前置门 $0.15$、证据引文最短长度 20 字符。
+
+\subsection{报告与运行命令}
+
+JSON 与 Markdown 报告同时包含：逐题四指标与状态、聚合值与版本差值、三态判定及理由、有效配对题号、\ctt{answers/judge/decide/report} 四阶段耗时、实际评判模型标识、平均时延、token 合计与评判失败率。常用命令：
+
 \begin{verbatim}
-cd eval_methodology
-latexmk -xelatex -interaction=nonstopmode main.tex
+# 日常：基线（开发集，缓存复用）
+uv run python -m eval_methodology.mvp.loop.run_mvp baseline --split dev
+# 日常：单变量比较
+uv run python -m eval_methodology.mvp.loop.run_mvp compare --split dev
+# 里程碑：全量、强制重建、基线重复两次
+uv run python -m eval_methodology.mvp.loop.run_mvp baseline \
+    --split full --repeats 2 --fresh
+# 文档编译
+cd eval_methodology && latexmk -xelatex -interaction=nonstopmode main.tex
 \end{verbatim}
 
+% ============================================================
 \section{指标可算性汇总}
+% ============================================================
 
 \begin{table}[!htbp]
 \centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{1.15}
-\caption{全部指标的可算性与依赖}\label{tab:feasibility}
-\begin{tabular}{@{}lll@{}}
+\caption{指标、数据依赖与角色}\label{tab:feasibility}
+\begin{tabularx}{\textwidth}{@{}lXXl@{}}
 \toprule
-指标 & 可算性 & 前提 / 备注 \\
+指标 & 数据依赖 & 当前口径 & 角色 \\
 \midrule
-$\mathrm{Faith}$ / $\mathrm{Hall}$ & 即时 & $a,C$ 已存；需跨模型 judge \\
-$\mathrm{CitP}$ & 即时 & 需引用内容级 judge prompt \\
-$\mathrm{Match}$ & 即时 & 需归一化后的人工总体质量 \\
-$\tau$ & 即时 & 置信度$+\mathrm{Faith}$；ties 多，仅趋势 \\
-时延 / token / 步数 & 即时 & 日志字段 \\
-\midrule
-$\mathrm{Comp}$ / $\mathrm{Corr}$ & 数据集 & 依赖 $\mathcal{G}$ 或 $a^{\star}$ \\
-$\mathrm{CRec}$ / $\mathrm{CPrec}$ / $\mathrm{ECov}$ & 数据集 & 依赖 $E^{+}$（ECov 另需 $C_{\mathrm{ev}}$） \\
-$\mathrm{Noise}$ & 数据集 & 依赖 $E^{-}$ \\
-\midrule
-$\mathrm{RDeg}$ & 小改 & 重排失败兜底处加标志位 \\
+Faith & 答案、有序上下文 & 单评判者 claims 支持率 & 主指标/门禁 \\
+CitP & 答案引用、有序上下文 & 单评判者引用有效率 & 非回归门 \\
+URR & 引用解析记录 & 确定性比例 & L4 诊断 \\
+CRec & supported gold 引文、上下文 & 归一化引文精确覆盖 & L1/L2 诊断 \\
+单题时延 & 答案检查点 & 毫秒 & 随报 \\
+token 用量 & 生成端用量记录 & 总量汇总 & 随报 \\
+评判失败率 & 评判调用状态 & 失败题/总题数 & 随报/趋势降级 \\
+阶段耗时 & 四阶段计时 & 秒 & 随报 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
+% ============================================================
+\section{延后指标清单}
+\label{app:deferred}
+% ============================================================
+
+\begin{table}[!htbp]
+\centering\footnotesize
+\caption{未进入正文门禁的历史指标及延后理由}\label{tab:deferred}
+\begin{tabularx}{\textwidth}{@{}lXX@{}}
+\toprule
+指标 & 一句话定义 & 延后理由 \\
+\midrule
+Hall & $1-\mathrm{Faith}$ 的镜像 & 与 Faith 重复，不单独计数 \\
+Match & 评判总体等级与人工等级的一致率 & 历史人工标签不对应当前答案 \\
+Comp & 答案覆盖 gold claims 的比例 & 依赖 gold claims 与评判族独立性 \\
+Corr & 答案相对参考答案的正确性 & 参考答案未经人工复核，不足以作门禁 \\
+CPrec & 有序上下文中 gold 证据的排名精确率 & 证据密度与等价证据未标定 \\
+Noise & 负证据进入上下文的比例 & 需要稳定的负证据标注 \\
+ECov & 进入证据阶段的 gold 证据覆盖率 & 需要单独的证据阶段集合 \\
+RDeg & 重排失败并回退的比例 & 需修改主项目埋点，超出隔离边界 \\
+$\tau$ & 系统置信等级与 Faith 的 Kendall 相关 & 三档置信度并列值过多 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+% ============================================================
 \section{交叉审阅摘要}
 \label{sec:trail}
+% ============================================================
 
-正文初稿由一个模型起草，由另一模型（Codex）做对抗审阅后逐条裁定修改。本轮共 20 条意见（高 8 / 中 9 / 低 3），\textbf{全部采纳}。修改集中在：(i) 伪代码可执行性（$R$ 的方向、$G_{set}$ 更新、$F$ 持久化、test/holdout 调用频率、辅助函数约定）；(ii) 小样本统计前提（配对 bootstrap、降级比例与有效样本下限）；(iii) 杠杆分类（嵌入/切块/HyDE 为专项或未实现；在线检索固定为混合）；(iv) 框架引用与 gold 依赖表述一致性。详细意见见 \texttt{review/codex\_review\_round1.md}。
+正文初稿由一个模型起草，由另一模型（Codex）做对抗审阅后逐条裁定修改。首轮共 20 条意见（高 8 / 中 9 / 低 3），全部采纳，修改集中在伪代码可执行性、小样本统计前提、杠杆分类与引用表述一致性。v2 进一步按``可运行优先''原则收敛：正文只保留已实现的四个核心指标、单模型族评判与单管线三态决策；收敛决策记录于 \ctt{MVP\_V2\_IMPL\_PLAN.md}，实现入口见 \ctt{mvp/README.md}。v3（本稿）按标准论文结构重组：新增系统分层与结论章节，迭代方法论扩展为诊断——行动矩阵，实现参数下沉至附录~\ref{app:impl}。
 
 \end{document}

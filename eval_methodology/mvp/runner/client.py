@@ -36,25 +36,40 @@ def _parse_sse_events(lines: list[str]) -> list[tuple[str, str]]:
     return events
 
 
-def _chunk_ids_from_retrieval_context(ctx: dict[str, Any] | None) -> list[str]:
-    """Ordered unique chunk IDs from EvidenceBundle.citable_chunks()-equivalent export.
+_CONTEXT_CHUNK_KEYS = (
+    "chunks",
+    "parent_chunks",
+    "ref_chunks",
+    "guide_chunks",
+    "guide_example_chunks",
+)
 
-    RetrievalContext serializes chunks / parent_chunks / ref_chunks /
-    guide_chunks / guide_example_chunks. Order matches citable_chunks merge:
+
+def _ref_label_index(label: object) -> int | None:
+    """Parse N from a server-issued "Ref-N" label."""
+    if not isinstance(label, str):
+        return None
+    try:
+        return int(label.rsplit("-", 1)[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def _ordered_context_entries(ctx: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Unique citable chunk entries ordered to match answer [Ref-N] numbering.
+
+    The server assigns Ref-N by agent exposure order and exports the mapping as
+    retrieval_context.ref_labels (chunk_id -> "Ref-N"). When present, entries
+    are sorted so index i corresponds to Ref-i; unlabeled chunks (never exposed
+    to the agent, hence never citable in the answer) follow in category order.
+    Without ref_labels (older payloads), fall back to category merge order:
     chunks → parent → ref → guide → guide_example.
     """
     if not ctx or not isinstance(ctx, dict):
         return []
-    keys = (
-        "chunks",
-        "parent_chunks",
-        "ref_chunks",
-        "guide_chunks",
-        "guide_example_chunks",
-    )
     seen: set[str] = set()
-    ordered: list[str] = []
-    for key in keys:
+    entries: list[dict[str, Any]] = []
+    for key in _CONTEXT_CHUNK_KEYS:
         items = ctx.get(key) or []
         if not isinstance(items, list):
             continue
@@ -64,45 +79,39 @@ def _chunk_ids_from_retrieval_context(ctx: dict[str, Any] | None) -> list[str]:
             cid = item.get("chunk_id")
             if isinstance(cid, str) and cid and cid not in seen:
                 seen.add(cid)
-                ordered.append(cid)
-    return ordered
+                entries.append(item)
+    ref_labels = ctx.get("ref_labels") or ctx.get("refLabels")
+    if isinstance(ref_labels, dict) and ref_labels:
+        unlabeled_rank = len(entries) + 1
+
+        def _rank(item: dict[str, Any]) -> int:
+            index = _ref_label_index(ref_labels.get(item.get("chunk_id")))
+            return index if index is not None else unlabeled_rank
+
+        entries.sort(key=_rank)
+    return entries
+
+
+def _chunk_ids_from_retrieval_context(ctx: dict[str, Any] | None) -> list[str]:
+    """Ordered unique chunk IDs aligned with answer [Ref-N] numbering."""
+    return [str(item.get("chunk_id")) for item in _ordered_context_entries(ctx)]
 
 
 def _chunk_contents_from_retrieval_context(
     ctx: dict[str, Any] | None,
 ) -> list[dict[str, str]]:
     """Ordered citable chunk snapshots for judge prompts / hashing."""
-    if not ctx or not isinstance(ctx, dict):
-        return []
-    keys = (
-        "chunks",
-        "parent_chunks",
-        "ref_chunks",
-        "guide_chunks",
-        "guide_example_chunks",
-    )
-    seen: set[str] = set()
     out: list[dict[str, str]] = []
-    for key in keys:
-        items = ctx.get(key) or []
-        if not isinstance(items, list):
-            continue
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            cid = item.get("chunk_id")
-            if not isinstance(cid, str) or not cid or cid in seen:
-                continue
-            seen.add(cid)
-            text = item.get("content") or item.get("text") or ""
-            out.append(
-                {
-                    "chunk_id": cid,
-                    "content": text if isinstance(text, str) else str(text),
-                    "section": str(item.get("section") or ""),
-                    "title": str(item.get("title") or item.get("display_title") or ""),
-                }
-            )
+    for item in _ordered_context_entries(ctx):
+        text = item.get("content") or item.get("text") or ""
+        out.append(
+            {
+                "chunk_id": str(item.get("chunk_id")),
+                "content": text if isinstance(text, str) else str(text),
+                "section": str(item.get("section") or ""),
+                "title": str(item.get("title") or item.get("display_title") or ""),
+            }
+        )
     return out
 
 
@@ -221,6 +230,7 @@ def context_sequences_differ(
     candidate: dict[str, Any] | tuple[str, ...] | list[str],
 ) -> bool:
     """True if ordered chunk-id sequences differ (order or membership)."""
+
     def _as_seq(x: dict[str, Any] | tuple[str, ...] | list[str]) -> tuple[str, ...]:
         if isinstance(x, dict):
             return context_id_sequence(x)

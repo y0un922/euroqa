@@ -14,7 +14,10 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from eval_methodology.mvp.candidate import (  # noqa: E402
     CandidateConfig,
+    baseline_candidate,
     candidate_to_env,
+    describe_candidate,
+    treatment_candidate,
     validate_against_server_config,
 )
 from eval_methodology.mvp.isolation import (  # noqa: E402
@@ -36,6 +39,21 @@ def test_candidate_to_env_and_server_config():
     assert env["RETRIEVAL_AUTO_CROSS_REF_CLOSURE"] == "true"
     cfg = validate_against_server_config(c)
     assert cfg.retrieval_auto_cross_ref_closure is True
+
+
+def test_baseline_pins_thinking_off_and_treatment_flips_single_knob():
+    base_env = candidate_to_env(baseline_candidate())
+    assert base_env["LLM_ENABLE_THINKING"] == "false"
+    assert base_env["RETRIEVAL_AUTO_CROSS_REF_CLOSURE"] == "false"
+
+    treatment = treatment_candidate({"llm_enable_thinking": True})
+    env = candidate_to_env(treatment)
+    assert env["LLM_ENABLE_THINKING"] == "true"
+    assert env["RETRIEVAL_AUTO_CROSS_REF_CLOSURE"] == "false"
+    cfg = validate_against_server_config(treatment)
+    assert cfg.llm_enable_thinking is True
+    assert describe_candidate(treatment)["name"] == "llm_enable_thinking=True"
+    assert describe_candidate(baseline_candidate())["name"] == "baseline"
 
 
 def test_isolation_allows_eval_methodology_new_dirty():

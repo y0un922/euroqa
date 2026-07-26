@@ -1,31 +1,41 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["claim_verdicts", "citation_verdicts"],
+  "required": ["claims", "citations"],
   "properties": {
-    "claim_verdicts": {
+    "claims": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["unit_id", "supported"],
+        "required": ["text", "supported"],
         "properties": {
-          "unit_id": { "type": "string" },
-          "supported": { "type": "boolean" },
-          "note": { "type": "string" }
+          "text": { "type": "string" },
+          "supported": { "type": "boolean" }
         }
       }
     },
-    "citation_verdicts": {
+    "citations": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["citation_id", "valid"],
+        "required": ["ref_label", "valid"],
         "properties": {
-          "citation_id": { "type": "string" },
-          "valid": { "type": "boolean" },
-          "note": { "type": "string" }
+          "ref_label": { "type": "string" },
+          "valid": { "type": "boolean" }
+        }
+      }
+    },
+    "gold_evidence_coverages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_id", "covered"],
+        "properties": {
+          "evidence_id": { "type": "string" },
+          "covered": { "type": "boolean" }
         }
       }
     }

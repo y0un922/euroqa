@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import signal
 import subprocess
 from pathlib import Path
@@ -64,20 +63,8 @@ def _run_cli_process(
     return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
 
 
-def infer_model_family(model_id: str | None) -> str:
-    """Infer the provider family conservatively from a resolved model id."""
-    normalized = (model_id or "").lower()
-    if normalized.startswith(("gpt-", "o1", "o3", "o4")):
-        return "openai"
-    if "claude" in normalized:
-        return "anthropic"
-    if normalized.startswith("glm-"):
-        return "zhipu"
-    return "unknown"
-
-
 class ParseResult:
-    """Structured parse outcome — regex fallback is never a silent success."""
+    """Structured parse outcome."""
 
     def __init__(
         self,
@@ -89,18 +76,14 @@ class ParseResult:
     ) -> None:
         self.data = data
         self.ok = ok
-        self.source = source  # "json" | "envelope" | "regex_fallback" | "failed"
+        self.source = source  # "json" | "envelope" | "failed"
         self.error = error
 
 
-def _extract_json_object(
-    text: str, *, allow_regex_fallback: bool = False
-) -> ParseResult:
+def _extract_json_object(text: str) -> ParseResult:
     """Parse CLI stdout as structured JSON.
 
-    By default rejects regex `{...}` salvage (audit D3). Callers that want
-    salvage must set allow_regex_fallback=True and then treat source==
-    'regex_fallback' as a failed/missing measurement.
+    Only valid whole-output JSON and supported CLI envelopes are accepted.
     """
     text = text.strip()
     if not text:
@@ -152,20 +135,6 @@ def _extract_json_object(
                 return ParseResult(data, ok=True, source="json")
     except json.JSONDecodeError:
         pass
-
-    if allow_regex_fallback:
-        match = re.search(r"\{[\s\S]*\}", text)
-        if match:
-            try:
-                data = json.loads(match.group(0))
-                if isinstance(data, dict):
-                    return ParseResult(
-                        data, ok=False, source="regex_fallback", error="regex salvage"
-                    )
-            except json.JSONDecodeError as exc:
-                return ParseResult(
-                    None, ok=False, source="failed", error=f"regex JSON invalid: {exc}"
-                )
 
     return ParseResult(
         None,
@@ -261,8 +230,7 @@ def run_codex_json(
 ) -> dict[str, Any]:
     """codex exec --ephemeral -s read-only --output-schema ...
 
-    Raises CLIJudgeError on non-structured output. Never silently accepts
-    regex-salvaged JSON as a valid measurement.
+    Raises CLIJudgeError on non-structured output.
     """
     schema_path = schema_path.resolve()
     if not schema_path.is_file():
@@ -302,10 +270,9 @@ def run_codex_json(
         raise CLIJudgeError(
             f"codex failed with rc={proc.returncode}; tail={raw[-800:]}"
         )
-    parsed = _extract_json_object(proc.stdout or "", allow_regex_fallback=True)
-    if not parsed.ok or parsed.data is None or parsed.source == "regex_fallback":
-        # Also try full raw (stdout+stderr) only as proper JSON, not regex.
-        parsed2 = _extract_json_object(raw, allow_regex_fallback=False)
+    parsed = _extract_json_object(proc.stdout or "")
+    if not parsed.ok or parsed.data is None:
+        parsed2 = _extract_json_object(raw)
         if parsed2.ok and parsed2.data is not None:
             parsed = parsed2
         else:
@@ -316,11 +283,6 @@ def run_codex_json(
             )
 
     data = dict(parsed.data)
-    # Prefer model mentioned in stdout banners if still unresolved.
-    if resolved_model in ("codex-unresolved", "codex-default") or not model:
-        m = re.search(r"model[=:\s]+([A-Za-z0-9._/-]+)", raw, re.I)
-        if m:
-            resolved_model = m.group(1)
     pin_resolved_model("codex", resolved_model)
     data["_resolved_model"] = resolved_model
     data["_family"] = "codex"
@@ -398,8 +360,8 @@ def run_claude_json(
     except json.JSONDecodeError:
         pass
 
-    parsed = _extract_json_object(proc.stdout or "", allow_regex_fallback=True)
-    if not parsed.ok or parsed.data is None or parsed.source == "regex_fallback":
+    parsed = _extract_json_object(proc.stdout or "")
+    if not parsed.ok or parsed.data is None:
         raise CLIJudgeError(
             f"claude structured parse failed "
             f"(rc={proc.returncode}, source={parsed.source}): "

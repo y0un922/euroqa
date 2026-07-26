@@ -1,4 +1,4 @@
-"""Render client-readable Markdown + keep JSON artifact path."""
+"""Render the MVP v2 JSON payload as a compact Markdown report."""
 
 from __future__ import annotations
 
@@ -7,29 +7,69 @@ from pathlib import Path
 from typing import Any
 
 from eval_methodology.mvp.paths import REPORTS_DIR
-from eval_methodology.mvp.metrics.schemas import DEFERRED_METRICS
 
 
-def _fmt(x: Any, digits: int = 3) -> str:
-    if x is None:
-        return "—"
-    if isinstance(x, float):
-        return f"{x:.{digits}f}"
-    return str(x)
+def _fmt(value: Any, digits: int = 3) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.{digits}f}" if isinstance(value, float) else str(value)
 
 
-def _agg_row(name: str, run: dict[str, Any] | None) -> list[str]:
-    if not run:
-        return [name, "—", "—", "—", "—", "—", "—"]
-    a = run.get("aggregate") or {}
+def _aggregate_row(name: str, run: dict[str, Any] | None) -> list[str]:
+    aggregate = (run or {}).get("aggregate") or {}
     return [
         name,
-        _fmt(a.get("faith_mean")),
-        _fmt(a.get("citp_mean")),
-        _fmt(a.get("crec_mean")),
-        _fmt(a.get("unresolved_ref_rate_mean")),
-        str(a.get("effective_n_faith", "—")),
-        _fmt(a.get("judge_drop_rate"), 2),
+        _fmt(aggregate.get("faith_mean")),
+        _fmt(aggregate.get("citp_mean")),
+        _fmt(aggregate.get("unresolved_ref_rate_mean")),
+        _fmt(aggregate.get("crec_mean")),
+        str(aggregate.get("crec_eligible_n", "-")),
+        _fmt(aggregate.get("judge_fail_rate"), 2),
+    ]
+
+
+def _answer_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    records = list(payload.get("candidate_answer_records") or [])
+    for key in ("baseline_runs", "candidate_runs"):
+        for run in payload.get(key) or []:
+            for row in run.get("raw") or []:
+                answer = row.get("answer")
+                if isinstance(answer, dict):
+                    records.append(answer)
+    return records
+
+
+def _token_total(records: list[dict[str, Any]]) -> int:
+    total = 0
+    for record in records:
+        usage = record.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        if isinstance(usage.get("total_tokens"), int):
+            total += usage["total_tokens"]
+        else:
+            total += sum(
+                value
+                for key, value in usage.items()
+                if key in {"input_tokens", "output_tokens"} and isinstance(value, int)
+            )
+    return total
+
+
+def _per_question_rows(run: dict[str, Any] | None) -> list[list[str]]:
+    if not run:
+        return []
+    return [
+        [
+            str(row.get("question_id")),
+            _fmt(row.get("faith")),
+            _fmt(row.get("citp")),
+            _fmt(row.get("unresolved_ref_rate")),
+            _fmt(row.get("crec")),
+            str(row.get("elapsed_ms") or "-"),
+            str(row.get("status") or "ok"),
+        ]
+        for row in run.get("per_question") or []
     ]
 
 
@@ -39,159 +79,133 @@ def render_report(
     out_dir: Path | None = None,
     ts: str | None = None,
 ) -> Path:
+    """Write a Markdown report and return its path."""
     out_dir = out_dir or REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = ts or datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     path = out_dir / f"baseline_vs_candidate_{ts}.md"
 
-    base_runs = payload.get("baseline_runs") or []
-    cand_runs = payload.get("candidate_runs") or []
-    base0 = base_runs[0] if base_runs else None
-    base1 = base_runs[1] if len(base_runs) > 1 else None
-    cand0 = cand_runs[0] if cand_runs else None
-
+    baseline_runs = payload.get("baseline_runs") or []
+    candidate_runs = payload.get("candidate_runs") or []
+    baseline = baseline_runs[0] if baseline_runs else None
+    candidate = candidate_runs[0] if candidate_runs else None
     decision = payload.get("decision") or {}
+    records = _answer_records(payload)
+    elapsed = [record.get("elapsed_ms") for record in records if isinstance(record.get("elapsed_ms"), int)]
     models = {}
-    if base0:
-        models.update(base0.get("resolved_models") or {})
-    if cand0:
-        models.update({f"cand_{k}": v for k, v in (cand0.get("resolved_models") or {}).items()})
+    for run in (baseline, candidate):
+        if run:
+            models.update(run.get("resolved_models") or {})
 
-    lines: list[str] = [
-        f"# Eurocode QA 评估方法论 MVP 报告 (`{ts}`)",
+    lines = [
+        f"# Eurocode QA MVP v2 报告 (`{ts}`)",
         "",
-        "## 1. 摘要",
+        "## 摘要",
         "",
-        f"- 划分：`{payload.get('split')}`，题数 **{payload.get('n_items')}**",
-        f"- 题目 ID：{', '.join(payload.get('item_ids') or [])}",
-        f"- A/B 判定：**{decision.get('state', '—')}**",
-        f"- 判定理由：{decision.get('reason', '—')}",
-        f"- 主指标：`{decision.get('primary_metric', 'faith')}`",
-        f"- 瓶颈定位：{(payload.get('bottleneck') or {}).get('stage')} — "
-        f"{(payload.get('bottleneck') or {}).get('reason')}",
-        f"- 候选动作：{(payload.get('pick') or {}).get('action_id')} — "
-        f"{(payload.get('pick') or {}).get('reason')}",
+        f"- 模式：`{payload.get('mode')}`；划分：`{payload.get('split')}`；题数：{payload.get('n_items')}",
+        f"- 三态判定：**{decision.get('state', '-')}**",
+        f"- 理由：{decision.get('reason', '-')}",
+        f"- 瓶颈：{(payload.get('bottleneck') or {}).get('stage', '-')} - {(payload.get('bottleneck') or {}).get('reason', '-')}",
+        f"- 候选：{(payload.get('pick') or {}).get('action_id', '-')} - {(payload.get('pick') or {}).get('reason', '-')}",
         "",
-        "## 2. 隔离与可追溯",
+        "## 核心指标",
         "",
-        f"- 主项目隔离：`{(payload.get('isolation') or {}).get('ok')}`",
-        f"- `.env` 变更：`{(payload.get('isolation') or {}).get('env_changed')}`",
-        f"- 新增脏路径：{', '.join((payload.get('isolation') or {}).get('new_dirty_paths') or []) or '（无）'}",
-        f"- 启动时间：{payload.get('started_at')} → {payload.get('finished_at')}",
-        "",
-        "### 2.1 Resolved models / 族",
-        "",
+        "| 版本 | Faith | CitP | unresolved_ref_rate | CRec* | CRec eligible n | judge_fail_rate |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
-    if models:
-        for k, v in models.items():
-            lines.append(f"- `{k}`: `{v}`")
-    else:
-        lines.append("- （无 judge 调用记录）")
-
-    lines.extend(
-        [
-            "",
-            "## 3. 指标表（均值）",
-            "",
-            "| 版本 | Faith | CitP | CRec | unresolved_ref_rate | 有效 n (Faith) | 剔除率 |",
-            "|---|---:|---:|---:|---:|---:|---:|",
-        ]
-    )
     for row in (
-        _agg_row("基线 run1", base0),
-        _agg_row("基线 run2", base1),
-        _agg_row("候选", cand0),
+        _aggregate_row("baseline", baseline),
+        _aggregate_row("candidate", candidate),
     ):
         lines.append("| " + " | ".join(row) + " |")
-
-    # CI section
-    ci = decision.get("ci") or {}
-    lines.extend(
-        [
-            "",
-            "## 4. 配对 bootstrap（95% CI）与硬门槛合成",
-            "",
-            f"- **最终判定**：`{decision.get('state')}` — {decision.get('reason')}",
-            f"- 主指标：`{decision.get('primary_metric')}`",
-            f"- Δ 均值：`{_fmt(decision.get('delta_mean'))}`",
-            f"- 95% CI：`[{_fmt(ci.get('low'))}, {_fmt(ci.get('high'))}]`（宽={_fmt(ci.get('width'))}）",
-            f"- 有效配对 n：`{decision.get('effective_n', ci.get('n', '—'))}`",
-            f"- 探索性（CI 宽>0.1）：`{ci.get('exploratory', '—')}`",
-            f"- 基线自波动（noise floor）：`{_fmt(decision.get('self_noise'))}`",
-            "",
-        ]
-    )
-
-    for metric in ("faith", "citp", "crec"):
-        key = f"decision_{metric}"
-        if not payload.get(key):
-            continue
-        d2 = payload[key]
-        ci2 = d2.get("ci") or {}
-        lines.extend(
-            [
-                f"### {metric}",
-                "",
-                f"- 状态：`{d2.get('state')}` — {d2.get('reason')}",
-                f"- Δ={_fmt(d2.get('delta_mean'))} "
-                f"CI=[{_fmt(ci2.get('low'))}, {_fmt(ci2.get('high'))}] "
-                f"n={d2.get('effective_n', ci2.get('n'))}",
-                "",
-            ]
+    crec_agg = ((baseline or candidate) or {}).get("aggregate") or {}
+    crec_eligible = int(crec_agg.get("crec_eligible_n") or 0)
+    crec_confirmed = int(crec_agg.get("crec_confirmed_n") or 0)
+    # Full LLM-as-judge mode (no human participation): CRec is LLM semantic coverage of gold evidence.
+    if crec_eligible:
+        crec_footnote = (
+            rf"\* CRec = LLM-as-judge 语义覆盖率（gold evidence 由 LLM 判断上下文是否覆盖核心信息）。"
+            f" eligible={crec_eligible}（全 LLM，无需人工确认）。"
         )
-
-    # Per-question paired deltas (audit E2).
-    paired = payload.get("paired_deltas") or {}
-    if paired:
-        lines.extend(["## 4.1 逐题配对差", ""])
-        for metric, rows in paired.items():
-            lines.append(f"### {metric}")
-            lines.append("")
-            lines.append("| question_id | baseline | candidate | delta |")
-            lines.append("|---|---:|---:|---:|")
-            for row in rows:
-                lines.append(
-                    f"| {row.get('question_id')} | {_fmt(row.get('baseline'))} | "
-                    f"{_fmt(row.get('candidate'))} | {_fmt(row.get('delta'))} |"
-                )
-            lines.append("")
-
-    pre = payload.get("precheck") or {}
+    else:
+        crec_footnote = r"\* CRec 暂无 gold evidence（LLM 覆盖诊断）。 "
     lines.extend(
         [
-            "## 5. 候选预检门",
             "",
-            f"- 通过：`{pre.get('ok')}`",
-            f"- 指向 L4：`{pre.get('points_to_l4')}`",
-            f"- context diff 题数：`{pre.get('context_diff_n')}`",
-            f"- diff IDs：{', '.join(pre.get('diff_ids') or []) or '—'}",
-            f"- 原因：{'; '.join(pre.get('reasons') or []) or '—'}",
+            crec_footnote,
             "",
-            "## 6. CRec 说明",
+            "### 版本差值",
             "",
-            "- CRec 为 gold-dependent **确定性**诊断（依赖 E⁺，无 judge）。",
-            f"- 基线 CRec eligible n：`{(base0 or {}).get('aggregate', {}).get('crec_eligible_n', '—')}`",
-            "- `corpus_gap` 题不进分母；`retrieval_gap` 计入。",
-            "",
-            "## 7. 未实现指标（schema/todo）",
-            "",
+            "| 指标 | candidate - baseline |",
+            "|---|---:|",
         ]
     )
-    for name, meta in DEFERRED_METRICS.items():
-        lines.append(f"- **{name}**：{meta.get('reason')}")
+    base_agg = (baseline or {}).get("aggregate") or {}
+    cand_agg = (candidate or {}).get("aggregate") or {}
+    for metric in ("faith", "citp", "unresolved_ref_rate", "crec"):
+        key = f"{metric}_mean"
+        left, right = base_agg.get(key), cand_agg.get(key)
+        delta = right - left if isinstance(left, (int, float)) and isinstance(right, (int, float)) else None
+        lines.append(f"| {metric} | {_fmt(delta)} |")
+
+    lines.extend(["", "## 阶段耗时", "", "| 阶段 | 秒 |", "|---|---:|"])
+    for name, seconds in (payload.get("stage_timings") or {}).items():
+        lines.append(f"| {name} | {_fmt(seconds)} |")
 
     lines.extend(
         [
             "",
-            "## 8. 解读给甲方",
+            "## 逐题状态",
             "",
-            "本报告验证「数据集 → 指标 → 单次迭代 A/B」最短闭环是否可运行，",
-            "且调参仅通过旁路后端 env 注入，不修改主项目代码与 `.env`。",
-            "当判定为 `inconclusive` 时，通常因有效样本不足、judge 分歧剔除、",
-            "CI 过宽或改善幅度小于基线自波动——应视为探索性证据，而非版本门禁。",
+            "| qid | Faith | CitP | URR | CRec | elapsed_ms | status |",
+            "|---|---:|---:|---:|---:|---:|---|",
+        ]
+    )
+    rows = _per_question_rows(candidate or baseline)
+    if rows:
+        for row in rows:
+            lines.append("| " + " | ".join(row) + " |")
+    else:
+        for record in payload.get("candidate_answer_records") or []:
+            lines.append(
+                f"| {record.get('id')} | - | - | - | - | {record.get('elapsed_ms', '-')} | {record.get('status', '-')} |"
+            )
+
+    aggregate = (candidate or baseline or {}).get("aggregate") or {}
+    lines.extend(
+        [
+            "",
+            "## Ops",
+            "",
+            f"- 平均时延：{_fmt(sum(elapsed) / len(elapsed) if elapsed else None)} ms",
+            f"- token 合计：{_token_total(records)}",
+            f"- judge_fail_rate：{_fmt(aggregate.get('judge_fail_rate'), 2)}",
+            "",
+            "## 判定细节",
+            "",
+            f"- 变更门：{(payload.get('precheck') or {}).get('diff_kind', '-')} diff 题数 {(payload.get('precheck') or {}).get('diff_n', '-')}",
+            f"- diff IDs：{', '.join((payload.get('precheck') or {}).get('diff_ids') or []) or '-'}",
+            f"- self_noise_bound：{payload.get('self_noise_bound') or '-'}",
+            f"- 95% CI：{decision.get('ci') or '-'}",
+            "",
+            "## Resolved model",
             "",
         ]
     )
-
+    lines.extend(
+        [f"- `{family}`: `{model}`" for family, model in models.items()]
+        or ["- 未调用 judge"]
+    )
+    lines.extend(
+        [
+            "",
+            "## 隔离",
+            "",
+            f"- 主项目隔离：`{(payload.get('isolation') or {}).get('ok')}`",
+            f"- `.env` 变更：`{(payload.get('isolation') or {}).get('env_changed')}`",
+            f"- 时间：{payload.get('started_at')} -> {payload.get('finished_at')}",
+            "",
+        ]
+    )
     path.write_text("\n".join(lines), encoding="utf-8")
     return path

@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -121,48 +121,6 @@ class SidecarHandle:
         if self._owned_temp:
             # Keep temp dir for debugging; caller may delete.
             pass
-
-
-@dataclass
-class SidecarSession:
-    """Context manager wrapping start/stop + isolation snapshots."""
-
-    candidate: CandidateConfig
-    port: int = BASELINE_PORT
-    ready_timeout_s: float = 120.0
-    handle: SidecarHandle | None = None
-    before: Any = None
-    after: Any = None
-    isolation_report: Any = None
-    _extra_env: dict[str, str] = field(default_factory=dict)
-
-    def __enter__(self) -> SidecarHandle:
-        self.before = take_snapshot()
-        self.handle = start_sidecar(
-            self.candidate,
-            port=self.port,
-            extra_env=self._extra_env,
-        )
-        self.handle.wait_ready(timeout_s=self.ready_timeout_s)
-        return self.handle
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        if self.handle is not None:
-            self.handle.stop()
-        self.after = take_snapshot()
-        self.isolation_report = compare_snapshots(self.before, self.after)
-        # Always surface isolation failure even if the body raised.
-        try:
-            assert_isolation(self.isolation_report)
-        except RuntimeError:
-            if exc_type is None:
-                raise
-            # Prefer original exception; isolation failure is attached via note.
-            if hasattr(exc, "add_note"):
-                exc.add_note(
-                    "isolation also failed: "
-                    + "; ".join(self.isolation_report.reasons)
-                )
 
 
 def build_sidecar_env(

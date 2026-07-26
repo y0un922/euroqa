@@ -2,7 +2,7 @@
   "version": "mvp-v1-20260613",
   "seed": "euroqa-mvp-split-20260613",
   "counts": {
-    "dev": 16,
+    "dev": 15,
     "test": 9,
     "holdout": 6
   },
@@ -22,8 +22,7 @@
       "Q20",
       "Q21",
       "Q22",
-      "Q25",
-      "Q31"
+      "Q25"
     ],
     "test": [
       "Q01",

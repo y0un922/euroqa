@@ -1,33 +1,16 @@
-"""LocateBottleneck + PickSingleVarAction + ABDecide (single iteration).
-
-Table 5 / Table 6 mapping from main.tex, with MVP_PLAN §E.2 additions:
-  - unresolved_ref_rate high → L4 (auto_cross_ref candidate)
-  - baseline self-noise as inconclusive floor
-  - effective n < 15 or drop rate > 30% → trend / inconclusive
-"""
+"""Bottleneck selection, candidate precheck, and three-state A/B decisions."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal, Sequence
 
-from eval_methodology.mvp.metrics.bootstrap import (
-    BootstrapCI,
-    paired_bootstrap_ci,
-    self_noise_bound,
-)
-from eval_methodology.mvp.paths import (
-    CONTEXT_DIFF_MIN_QUESTIONS,
-    DEFAULT_DELTA,
-    DEFAULT_EPSILON,
-    MAX_JUDGE_DROP_RATE,
-    MIN_EFFECTIVE_N,
-)
+from eval_methodology.mvp.metrics.bootstrap import BootstrapCI, paired_bootstrap_ci
+from eval_methodology.mvp.paths import DEFAULT_DELTA, DEFAULT_EPSILON
 
 DecisionState = Literal["accept", "reject", "inconclusive"]
 Stage = Literal["L1", "L2", "L3", "L4", "L5", "ops", "unknown"]
 
-# Soft thresholds for "metric is down" on [0,1] scales (MVP defaults).
 FAITH_LOW = 0.85
 CITP_LOW = 0.80
 CREC_LOW = 0.70
@@ -36,31 +19,32 @@ UNRESOLVED_REF_HIGH = 0.15
 
 @dataclass(frozen=True)
 class MetricSnapshot:
-    """Minimal metric dict for bottleneck / A/B (mockable in unit tests)."""
+    """Aggregate metrics used for bottleneck selection."""
 
     faith: float | None = None
     citp: float | None = None
     crec: float | None = None
     unresolved_ref_rate: float | None = None
     effective_n: int = 0
-    judge_drop_rate: float = 0.0
+    judge_fail_rate: float = 0.0
     crec_eligible_n: int = 0
     degraded_to_trend: bool = False
 
     @classmethod
-    def from_aggregate(cls, agg: dict[str, Any]) -> MetricSnapshot:
-        n_f = int(agg.get("effective_n_faith") or 0)
-        n_c = int(agg.get("effective_n_citp") or 0)
-        eff = min(n_f, n_c) if n_f and n_c else max(n_f, n_c)
+    def from_aggregate(cls, aggregate: dict[str, Any]) -> MetricSnapshot:
+        """Build a snapshot from serialized aggregate metrics."""
+        n_faith = int(aggregate.get("effective_n_faith") or 0)
+        n_citp = int(aggregate.get("effective_n_citp") or 0)
+        effective = min(n_faith, n_citp) if n_faith and n_citp else max(n_faith, n_citp)
         return cls(
-            faith=agg.get("faith_mean"),
-            citp=agg.get("citp_mean"),
-            crec=agg.get("crec_mean"),
-            unresolved_ref_rate=agg.get("unresolved_ref_rate_mean"),
-            effective_n=eff,
-            judge_drop_rate=float(agg.get("judge_drop_rate") or 0.0),
-            crec_eligible_n=int(agg.get("crec_eligible_n") or 0),
-            degraded_to_trend=bool(agg.get("degraded_to_trend")),
+            faith=aggregate.get("faith_mean"),
+            citp=aggregate.get("citp_mean"),
+            crec=aggregate.get("crec_mean"),
+            unresolved_ref_rate=aggregate.get("unresolved_ref_rate_mean"),
+            effective_n=effective,
+            judge_fail_rate=float(aggregate.get("judge_fail_rate") or 0.0),
+            crec_eligible_n=int(aggregate.get("crec_eligible_n") or 0),
+            degraded_to_trend=bool(aggregate.get("degraded_to_trend")),
         )
 
 
@@ -83,7 +67,7 @@ class CandidatePick:
 class PrecheckResult:
     ok: bool
     points_to_l4: bool
-    context_diff_n: int
+    context_diff_n: int = 0
     reasons: list[str] = field(default_factory=list)
 
 
@@ -94,7 +78,6 @@ class ABDecision:
     primary_metric: str
     delta_mean: float | None = None
     ci: BootstrapCI | None = None
-    self_noise: float | None = None
     effective_n: int = 0
     details: dict[str, Any] = field(default_factory=dict)
 
@@ -114,7 +97,6 @@ class ABDecision:
                 "n": self.ci.n,
                 "exploratory": self.ci.exploratory,
             },
-            "self_noise": self.self_noise,
             "effective_n": self.effective_n,
             "details": self.details,
         }
@@ -128,85 +110,43 @@ def locate_bottleneck(
     crec_low: float = CREC_LOW,
     unresolved_high: float = UNRESOLVED_REF_HIGH,
 ) -> BottleneckResult:
-    """Map baseline metrics → stage (main.tex table 5 + unresolved_ref_rate→L4)."""
-    signals: dict[str, Any] = {
+    """Map aggregate signals to the first actionable pipeline stage."""
+    signals = {
         "faith": baseline.faith,
         "citp": baseline.citp,
         "crec": baseline.crec,
         "unresolved_ref_rate": baseline.unresolved_ref_rate,
     }
-
-    # Hard-gate issues first (Faith / CitP → L5).
     if baseline.faith is not None and baseline.faith < faith_low:
-        return BottleneckResult(
-            stage="L5",
-            reason=f"Faith={baseline.faith:.3f} < {faith_low} → generation/citation discipline (L5)",
-            metric_signals=signals,
-        )
+        return BottleneckResult("L5", f"Faith={baseline.faith:.3f} < {faith_low}", signals)
     if baseline.citp is not None and baseline.citp < citp_low:
+        return BottleneckResult("L5", f"CitP={baseline.citp:.3f} < {citp_low}", signals)
+    if baseline.unresolved_ref_rate is not None and baseline.unresolved_ref_rate >= unresolved_high:
         return BottleneckResult(
-            stage="L5",
-            reason=f"CitP={baseline.citp:.3f} < {citp_low} → citation postprocess (L5)",
-            metric_signals=signals,
+            "L4",
+            f"unresolved_ref_rate={baseline.unresolved_ref_rate:.3f} >= {unresolved_high}",
+            signals,
         )
-
-    # L4 signal from unresolved refs (needed for auto_cross_ref candidate).
-    if (
-        baseline.unresolved_ref_rate is not None
-        and baseline.unresolved_ref_rate >= unresolved_high
-    ):
-        return BottleneckResult(
-            stage="L4",
-            reason=(
-                f"unresolved_ref_rate={baseline.unresolved_ref_rate:.3f} ≥ {unresolved_high} "
-                "→ cross-ref closure / parent-chunk (L4)"
-            ),
-            metric_signals=signals,
-        )
-
-    # CRec low → L1/L2 (prefer L2 config knobs; L1 is code/prompt).
     if baseline.crec is not None and baseline.crec < crec_low:
-        return BottleneckResult(
-            stage="L2",
-            reason=f"CRec={baseline.crec:.3f} < {crec_low} → retrieval budget/decompose (L1→L2)",
-            metric_signals=signals,
-        )
-
-    return BottleneckResult(
-        stage="unknown",
-        reason=(
-            "no clear bottleneck from Faith/CitP/CRec/"
-            f"unresolved_ref_rate(need≥{unresolved_high})"
-        ),
-        metric_signals=signals,
-    )
+        return BottleneckResult("L2", f"CRec={baseline.crec:.3f} < {crec_low}", signals)
+    return BottleneckResult("unknown", "no clear bottleneck", signals)
 
 
 def pick_single_var_action(bottleneck: BottleneckResult) -> CandidatePick:
-    """Table 6: one action. MVP only implements L4 auto_cross_ref off→on."""
+    """Pick the implemented MVP candidate for the located bottleneck stage."""
+    if bottleneck.stage == "L5":
+        return CandidatePick(
+            action_id="llm_enable_thinking_on",
+            stage="L5",
+            config_knobs={"llm_enable_thinking": True},
+            reason="answer LLM thinking mode off -> on (qa_agent extra_body)",
+        )
     if bottleneck.stage == "L4":
         return CandidatePick(
             action_id="auto_cross_ref_closure_on",
             stage="L4",
             config_knobs={"retrieval_auto_cross_ref_closure": True},
-            reason="MVP A: retrieval_auto_cross_ref_closure off→on",
-        )
-    if bottleneck.stage == "L5":
-        return CandidatePick(
-            action_id="deferred_l5_prompt",
-            stage="L5",
-            config_knobs={},
-            reason="L5 needs code/prompt overlay (option B) — not in this MVP",
-        )
-    if bottleneck.stage in ("L1", "L2"):
-        return CandidatePick(
-            action_id="deferred_retrieval_budget",
-            stage=bottleneck.stage,
-            config_knobs={},
-            reason=(
-                "vector/bm25/rerank knobs are no-ops under _INITIAL_TOP_K clamp; "
-                "code-level overlay deferred"
-            ),
+            reason="retrieval_auto_cross_ref_closure off -> on",
         )
     return CandidatePick(
         action_id="noop",
@@ -219,52 +159,90 @@ def pick_single_var_action(bottleneck: BottleneckResult) -> CandidatePick:
 def candidate_precheck(
     *,
     baseline: MetricSnapshot,
-    context_diff_question_ids: Sequence[str],
+    pick: CandidatePick,
     unresolved_high: float = UNRESOLVED_REF_HIGH,
-    min_diff_questions: int = CONTEXT_DIFF_MIN_QUESTIONS,
+    faith_low: float = FAITH_LOW,
+    citp_low: float = CITP_LOW,
 ) -> PrecheckResult:
-    """Two gates before expensive judge on candidate (MVP_PLAN §E.1 / §C).
-
-    Gate 1 — baseline must **clearly** point to L4:
-      unresolved_ref_rate >= UNRESOLVED_REF_HIGH (default 0.15).
-      Arbitrary residual >0 is NOT enough (audit B2).
-
-    Gate 2 — off→on must change the **ordered** context chunk-id sequence
-      on at least min_diff_questions items (not merely set membership).
-    """
-    reasons: list[str] = []
-    urr = baseline.unresolved_ref_rate
-    points_l4 = urr is not None and urr >= unresolved_high
-    if not points_l4:
-        reasons.append(
-            f"baseline unresolved_ref_rate={urr} does not clearly point to L4 "
-            f"(need ≥ {unresolved_high})"
+    """Require a baseline signal that actually points at the picked stage."""
+    if pick.stage == "L4":
+        rate = baseline.unresolved_ref_rate
+        points_to_l4 = rate is not None and rate >= unresolved_high
+        reason = (
+            f"L4 signal ok: unresolved_ref_rate={rate:.3f} >= {unresolved_high}"
+            if points_to_l4
+            else f"baseline unresolved_ref_rate={rate} does not reach {unresolved_high}"
         )
-    else:
-        reasons.append(
-            f"L4 signal ok: unresolved_ref_rate={urr:.3f} ≥ {unresolved_high}"
+        return PrecheckResult(ok=points_to_l4, points_to_l4=points_to_l4, reasons=[reason])
+    if pick.stage == "L5":
+        faith_bad = baseline.faith is not None and baseline.faith < faith_low
+        citp_bad = baseline.citp is not None and baseline.citp < citp_low
+        ok = faith_bad or citp_bad
+        reason = (
+            f"L5 signal ok: faith={baseline.faith} citp={baseline.citp} "
+            f"below thresholds ({faith_low}/{citp_low})"
+            if ok
+            else f"baseline faith={baseline.faith} citp={baseline.citp} look healthy"
         )
-
-    diff_n = len(set(context_diff_question_ids))
-    if diff_n < min_diff_questions:
-        reasons.append(
-            f"ordered context chunk-id sequence changed on {diff_n} questions "
-            f"(need ≥ {min_diff_questions})"
-        )
-    else:
-        reasons.append(
-            f"context ordered-seq diff on {diff_n} ≥ {min_diff_questions} questions"
-        )
-
-    ok = points_l4 and diff_n >= min_diff_questions
-    if ok:
-        reasons.append("precheck passed")
+        return PrecheckResult(ok=ok, points_to_l4=False, reasons=[reason])
     return PrecheckResult(
-        ok=ok,
-        points_to_l4=points_l4,
-        context_diff_n=diff_n,
-        reasons=reasons,
+        ok=False,
+        points_to_l4=False,
+        reasons=[f"no implemented candidate for stage {pick.stage}: {pick.reason}"],
     )
+
+
+def context_diff_from_answers(
+    baseline_answers: dict[str, dict[str, Any]],
+    candidate_answers: dict[str, dict[str, Any]],
+) -> tuple[list[str], dict[str, Any]]:
+    """Compare ordered context chunk-id sequences from stored answers."""
+    diff_ids: list[str] = []
+    details: dict[str, Any] = {}
+    for qid in sorted(set(baseline_answers) & set(candidate_answers)):
+        baseline = baseline_answers[qid]
+        candidate = candidate_answers[qid]
+        base_ids = tuple(str(value) for value in baseline.get("context_chunk_ids") or [])
+        cand_ids = tuple(str(value) for value in candidate.get("context_chunk_ids") or [])
+        changed = base_ids != cand_ids
+        details[qid] = {
+            "changed": changed,
+            "baseline_seq_n": len(base_ids),
+            "candidate_seq_n": len(cand_ids),
+            "baseline_seq_head": list(base_ids[:8]),
+            "candidate_seq_head": list(cand_ids[:8]),
+            "only_baseline": sorted(set(base_ids) - set(cand_ids))[:10],
+            "only_candidate": sorted(set(cand_ids) - set(base_ids))[:10],
+        }
+        if changed:
+            diff_ids.append(qid)
+    return diff_ids, details
+
+
+def answer_diff_from_answers(
+    baseline_answers: dict[str, dict[str, Any]],
+    candidate_answers: dict[str, dict[str, Any]],
+) -> tuple[list[str], dict[str, Any]]:
+    """Compare answer texts from stored answers (change gate for L5 candidates).
+
+    A generation-level candidate must not be required to change retrieval, so
+    the "candidate actually changed something" gate compares whitespace-
+    normalized answer text instead of context chunk-id sequences.
+    """
+    diff_ids: list[str] = []
+    details: dict[str, Any] = {}
+    for qid in sorted(set(baseline_answers) & set(candidate_answers)):
+        base_text = " ".join(str(baseline_answers[qid].get("answer") or "").split())
+        cand_text = " ".join(str(candidate_answers[qid].get("answer") or "").split())
+        changed = base_text != cand_text
+        details[qid] = {
+            "changed": changed,
+            "baseline_chars": len(base_text),
+            "candidate_chars": len(cand_text),
+        }
+        if changed:
+            diff_ids.append(qid)
+    return diff_ids, details
 
 
 def merge_hard_gate_decisions(
@@ -272,268 +250,90 @@ def merge_hard_gate_decisions(
     *,
     primary_metric: str = "faith",
     non_regress_metrics: Sequence[str] = ("citp",),
-    regression_metrics: Sequence[str] = ("crec",),
 ) -> ABDecision:
-    """Combine primary improvement + hard non-regression + regression diagnostics.
-
-    main.tex: G hard gates require **no significant regression**; overall accept
-    also needs primary M significant improvement. Flat hard-gate metrics must
-    **pass** (not block accept) — audit E3 residual.
-
-    Rules:
-      - any reject (primary / non-regress / regression) → overall reject
-      - overall accept iff primary.state==accept AND every non-regress metric
-        present has state==accept (gate-pass under mode=non_regress)
-      - otherwise inconclusive
-    """
-    details: dict[str, Any] = {
-        "per_metric": {k: v.to_dict() for k, v in per_metric.items()},
+    """Merge the primary improvement decision with non-regression gates."""
+    details = {
+        "per_metric": {key: value.to_dict() for key, value in per_metric.items()},
         "primary_metric": primary_metric,
         "non_regress_metrics": list(non_regress_metrics),
-        "regression_metrics": list(regression_metrics),
     }
-
     primary = per_metric.get(primary_metric)
     if primary is None:
-        return ABDecision(
-            state="inconclusive",
-            reason=f"primary metric {primary_metric!r} missing",
-            primary_metric=primary_metric,
-            details=details,
-        )
-
-    rejects: list[str] = []
-    if primary.state == "reject":
-        rejects.append(primary_metric)
-    for m in non_regress_metrics:
-        d = per_metric.get(m)
-        if d is not None and d.state == "reject":
-            rejects.append(m)
-    for m in regression_metrics:
-        d = per_metric.get(m)
-        if d is not None and d.state == "reject":
-            rejects.append(m)
-
+        return ABDecision("inconclusive", f"primary metric {primary_metric!r} missing", primary_metric, details=details)
+    rejects = [name for name, decision in per_metric.items() if decision.state == "reject"]
     if rejects:
         return ABDecision(
-            state="reject",
-            reason=f"reject on: {', '.join(rejects)}",
-            primary_metric=primary_metric,
-            delta_mean=primary.delta_mean,
-            ci=primary.ci,
-            self_noise=primary.self_noise,
-            effective_n=primary.effective_n,
-            details=details,
+            "reject",
+            f"reject on: {', '.join(rejects)}",
+            primary_metric,
+            primary.delta_mean,
+            primary.ci,
+            primary.effective_n,
+            details,
         )
-
-    non_regress_ok = True
-    non_regress_states: dict[str, str] = {}
-    for m in non_regress_metrics:
-        d = per_metric.get(m)
-        if d is None:
-            continue
-        non_regress_states[m] = d.state
-        if d.state != "accept":
-            non_regress_ok = False
-
-    if primary.state == "accept" and non_regress_ok:
+    gates_pass = all(
+        per_metric.get(metric) is not None and per_metric[metric].state == "accept"
+        for metric in non_regress_metrics
+    )
+    if primary.state == "accept" and gates_pass:
         return ABDecision(
-            state="accept",
-            reason=(
-                f"primary {primary_metric} improved; non-regress gates pass "
-                f"{non_regress_states or '{}'}"
-            ),
-            primary_metric=primary_metric,
-            delta_mean=primary.delta_mean,
-            ci=primary.ci,
-            self_noise=primary.self_noise,
-            effective_n=primary.effective_n,
-            details=details,
+            "accept",
+            f"primary {primary_metric} improved and non-regression gates passed",
+            primary_metric,
+            primary.delta_mean,
+            primary.ci,
+            primary.effective_n,
+            details,
         )
-
     return ABDecision(
-        state="inconclusive",
-        reason=(
-            f"primary={primary.state}; non_regress={non_regress_states} "
-            "(need primary improve + hard gates non-regress pass)"
-        ),
-        primary_metric=primary_metric,
-        delta_mean=primary.delta_mean,
-        ci=primary.ci,
-        self_noise=primary.self_noise,
-        effective_n=primary.effective_n,
-        details=details,
+        "inconclusive",
+        f"primary={primary.state}; non-regression gates did not all pass",
+        primary_metric,
+        primary.delta_mean,
+        primary.ci,
+        primary.effective_n,
+        details,
     )
 
 
 def ab_decide(
-    *,
     baseline_values: Sequence[float],
     candidate_values: Sequence[float],
-    baseline_repeat_a: Sequence[float] | None = None,
-    baseline_repeat_b: Sequence[float] | None = None,
-    primary_metric: str = "faith",
+    *,
+    primary_metric: str,
     epsilon: float = DEFAULT_EPSILON,
     delta: float = DEFAULT_DELTA,
-    effective_n: int | None = None,
-    judge_drop_rate: float = 0.0,
-    degraded_to_trend: bool = False,
-    mode: Literal["improve", "non_regress"] = "improve",
+    gate_n: int = 12,
+    mode: Literal["improve", "non_regress"],
 ) -> ABDecision:
-    """Three-state A/B decision via paired bootstrap + self-noise floor.
-
-    mode=improve (primary M):
-      accept:       CI entirely above +epsilon (and improvement > self-noise)
-      reject:       CI entirely below -delta (regression)
-      inconclusive: otherwise / n/drop / |Δ|≤noise / exploratory CI
-
-    mode=non_regress (hard gate G / regression diagnostic):
-      reject:       significant regression (CI entirely below -delta)
-      accept:       no significant regression proven (including flat / mild Δ)
-      inconclusive: n/drop gates or exploratory CI width (cannot hard-pass)
-    """
+    """Return accept, reject, or inconclusive from a paired bootstrap CI."""
     n = len(baseline_values)
-    eff = effective_n if effective_n is not None else n
-    details: dict[str, Any] = {
-        "epsilon": epsilon,
-        "delta": delta,
-        "judge_drop_rate": judge_drop_rate,
-        "degraded_to_trend": degraded_to_trend,
-        "mode": mode,
-    }
-
-    if n == 0 or eff < MIN_EFFECTIVE_N:
+    details = {"epsilon": epsilon, "delta": delta, "gate_n": gate_n, "mode": mode}
+    if n != len(candidate_values):
+        raise ValueError("baseline and candidate values must be paired")
+    if n < gate_n:
         return ABDecision(
-            state="inconclusive",
-            reason=f"effective n={eff} < {MIN_EFFECTIVE_N} (or empty series)",
-            primary_metric=primary_metric,
-            effective_n=eff,
-            details=details,
-        )
-    if judge_drop_rate > MAX_JUDGE_DROP_RATE or degraded_to_trend:
-        return ABDecision(
-            state="inconclusive",
-            reason=(
-                f"degraded to trend reference "
-                f"(drop_rate={judge_drop_rate:.2%}, degraded={degraded_to_trend})"
-            ),
-            primary_metric=primary_metric,
-            effective_n=eff,
+            "inconclusive",
+            f"n={n} < gate_n={gate_n}",
+            primary_metric,
+            effective_n=n,
             details=details,
         )
 
     ci = paired_bootstrap_ci(baseline_values, candidate_values)
-    details["ci_exploratory"] = ci.exploratory
-
-    noise = 0.0
-    if baseline_repeat_a is not None and baseline_repeat_b is not None:
-        noise = self_noise_bound(baseline_repeat_a, baseline_repeat_b)
-    details["self_noise"] = noise
-
-    # Significant regression always rejects in both modes.
     if ci.high < -delta:
-        return ABDecision(
-            state="reject",
-            reason=f"CI [{ci.low:.3f}, {ci.high:.3f}] entirely below -δ={delta}",
-            primary_metric=primary_metric,
-            delta_mean=ci.mean,
-            ci=ci,
-            self_noise=noise,
-            effective_n=eff,
-            details=details,
-        )
-
-    if mode == "non_regress":
-        # Flat / mild change = hard-gate pass (no significant regression).
-        if abs(ci.mean) <= noise and noise > 0:
-            return ABDecision(
-                state="accept",
-                reason=(
-                    f"non-regress pass: |Δ|={abs(ci.mean):.4f} ≤ self-noise="
-                    f"{noise:.4f} (no significant change)"
-                ),
-                primary_metric=primary_metric,
-                delta_mean=ci.mean,
-                ci=ci,
-                self_noise=noise,
-                effective_n=eff,
-                details=details,
-            )
-        if ci.exploratory:
-            return ABDecision(
-                state="inconclusive",
-                reason=f"non-regress: CI width={ci.width:.3f} > 0.1 → cannot hard-pass",
-                primary_metric=primary_metric,
-                delta_mean=ci.mean,
-                ci=ci,
-                self_noise=noise,
-                effective_n=eff,
-                details=details,
-            )
-        # No significant regression proven.
-        return ABDecision(
-            state="accept",
-            reason=(
-                f"non-regress pass: CI [{ci.low:.3f}, {ci.high:.3f}] "
-                f"not entirely below -δ={delta}"
-            ),
-            primary_metric=primary_metric,
-            delta_mean=ci.mean,
-            ci=ci,
-            self_noise=noise,
-            effective_n=eff,
-            details=details,
-        )
-
-    # --- mode == improve ---
-    if abs(ci.mean) <= noise and noise > 0:
-        return ABDecision(
-            state="inconclusive",
-            reason=(
-                f"|Δ|={abs(ci.mean):.4f} ≤ baseline self-noise={noise:.4f}"
-            ),
-            primary_metric=primary_metric,
-            delta_mean=ci.mean,
-            ci=ci,
-            self_noise=noise,
-            effective_n=eff,
-            details=details,
-        )
-
-    if ci.exploratory:
-        return ABDecision(
-            state="inconclusive",
-            reason=f"CI width={ci.width:.3f} > 0.1 → exploratory only",
-            primary_metric=primary_metric,
-            delta_mean=ci.mean,
-            ci=ci,
-            self_noise=noise,
-            effective_n=eff,
-            details=details,
-        )
-
-    if ci.low > epsilon:
-        return ABDecision(
-            state="accept",
-            reason=f"CI [{ci.low:.3f}, {ci.high:.3f}] entirely above +ε={epsilon}",
-            primary_metric=primary_metric,
-            delta_mean=ci.mean,
-            ci=ci,
-            self_noise=noise,
-            effective_n=eff,
-            details=details,
-        )
-
-    return ABDecision(
-        state="inconclusive",
-        reason=(
-            f"CI [{ci.low:.3f}, {ci.high:.3f}] does not clear +ε={epsilon} "
-            f"(and not below -δ={delta})"
-        ),
-        primary_metric=primary_metric,
-        delta_mean=ci.mean,
-        ci=ci,
-        self_noise=noise,
-        effective_n=eff,
-        details=details,
-    )
+        state: DecisionState = "reject"
+        reason = f"CI [{ci.low:.3f}, {ci.high:.3f}] entirely below -delta={delta}"
+    elif ci.width > 0.1:
+        state = "inconclusive"
+        reason = f"CI width={ci.width:.3f} > 0.1 (exploratory)"
+    elif mode == "improve" and ci.low > epsilon:
+        state = "accept"
+        reason = f"CI [{ci.low:.3f}, {ci.high:.3f}] entirely above +epsilon={epsilon}"
+    elif mode == "non_regress":
+        state = "accept"
+        reason = "no significant regression"
+    else:
+        state = "inconclusive"
+        reason = f"CI [{ci.low:.3f}, {ci.high:.3f}] does not clear +epsilon={epsilon}"
+    return ABDecision(state, reason, primary_metric, ci.mean, ci, n, details)

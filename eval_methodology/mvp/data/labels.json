@@ -541,24 +541,6 @@
         "confidence": "high",
         "stratum": "v=pass|c=positive"
       }
-    },
-    {
-      "id": "Q31",
-      "question": "其他通用问题：",
-      "existing_correctness": "网页没正确显示LaTex格式公式",
-      "existing_completeness": null,
-      "existing_hallucination": null,
-      "existing_verdict": null,
-      "question_type": null,
-      "source": "excel",
-      "labels": {
-        "correctness": "positive",
-        "completeness": "unknown",
-        "hallucination_signal": "unknown",
-        "verdict": "unknown",
-        "confidence": "medium",
-        "stratum": "v=unknown|c=positive"
-      }
     }
   ]
 }

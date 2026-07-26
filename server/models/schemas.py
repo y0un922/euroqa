@@ -181,6 +181,9 @@ class RetrievalContext(BaseModel):
     guide_chunks: list[dict[str, object]] = Field(default_factory=list)
     guide_example_chunks: list[dict[str, object]] = Field(default_factory=list)
     ref_chunks: list[dict[str, object]] = Field(default_factory=list)
+    # chunk_id -> "Ref-N"，即答案文本引用所使用的真实编号（按 agent 曝光顺序分配，
+    # 与各 chunk 列表的类别拼接顺序不同）。消费方需按此映射对齐引用。
+    ref_labels: dict[str, str] = Field(default_factory=dict)
     resolved_refs: list[str] = Field(default_factory=list)
     unresolved_refs: list[str] = Field(default_factory=list)
     slot_results: list[dict[str, object]] = Field(default_factory=list)

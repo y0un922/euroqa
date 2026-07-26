@@ -340,6 +340,7 @@ def _sources_from_bundle(bundle: EvidenceBundle) -> list[Source]:
 def _retrieval_context_from_bundle(bundle: EvidenceBundle) -> RetrievalContext:
     if not bundle.has_rag_evidence:
         return RetrievalContext()
+    bundle.ensure_ref_ids(bundle.citable_chunks())
     return _build_retrieval_context(
         bundle.chunks,
         bundle.parent_chunks,
@@ -351,6 +352,7 @@ def _retrieval_context_from_bundle(bundle: EvidenceBundle) -> RetrievalContext:
         unresolved_refs=bundle.unresolved_refs,
         slot_results=bundle.slot_results,
         unresolved_slots=bundle.unresolved_slots,
+        ref_labels=dict(bundle.ref_ids_by_chunk_id),
     )
 
 

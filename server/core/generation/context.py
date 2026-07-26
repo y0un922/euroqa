@@ -22,6 +22,7 @@ def _build_retrieval_context(
     slot_results: list[dict[str, object]] | None = None,
     unresolved_slots: list[str] | None = None,
     config: ServerConfig | None = None,
+    ref_labels: dict[str, str] | None = None,
 ) -> RetrievalContext:
     """Build the export-ready retrieval context snapshot for one answer turn."""
     chunk_items = [
@@ -53,6 +54,7 @@ def _build_retrieval_context(
         guide_chunks=guide_chunk_items,
         guide_example_chunks=guide_example_chunk_items,
         ref_chunks=ref_chunk_items,
+        ref_labels=dict(ref_labels or {}),
         resolved_refs=list(resolved_refs or []),
         unresolved_refs=list(unresolved_refs or []),
         slot_results=list(slot_results or []),
