@@ -311,10 +311,10 @@ async def _call_assess_outline_llm(
     previous_queries: list[str],
     config: ServerConfig,
 ) -> str:
-    timeout_seconds = max(1.0, config.decompose_llm_timeout_seconds)
+    timeout_seconds = max(1.0, config.outline_llm_timeout_seconds)
     client = AsyncOpenAI(
-        api_key=config.resolved_decompose_llm_api_key,
-        base_url=config.resolved_decompose_llm_base_url,
+        api_key=config.resolved_planning_llm_api_key,
+        base_url=config.resolved_planning_llm_base_url,
         timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
         max_retries=0,
     )
@@ -327,7 +327,7 @@ async def _call_assess_outline_llm(
         "evidence": evidence_text[:12000],
     }
     response = await client.chat.completions.create(
-        model=config.resolved_decompose_llm_model,
+        model=config.resolved_planning_llm_model,
         messages=[
             {"role": "system", "content": _ASSESS_OUTLINE_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -382,8 +382,8 @@ async def _call_outline_llm(
 ) -> str:
     timeout_seconds = max(1.0, config.outline_llm_timeout_seconds)
     client = AsyncOpenAI(
-        api_key=config.resolved_decompose_llm_api_key,
-        base_url=config.resolved_decompose_llm_base_url,
+        api_key=config.resolved_planning_llm_api_key,
+        base_url=config.resolved_planning_llm_base_url,
         timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
         max_retries=0,
     )
@@ -395,7 +395,7 @@ async def _call_outline_llm(
         "evidence": evidence_text[:12000],
     }
     response = await client.chat.completions.create(
-        model=config.resolved_decompose_llm_model,
+        model=config.resolved_planning_llm_model,
         messages=[
             {"role": "system", "content": _OUTLINE_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},

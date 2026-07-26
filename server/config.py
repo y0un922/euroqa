@@ -46,6 +46,11 @@ class ServerConfig(BaseSettings):
     decompose_llm_model: str = ""
     decompose_llm_timeout_seconds: float = 30.0
 
+    # 证据评估 + 大纲规划（合并调用）；留空则回落到 agent LLM
+    planning_llm_api_key: str = ""
+    planning_llm_base_url: str = ""
+    planning_llm_model: str = ""
+
     agent_llm_api_key: str = ""
     agent_llm_base_url: str = ""
     agent_llm_model: str = ""
@@ -144,6 +149,25 @@ class ServerConfig(BaseSettings):
     def resolved_agent_llm_model(self) -> str:
         """Return the agent-loop LLM model with main LLM fallback."""
         return self.agent_llm_model or self.llm_model
+
+    @property
+    def resolved_planning_llm_api_key(self) -> str:
+        """Return the assess+outline planning LLM key (defaults to agent LLM)."""
+        return self.planning_llm_api_key or self.resolved_agent_llm_api_key
+
+    @property
+    def resolved_planning_llm_base_url(self) -> str:
+        """Return the assess+outline planning LLM base URL (defaults to agent LLM)."""
+        return self.planning_llm_base_url or self.resolved_agent_llm_base_url
+
+    @property
+    def resolved_planning_llm_model(self) -> str:
+        """Return the assess+outline planning LLM model (defaults to agent LLM).
+
+        Outline quality is model-sensitive: eval 20260726 showed moving outline
+        generation from the agent LLM to the decompose LLM cost ~0.05 Faith.
+        """
+        return self.planning_llm_model or self.resolved_agent_llm_model
 
     @property
     def resolved_decompose_llm_api_key(self) -> str:
