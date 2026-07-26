@@ -1587,11 +1587,11 @@ class HybridRetriever:
         """执行多角度混合检索流程。
 
         流程：多路向量检索 + 多路 BM25 → 合并去重 → 跨文档聚合
-              → 获取完整 chunk → 重排序(原始中文) → 获取父 chunk。
+              → 获取完整 chunk → 重排序(完整问题) → 获取父 chunk。
 
         Args:
             queries: 多角度英文检索查询列表（语义/概念/术语）
-            original_query: 用户原始中文问题（用于补充检索和 rerank）
+            original_query: 完整问题（agent 路径为英文改写；用于向量补召回和 rerank）
             filters: 过滤条件
         """
         from server.agents.tool_progress import _NullEmitter
@@ -1762,8 +1762,10 @@ class HybridRetriever:
         chunk_ids = [r["chunk_id"] for r in aggregated]
         chunks = await self._fetch_chunks(chunk_ids)
 
-        # 重排序（使用 expanded query 的英文版本，对英文 chunks 更准）
-        rerank_query = primary_query or normalized_original
+        # 重排序：候选来自所有子查询的融合，参照必须覆盖完整问题意图——
+        # 优先 original_query（agent 路径为英文改写问题）；只用 queries[0]
+        # 会把回答其他子查询的 chunk 按第一个子查询打分而误伤截断。
+        rerank_query = normalized_original or primary_query
         try:
             reranked = await self._rerank(rerank_query, chunks, cfg.rerank_top_n)
             final_chunks = [c for c, _ in reranked]

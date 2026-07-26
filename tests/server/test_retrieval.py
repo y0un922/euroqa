@@ -1795,8 +1795,8 @@ class TestRetrieveFallback:
             return [_make_chunk(chunk_id, f"doc-{chunk_id}") for chunk_id in chunk_ids]
 
         async def _fake_rerank(query: str, chunks: list[Chunk], top_n: int):
-            # rerank 使用 expanded query 的英文版本（对英文 chunks 更准）
-            assert query == "design working life metro"
+            # rerank 参照完整问题（original_query），覆盖所有子查询的候选
+            assert query == "地铁的设计使用年限"
             assert set(chunk.chunk_id for chunk in chunks) == {"a", "b", "c"}
             return [
                 (chunks[0], 0.91),
