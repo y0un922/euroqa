@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from openai import APITimeoutError
 
-from server.agents.decompose import DecomposedQuery, EvidenceAssessment
+from server.agents.decompose import AssessOutlineResult, DecomposedQuery
 from server.agents.deps import QADeps
 from server.agents.evidence import EvidenceBundle
 from server.agents import orchestrator as orchestrator_module
@@ -273,8 +273,8 @@ async def test_prepare_evidence_streamed_emits_prefetch_tool_trace(monkeypatch):
             needs_retrieval=True,
         )
 
-    async def fake_assess_evidence(*_args, **_kwargs):
-        return EvidenceAssessment(
+    async def fake_assess_and_outline(*_args, **_kwargs):
+        return AssessOutlineResult(
             sufficient=True,
             missing_queries=[],
             reason="covered",
@@ -287,8 +287,8 @@ async def test_prepare_evidence_streamed_emits_prefetch_tool_trace(monkeypatch):
     )
     monkeypatch.setattr(
         orchestrator_module,
-        "assess_evidence",
-        fake_assess_evidence,
+        "assess_and_outline",
+        fake_assess_and_outline,
     )
     monkeypatch.setattr(
         orchestrator_module,
@@ -334,10 +334,10 @@ async def test_prepare_evidence_streamed_runs_bounded_assessments_before_stoppin
 
     assessment_calls = 0
 
-    async def fake_assess_evidence(*_args, **_kwargs):
+    async def fake_assess_and_outline(*_args, **_kwargs):
         nonlocal assessment_calls
         assessment_calls += 1
-        return EvidenceAssessment(
+        return AssessOutlineResult(
             sufficient=False,
             missing_queries=["missing query"],
             reason="needs one more search",
@@ -363,8 +363,8 @@ async def test_prepare_evidence_streamed_runs_bounded_assessments_before_stoppin
     )
     monkeypatch.setattr(
         orchestrator_module,
-        "assess_evidence",
-        fake_assess_evidence,
+        "assess_and_outline",
+        fake_assess_and_outline,
     )
     monkeypatch.setattr(
         orchestrator_module,
@@ -419,8 +419,8 @@ async def test_prepare_evidence_merges_subqueries_into_single_retrieve(monkeypat
             needs_retrieval=True,
         )
 
-    async def fake_assess_evidence(*_args, **_kwargs):
-        return EvidenceAssessment(sufficient=True, missing_queries=[], reason="ok")
+    async def fake_assess_and_outline(*_args, **_kwargs):
+        return AssessOutlineResult(sufficient=True, missing_queries=[], reason="ok")
 
     class RecordingRetriever:
         def __init__(self):
@@ -442,7 +442,7 @@ async def test_prepare_evidence_merges_subqueries_into_single_retrieve(monkeypat
             )
 
     monkeypatch.setattr(orchestrator_module, "decompose_query", fake_decompose_query)
-    monkeypatch.setattr(orchestrator_module, "assess_evidence", fake_assess_evidence)
+    monkeypatch.setattr(orchestrator_module, "assess_and_outline", fake_assess_and_outline)
     monkeypatch.setattr(
         orchestrator_module, "outline_answer", AsyncMock(return_value={})
     )
@@ -482,3 +482,100 @@ async def test_prepare_evidence_merges_subqueries_into_single_retrieve(monkeypat
         "strength definitions": 1,
         "deformation definitions": 1,
     }
+
+
+class _GroundedRetriever:
+    async def retrieve(self, *_args, **_kwargs):
+        return RetrievalResult(
+            chunks=[_make_chunk()],
+            parent_chunks=[],
+            scores=[0.92],
+            groundedness="grounded",
+        )
+
+
+async def _fake_decompose_single(*_args, **_kwargs):
+    return DecomposedQuery(
+        rewritten_question="material partial factors",
+        sub_queries=["material partial factors"],
+        needs_retrieval=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_evidence_skips_assessment_when_grounded(monkeypatch):
+    async def _fail_assess(*_args, **_kwargs):
+        raise AssertionError("assessment should be skipped when grounded")
+
+    outline_mock = AsyncMock(return_value={"narrative_angle": "直答"})
+    monkeypatch.setattr(orchestrator_module, "decompose_query", _fake_decompose_single)
+    monkeypatch.setattr(orchestrator_module, "assess_and_outline", _fail_assess)
+    monkeypatch.setattr(orchestrator_module, "outline_answer", outline_mock)
+    deps = QADeps(
+        config=ServerConfig(decompose_llm_model=""),
+        retriever=_GroundedRetriever(),
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=ConversationState(conversation_id="conv-1", history=[]),
+    )
+
+    events = [
+        item.event
+        async for item in orchestrator_module._prepare_evidence_for_agent_streamed(
+            req=QueryRequest(question="材料分项系数？"),
+            deps=deps,
+            glossary={},
+        )
+    ]
+
+    assert not [e for e in events if e.tool_name == "evidence_assessment"]
+    skipped = [
+        entry
+        for entry in deps.bundle.tool_trace
+        if entry.get("tool") == "evidence_assessment" and entry.get("skipped")
+    ]
+    assert skipped
+    outline_mock.assert_awaited_once()
+    assert deps.bundle.outline == {"narrative_angle": "直答"}
+
+
+@pytest.mark.asyncio
+async def test_prepare_evidence_uses_combined_outline_without_extra_call(monkeypatch):
+    async def fake_assess(*_args, **_kwargs):
+        return AssessOutlineResult(
+            sufficient=True,
+            missing_queries=[],
+            reason="covered",
+            outline={"narrative_angle": "合并大纲", "sections": []},
+        )
+
+    outline_mock = AsyncMock(return_value={"narrative_angle": "不应被调用"})
+    monkeypatch.setattr(orchestrator_module, "decompose_query", _fake_decompose_single)
+    monkeypatch.setattr(orchestrator_module, "assess_and_outline", fake_assess)
+    monkeypatch.setattr(orchestrator_module, "outline_answer", outline_mock)
+    deps = QADeps(
+        config=ServerConfig(
+            decompose_llm_model="",
+            assessment_skip_when_grounded=False,
+        ),
+        retriever=_GroundedRetriever(),
+        glossary={},
+        bundle=EvidenceBundle(),
+        conversation_state=ConversationState(conversation_id="conv-1", history=[]),
+    )
+
+    async for _item in orchestrator_module._prepare_evidence_for_agent_streamed(
+        req=QueryRequest(question="材料分项系数？"),
+        deps=deps,
+        glossary={},
+    ):
+        pass
+
+    outline_mock.assert_not_awaited()
+    assert deps.bundle.outline == {"narrative_angle": "合并大纲", "sections": []}
+    assessment_trace = [
+        entry
+        for entry in deps.bundle.tool_trace
+        if entry.get("tool") == "evidence_assessment"
+    ]
+    assert assessment_trace and assessment_trace[0]["outline_included"] is True
