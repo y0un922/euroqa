@@ -512,7 +512,10 @@ async def test_prepare_evidence_skips_assessment_when_grounded(monkeypatch):
     monkeypatch.setattr(orchestrator_module, "assess_and_outline", _fail_assess)
     monkeypatch.setattr(orchestrator_module, "outline_answer", outline_mock)
     deps = QADeps(
-        config=ServerConfig(decompose_llm_model=""),
+        config=ServerConfig(
+            decompose_llm_model="",
+            assessment_skip_when_grounded=True,
+        ),
         retriever=_GroundedRetriever(),
         glossary={},
         bundle=EvidenceBundle(),
