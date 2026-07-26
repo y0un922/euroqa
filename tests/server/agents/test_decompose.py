@@ -85,7 +85,7 @@ async def test_decompose_query_can_skip_retrieval(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_assess_and_outline_normalizes_missing_queries(monkeypatch):
+async def test_assess_evidence_normalizes_missing_queries(monkeypatch):
     async def _fake(*args, **kwargs):
         return """
         {
@@ -95,14 +95,13 @@ async def test_assess_and_outline_normalizes_missing_queries(monkeypatch):
             "EN 1992-1-1 Table 2.1N material partial factors",
             "Designers Guide material partial factors explanation"
           ],
-          "reason": "missing guide explanation",
-          "outline": {}
+          "reason": "missing guide explanation"
         }
         """
 
-    monkeypatch.setattr(decompose, "_call_assess_outline_llm", _fake)
+    monkeypatch.setattr(decompose, "_call_assessment_llm", _fake)
 
-    result = await decompose.assess_and_outline(
+    result = await decompose.assess_evidence(
         question="材料分项系数？",
         rewritten_question="material partial factors",
         implicit_context="Use EN 1992-1-1 framework",
@@ -114,66 +113,12 @@ async def test_assess_and_outline_normalizes_missing_queries(monkeypatch):
     assert not result.sufficient
     assert result.missing_queries == ["Designers Guide material partial factors explanation"]
     assert result.reason == "missing guide explanation"
-    assert result.outline == {}
 
 
-@pytest.mark.asyncio
-async def test_assess_and_outline_returns_outline_when_sufficient(monkeypatch):
-    async def _fake(*args, **kwargs):
-        return """
-        {
-          "sufficient": true,
-          "missing_queries": [],
-          "reason": "covered",
-          "outline": {
-            "narrative_angle": "材料分项系数说明",
-            "sections": [{"title": "定义", "bullets": ["γc"], "ref_ids": ["Ref-1"]}],
-            "calculation_steps": [],
-            "self_check": ["引用核对"]
-          }
-        }
-        """
-
-    monkeypatch.setattr(decompose, "_call_assess_outline_llm", _fake)
-
-    result = await decompose.assess_and_outline(
-        question="材料分项系数？",
-        rewritten_question="material partial factors",
-        evidence_text="[Ref-1] partial factor text",
-        previous_queries=[],
-        config=ServerConfig(),
-    )
-
-    assert result.sufficient
-    assert result.outline["narrative_angle"] == "材料分项系数说明"
-    assert result.outline["sections"][0]["title"] == "定义"
-
-
-@pytest.mark.asyncio
-async def test_assess_and_outline_fails_open(monkeypatch):
-    async def _raise(*args, **kwargs):
-        raise ValueError("llm down")
-
-    monkeypatch.setattr(decompose, "_call_assess_outline_llm", _raise)
-
-    result = await decompose.assess_and_outline(
-        question="q",
-        rewritten_question="q-en",
-        evidence_text="[Ref-1] text",
-        previous_queries=[],
-        config=ServerConfig(),
-    )
-
-    assert result.sufficient
-    assert result.missing_queries == []
-    assert result.outline == {}
-
-
-def test_assess_outline_prompt_requires_english_missing_queries():
-    assert "missing_queries 必须是英文" in decompose._ASSESS_OUTLINE_PROMPT
-    assert "主题定义" in decompose._ASSESS_OUTLINE_PROMPT
-    assert "隐含需求" in decompose._ASSESS_OUTLINE_PROMPT
-    assert "outline 返回空对象" in decompose._ASSESS_OUTLINE_PROMPT
+def test_assessment_prompt_requires_english_missing_queries():
+    assert "missing_queries 必须是英文" in decompose._ASSESSMENT_PROMPT
+    assert "主题定义" in decompose._ASSESSMENT_PROMPT
+    assert "隐含需求" in decompose._ASSESSMENT_PROMPT
 
 
 @pytest.mark.asyncio

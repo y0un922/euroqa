@@ -105,9 +105,6 @@ class ServerConfig(BaseSettings):
     prefetch_rerank_top_n_per_extra_query: int = 4
     prefetch_rerank_top_n_max: int = 24
     agent_evidence_max_chars: int = 60000
-    # round-1 证据 groundedness=grounded 时跳过充分性评估（省一次小模型往返）。
-    # eval 20260726：开启时补检轮被跳过导致证据缩水 ~13%、CitP 偏负，默认关闭。
-    assessment_skip_when_grounded: bool = False
 
     conversation_ttl_hours: int = 24
     max_conversation_rounds: int = 3

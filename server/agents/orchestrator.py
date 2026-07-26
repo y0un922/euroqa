@@ -15,7 +15,7 @@ import structlog
 
 from server.agents.decompose import (
     DecomposedQuery,
-    assess_and_outline,
+    assess_evidence,
     decompose_query,
     outline_answer,
 )
@@ -248,29 +248,7 @@ async def _prepare_evidence_for_agent_streamed(
     attempted_queries.extend(_new_queries(decomposed.sub_queries, attempted_queries))
     yield _prefetch_result_progress(deps.bundle, decomposed.sub_queries, 1)
 
-    outline: dict[str, object] = {}
-    outline_stale = True
-    skip_assessment = (
-        deps.config.assessment_skip_when_grounded
-        and deps.bundle.groundedness == "grounded"
-    )
-    if skip_assessment:
-        deps.bundle.tool_trace.append(
-            {
-                "tool": "evidence_assessment",
-                "skipped": True,
-                "reason": "grounded",
-            }
-        )
-        yield AgentProgress(
-            event=AgentStreamEvent(
-                kind="commentary",
-                summary="证据置信度高，跳过充分性评估。",
-            )
-        )
     for round_no in range(1, _MAX_SUPPLEMENT_ROUNDS + 1):
-        if skip_assessment:
-            break
         yield AgentProgress(
             event=AgentStreamEvent(
                 kind="tool_calling",
@@ -284,21 +262,17 @@ async def _prepare_evidence_for_agent_streamed(
                         ensure_ascii=False,
                     )
                 },
-                summary="正在判断现有证据是否足够回答，并同步规划大纲...",
+                summary="正在判断现有证据是否足够回答...",
             )
         )
-        assessment = await assess_and_outline(
+        assessment = await assess_evidence(
             question=req.question,
             rewritten_question=decomposed.rewritten_question,
             implicit_context=decomposed.implicit_context,
-            conversation_history=history,
             evidence_text=_format_assessment_evidence(deps.bundle),
             previous_queries=attempted_queries,
             config=deps.config,
         )
-        if assessment.outline:
-            outline = assessment.outline
-            outline_stale = False
         deps.bundle.tool_trace.append(
             {
                 "tool": "evidence_assessment",
@@ -306,7 +280,6 @@ async def _prepare_evidence_for_agent_streamed(
                 "sufficient": assessment.sufficient,
                 "missing_queries": assessment.missing_queries,
                 "reason": assessment.reason,
-                "outline_included": bool(assessment.outline),
             }
         )
         yield AgentProgress(
@@ -369,19 +342,18 @@ async def _prepare_evidence_for_agent_streamed(
             prefetched_original_results=original_candidates,
         )
         attempted_queries.extend(_new_queries(followup.sub_queries, attempted_queries))
-        outline_stale = True
         yield _prefetch_result_progress(
             deps.bundle, followup.sub_queries, supplement_round
         )
 
-    if deps.bundle.has_rag_evidence and (outline_stale or not outline):
+    if deps.bundle.has_rag_evidence:
         yield AgentProgress(
             event=AgentStreamEvent(
                 kind="thinking",
                 summary="正在构建回答大纲...",
             )
         )
-        outline = await outline_answer(
+        deps.bundle.outline = await outline_answer(
             question=req.question,
             rewritten_question=decomposed.rewritten_question,
             implicit_context=decomposed.implicit_context,
@@ -389,12 +361,10 @@ async def _prepare_evidence_for_agent_streamed(
             evidence_text=_format_assessment_evidence(deps.bundle),
             config=deps.config,
         )
-    if deps.bundle.has_rag_evidence:
-        deps.bundle.outline = outline
         deps.bundle.tool_trace.append(
             {
                 "tool": "answer_outline",
-                "success": bool(outline),
+                "success": bool(deps.bundle.outline),
             }
         )
 

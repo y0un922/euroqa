@@ -54,23 +54,13 @@ tables, formulas, standards, or object labels that the user/history did not
 mention.
 """
 
-_ASSESS_OUTLINE_PROMPT = """你负责两件事：判断已检索到的 Eurocode 证据是否足够回答用户问题；若足够，同时规划中文回答大纲。
+_ASSESSMENT_PROMPT = """你负责判断已检索到的 Eurocode 证据是否足够回答用户问题。
 
 只返回 JSON：
 {
   "sufficient": true,
   "missing_queries": ["0-4 focused English retrieval queries"],
-  "reason": "short reason",
-  "outline": {
-    "narrative_angle": "回答主线",
-    "sections": [
-      {"title": "小节标题", "bullets": ["要点"], "ref_ids": ["Ref-1"]}
-    ],
-    "calculation_steps": [
-      {"step": "1. 计算步骤", "formula": "LaTeX formula if needed", "ref_ids": ["Ref-2"]}
-    ],
-    "self_check": ["最终回答前需要核对的事项"]
-  }
+  "reason": "short reason"
 }
 
 评估维度：
@@ -79,22 +69,11 @@ _ASSESS_OUTLINE_PROMPT = """你负责两件事：判断已检索到的 Eurocode 
 - 背景约束：标准、国家附录、构件/材料/设计场景等约束是否覆盖。
 - 隐含需求：从对话历史或 implicit_context 得到的框架要求是否覆盖。
 
-评估规则：
+规则：
 - 只有证据包含回答所需的关键定义、条文、公式、表格、限值或计算方法时，sufficient 才能为 true。
 - 缺少被问题要求的 EN 条文、表格/公式、Designers' Guide 说明/示例或必要子主题时，sufficient=false。
 - missing_queries 必须是英文，用于继续检索；必须指向具体缺口，不要重复 previous_queries。
 - 不要回答用户，不要长篇引用，不要编造引用。
-
-大纲规则：
-- sufficient=true 时必须给出完整 outline；sufficient=false 时 outline 返回空对象 {}。
-- 只基于给出的 [Ref-N] 证据规划，不要编造规范内容，不要使用未出现的引用。
-- 中文输出；sections 按最终回答顺序排列，优先覆盖定义、关系、计算、适用条件和证据缺口。
-- 若问题包含“如何计算 / 计算方法 / 计算 / 求”等诉求，sections 必须包含“计算示例”或“算例”小节。
-- calculation_steps 仅在问题不涉及计算/公式时才允许返回空数组。
-- 当问题请求计算时，calculation_steps 必须规划一个可复现的具体数值算例：given 输入参数、每步代入数值、最终数值结果；不要只写空泛步骤。
-- 若问题问“相互关系 / 关系”，sections 须包含覆盖本构关系（应力-应变 σ-ε）与设计参数随强度折减的关系小节。
-- 关系小节应提示矩形应力块参数：fck≤50 时 λ=0.8、η=1.0；fck>50 时 λ=0.8-(fck-50)/400、η=1.0-(fck-50)/200，证据不足则标记缺口。
-- ref_ids 只能使用证据中已经出现的 Ref-N，不要带方括号。
 """
 
 _OUTLINE_PROMPT = """你是 Eurocode 中文回答的大纲规划器。
@@ -139,11 +118,10 @@ class DecomposedQuery:
 
 
 @dataclass(frozen=True)
-class AssessOutlineResult:
+class EvidenceAssessment:
     sufficient: bool
     missing_queries: list[str]
     reason: str = ""
-    outline: dict[str, object] = field(default_factory=dict)
 
 
 async def decompose_query(
@@ -235,29 +213,27 @@ async def _call_decompose_llm(
     return response.choices[0].message.content or ""
 
 
-async def assess_and_outline(
+async def assess_evidence(
     *,
     question: str,
     rewritten_question: str,
     implicit_context: str = "",
-    conversation_history: list[dict] | None = None,
     evidence_text: str,
     previous_queries: list[str],
     config: ServerConfig,
-) -> AssessOutlineResult:
-    """One small-model call: evidence sufficiency verdict + answer outline."""
+) -> EvidenceAssessment:
+    """Use the small planning model to decide if evidence covers the question."""
     if not evidence_text.strip():
-        return AssessOutlineResult(
+        return EvidenceAssessment(
             sufficient=False,
             missing_queries=[rewritten_question or question],
             reason="no evidence",
         )
     try:
-        raw = await _call_assess_outline_llm(
+        raw = await _call_assessment_llm(
             question=question,
             rewritten_question=rewritten_question,
             implicit_context=implicit_context,
-            conversation_history=conversation_history or [],
             evidence_text=evidence_text,
             previous_queries=previous_queries,
             config=config,
@@ -265,11 +241,10 @@ async def assess_and_outline(
         try:
             payload = _parse_decompose_payload(raw)
         except Exception:
-            raw = await _call_assess_outline_llm(
+            raw = await _call_assessment_llm(
                 question=question,
                 rewritten_question=rewritten_question,
                 implicit_context=implicit_context,
-                conversation_history=conversation_history or [],
                 evidence_text=evidence_text,
                 previous_queries=previous_queries,
                 config=config,
@@ -279,14 +254,10 @@ async def assess_and_outline(
             payload.get("missing_queries"),
             previous_queries,
         )
-        outline = payload.get("outline")
-        return AssessOutlineResult(
+        return EvidenceAssessment(
             sufficient=bool(payload.get("sufficient")),
             missing_queries=missing,
             reason=_clean_text(payload.get("reason")),
-            outline=_normalize_outline_payload(outline)
-            if isinstance(outline, dict) and outline
-            else {},
         )
     except Exception as exc:
         logger.warning(
@@ -294,27 +265,26 @@ async def assess_and_outline(
             error_type=type(exc).__name__,
             error=str(exc),
         )
-        return AssessOutlineResult(
+        return EvidenceAssessment(
             sufficient=True,
             missing_queries=[],
             reason="assessment_failed_fallback",
         )
 
 
-async def _call_assess_outline_llm(
+async def _call_assessment_llm(
     *,
     question: str,
     rewritten_question: str,
     implicit_context: str,
-    conversation_history: list[dict],
     evidence_text: str,
     previous_queries: list[str],
     config: ServerConfig,
 ) -> str:
-    timeout_seconds = max(1.0, config.outline_llm_timeout_seconds)
+    timeout_seconds = max(1.0, config.decompose_llm_timeout_seconds)
     client = AsyncOpenAI(
-        api_key=config.resolved_planning_llm_api_key,
-        base_url=config.resolved_planning_llm_base_url,
+        api_key=config.resolved_decompose_llm_api_key,
+        base_url=config.resolved_decompose_llm_base_url,
         timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
         max_retries=0,
     )
@@ -322,18 +292,17 @@ async def _call_assess_outline_llm(
         "question": question,
         "rewritten_question": rewritten_question,
         "implicit_context": implicit_context,
-        "history": _compact_history(conversation_history),
         "previous_queries": previous_queries[-8:],
         "evidence": evidence_text[:12000],
     }
     response = await client.chat.completions.create(
-        model=config.resolved_planning_llm_model,
+        model=config.resolved_decompose_llm_model,
         messages=[
-            {"role": "system", "content": _ASSESS_OUTLINE_PROMPT},
+            {"role": "system", "content": _ASSESSMENT_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
         temperature=0.0,
-        max_tokens=2000,
+        max_tokens=600,
         response_format={"type": "json_object"},
         extra_body={"enable_thinking": False},
     )
