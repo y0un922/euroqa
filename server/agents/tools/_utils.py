@@ -7,7 +7,7 @@ from server.core.retrieval import RetrievalResult
 
 DEFAULT_TOP_K = 8
 MIN_TOP_K = 3
-MAX_TOP_K = 16
+MAX_TOP_K = 24
 
 
 def base_filters(ctx: RunContextWrapper[QADeps] | QADeps) -> dict[str, object]:

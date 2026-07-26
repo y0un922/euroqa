@@ -94,10 +94,12 @@ class ServerConfig(BaseSettings):
     max_context_tokens: int = 4000
 
     # Agent 预检索：多子查询合并检索的每轮 rerank 预算与证据上下文预算
-    prefetch_rerank_top_n_base: int = 8
-    prefetch_rerank_top_n_per_extra_query: int = 2
-    prefetch_rerank_top_n_max: int = 16
-    agent_evidence_max_chars: int = 30000
+    # （eval compare-runs 20260726: base8/extra2/max16 证据量较旧管线缩水过半，
+    #   Faith/CitP 点估计下滑；上调至接近旧管线证据量）
+    prefetch_rerank_top_n_base: int = 12
+    prefetch_rerank_top_n_per_extra_query: int = 4
+    prefetch_rerank_top_n_max: int = 24
+    agent_evidence_max_chars: int = 60000
 
     conversation_ttl_hours: int = 24
     max_conversation_rounds: int = 3
