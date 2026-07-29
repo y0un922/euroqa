@@ -20,6 +20,7 @@ def _new_manager() -> TaskManager:
     manager._current_doc_id = None
     manager._current_inner_task = None
     manager._watchdog_cancel_reasons = {}
+    manager._capacity = 100
     return manager
 
 
@@ -194,3 +195,39 @@ async def test_watchdog_cancels_stale_doc_and_worker_continues(
     assert next_state is not None
     assert next_state.stage == PipelineStage.READY
     assert processed == ["next"]
+
+
+def test_queue_stats_and_capacity_limit(tmp_path: Path):
+    manager = _new_manager()
+    manager.set_capacity(2)
+    parsed_dir = str(tmp_path / "parsed")
+
+    manager.enqueue("DOC_1")
+    manager.enqueue("DOC_2")
+    stats = manager.get_queue_stats()
+    assert stats["capacity"] == 2
+    assert stats["used"] == 2
+    assert stats["remaining"] == 0
+    assert stats["queued"] == 2
+    assert stats["active"] == 0
+    assert stats["max_files_per_request"] == 20
+
+    # Already-active doc does not consume a new slot.
+    again = manager.enqueue("DOC_1")
+    assert again.doc_id == "DOC_1"
+    assert manager.count_unfinished() == 2
+
+    with pytest.raises(RuntimeError, match="parse queue is full"):
+        manager.enqueue("DOC_3")
+
+    # Mark DOC_1 complete -> frees a slot.
+    manager._update_state(
+        doc_id="DOC_1",
+        stage=PipelineStage.READY,
+        progress=1.0,
+        message="done",
+        parsed_dir=parsed_dir,
+    )
+    assert manager.remaining_slots() == 1
+    manager.enqueue("DOC_3")
+    assert manager.count_unfinished() == 2

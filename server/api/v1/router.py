@@ -58,6 +58,7 @@ _include_public_contract_routes(
     documents.router,
     public_routes={
         ("POST", "/documents/parse"),
+        ("GET", "/documents/parse-queue"),
         ("POST", "/documents/status"),
         ("POST", "/documents/delete"),
     },

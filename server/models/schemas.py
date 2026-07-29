@@ -142,6 +142,11 @@ class QueryRequest(BaseModel):
 
     question: str = Field(..., max_length=500)
     domain: Optional[str] = None
+    doc_ids: list[str] = Field(
+        default_factory=list,
+        alias="docIds",
+        max_length=100,
+    )
     kb_ids: list[str] = Field(default_factory=list, alias="kbIds")
     conversation_id: Optional[str] = None
     session_id: Optional[str] = Field(default=None, alias="sessionId")
@@ -311,17 +316,63 @@ class ApiErrorResponse(CamelModel):
 
 
 class DocumentParseRequest(CamelModel):
+    """Single-document parse payload (internal helpers / upload paths)."""
+
     doc_id: str
     file_name: str
     minio_path: str
     context_summary_enabled: bool = True
 
 
+class DocumentParseFileItem(CamelModel):
+    """One file entry in the external batch parse contract.
+
+    Empty strings are allowed at schema level so the batch endpoint can return
+    per-file ``rejected`` results instead of failing the whole request.
+    """
+
+    doc_id: str = ""
+    file_name: str = ""
+    minio_path: str = ""
+    context_summary_enabled: bool | None = None
+
+
+class DocumentParseBatchRequest(CamelModel):
+    """External batch parse request: files[] only (no v1 single-object form)."""
+
+    context_summary_enabled: bool = True
+    files: list[DocumentParseFileItem] = Field(..., min_length=1, max_length=20)
+
+
+class DocumentParseResultItem(CamelModel):
+    doc_id: str
+    status: str
+    message: str
+    error: dict[str, str] | None = None
+
+
 class DocumentParseResponse(CamelModel):
+    """Legacy single-doc response shape used by internal enqueue helpers."""
+
     code: int = 200
     doc_id: str
     status: str
     message: str
+
+
+class DocumentParseBatchResponse(CamelModel):
+    code: int = 200
+    results: list[DocumentParseResultItem]
+
+
+class DocumentParseQueueResponse(CamelModel):
+    code: int = 200
+    capacity: int
+    used: int
+    remaining: int
+    active: int
+    queued: int
+    max_files_per_request: int
 
 
 class DocumentUploadToMinioResponse(CamelModel):

@@ -627,12 +627,27 @@ class TestDocumentsEndpoint:
             parsed_dir=str(tmp_path / "parsed"),
         )
 
+        from server.services.task_manager import PipelineStage
+
         class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
-            def enqueue(self, doc_id):
+            def get_status_or_persisted(self, doc_id, parsed_dir):
                 return None
+
+            def can_accept(self, new_slots=1):
+                return True
+
+            def remaining_slots(self):
+                return 100
+
+            @property
+            def capacity(self):
+                return 100
+
+            def enqueue(self, doc_id):
+                return type("State", (), {"stage": PipelineStage.PENDING, "doc_id": doc_id})()
 
         with patch(
             "server.api.v1.documents.get_task_manager",
@@ -641,13 +656,18 @@ class TestDocumentsEndpoint:
             resp = client.post(
                 "/api/v1/documents/parse",
                 json={
-                    "docId": "EN_1992_1_1",
-                    "fileName": "EN 1992-1-1.pdf",
-                    "minioPath": str(source_pdf),
+                    "files": [
+                        {
+                            "docId": "EN_1992_1_1",
+                            "fileName": "EN 1992-1-1.pdf",
+                            "minioPath": str(source_pdf),
+                        }
+                    ]
                 },
             )
 
         assert resp.status_code == 200
+        assert resp.json()["results"][0]["status"] == "queued"
 
     def test_internal_document_upload_still_requires_auth_when_password_enabled(
         self,
@@ -898,7 +918,7 @@ class TestDocumentsEndpoint:
         assert not (pdf_dir / f"{doc_id}.pdf").exists()
         assert not (parsed_dir / doc_id).exists()
 
-    def test_parse_document_contract_enqueues_doc_with_camel_case_payload(
+    def test_parse_document_contract_enqueues_batch_with_camel_case_payload(
         self, client, tmp_path: Path
     ):
         pdf_dir = tmp_path / "pdfs"
@@ -911,13 +931,32 @@ class TestDocumentsEndpoint:
         )
 
         enqueued: list[str] = []
+        from server.services.task_manager import PipelineStage
 
         class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
+            def get_status_or_persisted(self, doc_id, parsed_dir):
+                return None
+
+            def can_accept(self, new_slots=1):
+                return True
+
+            def remaining_slots(self):
+                return 100
+
+            @property
+            def capacity(self):
+                return 100
+
             def enqueue(self, doc_id):
                 enqueued.append(doc_id)
+                return type(
+                    "State",
+                    (),
+                    {"stage": PipelineStage.PENDING, "doc_id": doc_id},
+                )()
 
         with patch(
             "server.api.v1.documents.get_task_manager",
@@ -926,21 +965,30 @@ class TestDocumentsEndpoint:
             resp = client.post(
                 "/api/v1/documents/parse",
                 json={
-                    "docId": "EN_1992_1_1",
-                    "fileName": "EN 1992-1-1.pdf",
-                    "minioPath": str(source_pdf),
+                    "files": [
+                        {
+                            "docId": "EN_1992_1_1",
+                            "fileName": "EN 1992-1-1.pdf",
+                            "minioPath": str(source_pdf),
+                        }
+                    ]
                 },
             )
 
         assert resp.status_code == 200
-        assert resp.json() == {
-            "code": 200,
-            "docId": "EN_1992_1_1",
-            "status": "processing",
-            "message": "已加入解析队列",
-        }
+        body = resp.json()
+        assert body["code"] == 200
+        assert body["results"] == [
+            {
+                "docId": "EN_1992_1_1",
+                "status": "queued",
+                "message": "已加入解析队列",
+                "error": None,
+            }
+        ]
         assert enqueued == ["EN_1992_1_1"]
-        assert (pdf_dir / "EN_1992_1_1.pdf").is_file()
+        # External batch defers PDF fetch to the worker.
+        assert not (pdf_dir / "EN_1992_1_1.pdf").exists()
         parse_options = json.loads(
             (tmp_path / "parsed" / "EN_1992_1_1" / "parse_options.json").read_text(
                 encoding="utf-8"
@@ -949,12 +997,11 @@ class TestDocumentsEndpoint:
         assert parse_options["context_summary_enabled"] is True
         assert parse_options["minio_path"] == str(source_pdf)
 
-    def test_parse_document_contract_downloads_from_minio_path(
+    def test_parse_document_batch_skips_active_and_persists_options(
         self, client, tmp_path: Path
     ):
-        pdf_dir = tmp_path / "pdfs"
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
-            pdf_dir=str(pdf_dir),
+            pdf_dir=str(tmp_path / "pdfs"),
             parsed_dir=str(tmp_path / "parsed"),
             minio_endpoint="127.0.0.1:9000",
             minio_access_key="access",
@@ -962,52 +1009,110 @@ class TestDocumentsEndpoint:
         )
 
         enqueued: list[str] = []
+        from server.services.task_manager import PipelineStage, TaskState
 
         class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
+            def get_status_or_persisted(self, doc_id, parsed_dir):
+                if doc_id == "ACTIVE_DOC":
+                    return TaskState(doc_id=doc_id, stage=PipelineStage.PARSING)
+                return None
+
+            def can_accept(self, new_slots=1):
+                return True
+
+            def remaining_slots(self):
+                return 100
+
+            @property
+            def capacity(self):
+                return 100
+
             def enqueue(self, doc_id):
                 enqueued.append(doc_id)
+                return TaskState(doc_id=doc_id, stage=PipelineStage.PENDING)
 
-        def fake_download_pdf_from_minio(*, minio_path, destination, config):
-            assert minio_path == "eurocode/uploads/EN_1992_1_1.pdf"
-            assert config.minio_endpoint == "127.0.0.1:9000"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(b"%PDF-1.4 from minio")
-
-        with (
-            patch(
-                "server.api.v1.documents.get_task_manager",
-                return_value=_FakeTaskManager(),
-            ),
-            patch(
-                "server.api.v1.documents.download_pdf_from_minio",
-                fake_download_pdf_from_minio,
-            ),
+        with patch(
+            "server.api.v1.documents.get_task_manager",
+            return_value=_FakeTaskManager(),
         ):
             resp = client.post(
                 "/api/v1/documents/parse",
                 json={
-                    "docId": "EN_1992_1_1",
-                    "fileName": "EN 1992-1-1.pdf",
-                    "minioPath": "eurocode/uploads/EN_1992_1_1.pdf",
                     "contextSummaryEnabled": False,
+                    "files": [
+                        {
+                            "docId": "ACTIVE_DOC",
+                            "fileName": "a.pdf",
+                            "minioPath": "eurocode/uploads/a.pdf",
+                        },
+                        {
+                            "docId": "NEW_DOC",
+                            "fileName": "b.pdf",
+                            "minioPath": "eurocode/uploads/b.pdf",
+                        },
+                        {
+                            "docId": "NEW_DOC",
+                            "fileName": "b-dup.pdf",
+                            "minioPath": "eurocode/uploads/b-dup.pdf",
+                        },
+                    ],
                 },
             )
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "processing"
-        assert enqueued == ["EN_1992_1_1"]
-        assert (pdf_dir / "EN_1992_1_1.pdf").read_bytes().startswith(b"%PDF")
+        results = resp.json()["results"]
+        assert results[0]["status"] == "already_processing"
+        assert results[1]["status"] == "queued"
+        assert results[2]["status"] == "rejected"
+        assert results[2]["error"]["type"] == "DUPLICATE_IN_REQUEST"
+        assert enqueued == ["NEW_DOC"]
         parse_options = json.loads(
-            (tmp_path / "parsed" / "EN_1992_1_1" / "parse_options.json").read_text(
+            (tmp_path / "parsed" / "NEW_DOC" / "parse_options.json").read_text(
                 encoding="utf-8"
             )
         )
         assert parse_options["context_summary_enabled"] is False
-        assert parse_options["file_name"] == "EN 1992-1-1.pdf"
-        assert parse_options["minio_path"] == "eurocode/uploads/EN_1992_1_1.pdf"
+        assert parse_options["file_name"] == "b.pdf"
+        assert parse_options["minio_path"] == "eurocode/uploads/b.pdf"
+
+    def test_parse_queue_endpoint_returns_remaining(
+        self, client, tmp_path: Path
+    ):
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(tmp_path / "pdfs"),
+            parsed_dir=str(tmp_path / "parsed"),
+        )
+
+        class _FakeTaskManager(_FakeTaskManagerBase):
+            def get_queue_stats(self):
+                return {
+                    "capacity": 100,
+                    "used": 15,
+                    "remaining": 85,
+                    "active": 1,
+                    "queued": 14,
+                    "max_files_per_request": 20,
+                }
+
+        with patch(
+            "server.api.v1.documents.get_task_manager",
+            return_value=_FakeTaskManager(),
+        ):
+            resp = client.get("/api/v1/documents/parse-queue")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 200,
+            "capacity": 100,
+            "used": 15,
+            "remaining": 85,
+            "active": 1,
+            "queued": 14,
+            "maxFilesPerRequest": 20,
+        }
 
     def test_get_document_file_downloads_missing_pdf_from_minio(
         self, client, tmp_path: Path
@@ -1077,13 +1182,22 @@ class TestDocumentsEndpoint:
 
         enqueued: list[str] = []
         uploaded: list[dict[str, object]] = []
+        from server.services.task_manager import PipelineStage
 
         class _FakeTaskManager(_FakeTaskManagerBase):
             def get_status(self, doc_id):
                 return None
 
+            def get_status_or_persisted(self, doc_id, parsed_dir):
+                return None
+
             def enqueue(self, doc_id):
                 enqueued.append(doc_id)
+                return type(
+                    "State",
+                    (),
+                    {"stage": PipelineStage.PENDING, "doc_id": doc_id},
+                )()
 
         def fake_upload_pdf_to_minio(*, bucket, object_name, content, config):
             uploaded.append(
@@ -1133,7 +1247,7 @@ class TestDocumentsEndpoint:
             "docId": "EN_1992-1-1",
             "fileName": "EN 1992-1-1.pdf",
             "minioPath": "eurocode/uploads/EN_1992-1-1.pdf",
-            "status": "processing",
+            "status": "queued",
             "message": "已加入解析队列",
         }
         assert uploaded == [

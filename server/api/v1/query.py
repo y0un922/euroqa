@@ -7,7 +7,7 @@ import json
 import time
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from server.agents.orchestrator import (
@@ -132,18 +132,30 @@ async def _indexed_sources_by_doc_id(
     return matched
 
 
-async def _resolve_kb_sources(
-    req: QueryRequest,
-    kb_db: KBDatabase,
+_MAX_QUERY_DOC_IDS = 100
+_EMPTY_SCOPE_SENTINEL = "__kb_scope_no_documents__"
+
+
+def _normalize_request_doc_ids(doc_ids: list[str]) -> list[str]:
+    """Deduplicate non-empty doc ids while preserving order."""
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in doc_ids:
+        doc_id = raw.strip()
+        if not doc_id or doc_id in seen:
+            continue
+        seen.add(doc_id)
+        normalized.append(doc_id)
+    return normalized
+
+
+async def _resolve_doc_id_sources(
+    doc_ids: list[str],
     retriever: object | None = None,
-) -> list[str] | None:
-    """Resolve selected knowledge-base ids into indexed document source ids."""
-    kb_ids = [kb_id.strip() for kb_id in req.kb_ids if kb_id.strip()]
-    if not kb_ids:
-        return None
-    doc_ids = await kb_db.get_doc_ids_for_kbs(kb_ids)
+) -> list[str]:
+    """Map client docIds to indexed source keys (or aliases as fallback)."""
     if not doc_ids:
-        return ["__kb_scope_no_documents__"]
+        return [_EMPTY_SCOPE_SENTINEL]
 
     indexed_sources = (
         await _indexed_sources_by_doc_id(doc_ids, retriever)
@@ -156,7 +168,54 @@ async def _resolve_kb_sources(
     fallback_sources: list[str] = []
     for doc_id in doc_ids:
         fallback_sources.extend(_source_aliases_for_doc_id(doc_id))
-    return fallback_sources or ["__kb_scope_no_documents__"]
+    return fallback_sources or [_EMPTY_SCOPE_SENTINEL]
+
+
+async def _resolve_kb_sources(
+    req: QueryRequest,
+    kb_db: KBDatabase,
+    retriever: object | None = None,
+) -> list[str] | None:
+    """Resolve selected knowledge-base ids into indexed document source ids."""
+    kb_ids = [kb_id.strip() for kb_id in req.kb_ids if kb_id.strip()]
+    if not kb_ids:
+        return None
+    doc_ids = await kb_db.get_doc_ids_for_kbs(kb_ids)
+    if not doc_ids:
+        return [_EMPTY_SCOPE_SENTINEL]
+    return await _resolve_doc_id_sources(doc_ids, retriever)
+
+
+async def _resolve_query_sources(
+    req: QueryRequest,
+    kb_db: KBDatabase,
+    retriever: object | None = None,
+    *,
+    require_doc_ids: bool = False,
+) -> list[str] | None:
+    """Resolve retrieval scope for query endpoints.
+
+    Priority:
+    1. Explicit ``docIds`` (Huake external contract)
+    2. Internal ``kbIds`` (admin/debug knowledge bases)
+    3. None = unrestricted (internal only; stream requires docIds)
+    """
+    doc_ids = _normalize_request_doc_ids(req.doc_ids)
+    if doc_ids:
+        if len(doc_ids) > _MAX_QUERY_DOC_IDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"docIds 上限为 {_MAX_QUERY_DOC_IDS} 个",
+            )
+        return await _resolve_doc_id_sources(doc_ids, retriever)
+
+    if require_doc_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="docIds 不能为空，请传入本次允许检索的文档 ID 列表",
+        )
+
+    return await _resolve_kb_sources(req, kb_db, retriever)
 
 
 def _source_filter_kwargs(sources_filter: list[str] | None) -> dict[str, list[str]]:
@@ -174,7 +233,7 @@ async def query(
 ) -> QueryResponse:
     started_at = time.perf_counter()
     runtime_config = _resolve_runtime_config(config, req)
-    sources_filter = await _resolve_kb_sources(req, kb_db, retriever)
+    sources_filter = await _resolve_query_sources(req, kb_db, retriever)
     recorder = (
         SpotCheckRecorder(query=req.question) if is_spot_check_enabled() else None
     )
@@ -263,7 +322,13 @@ async def query_stream(
 ):
     """SSE 流式问答端点，逐步返回 LLM 生成的回答片段。"""
     runtime_config = _resolve_runtime_config(config, req)
-    sources_filter = await _resolve_kb_sources(req, kb_db, retriever)
+    # External Huake contract: docIds is required to prevent full-corpus retrieval.
+    sources_filter = await _resolve_query_sources(
+        req,
+        kb_db,
+        retriever,
+        require_doc_ids=True,
+    )
 
     async def event_generator():
         started_at = time.perf_counter()

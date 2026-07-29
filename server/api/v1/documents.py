@@ -22,8 +22,13 @@ from server.models.schemas import (
     DocumentDeleteError,
     DocumentDeleteItem,
     DocumentInfo,
+    DocumentParseBatchRequest,
+    DocumentParseBatchResponse,
+    DocumentParseFileItem,
+    DocumentParseQueueResponse,
     DocumentParseRequest,
     DocumentParseResponse,
+    DocumentParseResultItem,
     DocumentStatusBatchRequest,
     DocumentStatusBatchResponse,
     DocumentStatusError,
@@ -33,7 +38,11 @@ from server.models.schemas import (
     DocumentUploadToMinioResponse,
     DocumentProcessResponse,
 )
-from server.services.task_manager import get_task_manager, PipelineStage
+from server.services.task_manager import (
+    MAX_FILES_PER_PARSE_REQUEST,
+    PipelineStage,
+    get_task_manager,
+)
 from server.services.minio_storage import download_pdf_from_minio, upload_pdf_to_minio
 from shared.elasticsearch_client import build_async_elasticsearch
 
@@ -377,7 +386,11 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
 
 
 def _prepare_external_pdf_reference(request: DocumentParseRequest, config) -> None:
-    """Download or copy the externally uploaded PDF into the pipeline PDF dir."""
+    """Download or copy the externally uploaded PDF into the pipeline PDF dir.
+
+    Used by internal upload paths that already have the file available. The
+    external batch parse endpoint defers MinIO fetch to the worker.
+    """
     target_path = _get_pdf_path(request.doc_id, config.pdf_dir)
     if target_path.is_file():
         return
@@ -418,24 +431,196 @@ def _persist_parse_options(request: DocumentParseRequest, config) -> None:
     )
 
 
+def _file_item_to_parse_request(
+    item: DocumentParseFileItem,
+    *,
+    default_context_summary_enabled: bool,
+) -> DocumentParseRequest:
+    context_enabled = (
+        default_context_summary_enabled
+        if item.context_summary_enabled is None
+        else item.context_summary_enabled
+    )
+    return DocumentParseRequest(
+        doc_id=item.doc_id.strip(),
+        file_name=item.file_name.strip(),
+        minio_path=item.minio_path.strip(),
+        context_summary_enabled=context_enabled,
+    )
+
+
+def _validate_parse_file_item(
+    item: DocumentParseFileItem,
+    *,
+    default_context_summary_enabled: bool,
+) -> tuple[DocumentParseRequest | None, DocumentParseResultItem | None]:
+    """Validate one batch file entry. Returns (request, rejected_result)."""
+    doc_id = (item.doc_id or "").strip()
+    file_name = (item.file_name or "").strip()
+    minio_path = (item.minio_path or "").strip()
+    if not doc_id:
+        return None, DocumentParseResultItem(
+            doc_id=item.doc_id or "",
+            status="rejected",
+            message="docId 不能为空",
+            error={"type": "VALIDATION_ERROR", "detail": "docId is required"},
+        )
+    if not file_name:
+        return None, DocumentParseResultItem(
+            doc_id=doc_id,
+            status="rejected",
+            message="fileName 不能为空",
+            error={"type": "VALIDATION_ERROR", "detail": "fileName is required"},
+        )
+    if not minio_path:
+        return None, DocumentParseResultItem(
+            doc_id=doc_id,
+            status="rejected",
+            message="minioPath 不能为空",
+            error={"type": "VALIDATION_ERROR", "detail": "minioPath is required"},
+        )
+    return (
+        _file_item_to_parse_request(
+            DocumentParseFileItem(
+                doc_id=doc_id,
+                file_name=file_name,
+                minio_path=minio_path,
+                context_summary_enabled=item.context_summary_enabled,
+            ),
+            default_context_summary_enabled=default_context_summary_enabled,
+        ),
+        None,
+    )
+
+
 async def _enqueue_document_parse(
     request: DocumentParseRequest,
     config,
+    *,
+    prepare_pdf: bool = True,
+    raise_on_active: bool = True,
 ) -> DocumentParseResponse:
-    """Enqueue one document parse request using the external contract."""
+    """Enqueue one document parse request.
+
+    Internal upload helpers keep ``prepare_pdf=True`` and ``raise_on_active=True``.
+    The external batch endpoint uses soft active handling and defers PDF fetch.
+    """
     tm = get_task_manager()
     state = tm.get_status_or_persisted(request.doc_id, config.parsed_dir)
     if _is_active_pipeline_state(state):
-        raise HTTPException(status_code=409, detail="该文档正在解析中，不可重复触发")
+        if raise_on_active:
+            raise HTTPException(status_code=409, detail="该文档正在解析中，不可重复触发")
+        return DocumentParseResponse(
+            doc_id=request.doc_id,
+            status="already_processing",
+            message="该文档正在解析中，未重复入队",
+        )
 
-    _prepare_external_pdf_reference(request, config)
+    if prepare_pdf:
+        _prepare_external_pdf_reference(request, config)
     _persist_parse_options(request, config)
-    tm.enqueue(request.doc_id)
+    try:
+        enqueued = tm.enqueue(request.doc_id)
+    except RuntimeError as exc:
+        if "parse queue is full" in str(exc):
+            raise HTTPException(status_code=429, detail="解析队列已满，请稍后重试") from exc
+        raise
+    status = "queued" if enqueued.stage == PipelineStage.PENDING else "processing"
     return DocumentParseResponse(
         doc_id=request.doc_id,
-        status="processing",
+        status=status,
         message="已加入解析队列",
     )
+
+
+async def _enqueue_document_parse_batch(
+    request: DocumentParseBatchRequest,
+    config,
+) -> DocumentParseBatchResponse:
+    """Accept a batch of parse requests with per-file results."""
+    tm = get_task_manager()
+    results: list[DocumentParseResultItem] = []
+    seen_doc_ids: set[str] = set()
+    accepted_requests: list[DocumentParseRequest] = []
+
+    for item in request.files:
+        parsed_req, rejected = _validate_parse_file_item(
+            item,
+            default_context_summary_enabled=request.context_summary_enabled,
+        )
+        if rejected is not None:
+            results.append(rejected)
+            continue
+        assert parsed_req is not None
+        if parsed_req.doc_id in seen_doc_ids:
+            results.append(
+                DocumentParseResultItem(
+                    doc_id=parsed_req.doc_id,
+                    status="rejected",
+                    message="请求内重复的 docId，已忽略",
+                    error={
+                        "type": "DUPLICATE_IN_REQUEST",
+                        "detail": "duplicate docId in files[]",
+                    },
+                )
+            )
+            continue
+        seen_doc_ids.add(parsed_req.doc_id)
+
+        state = tm.get_status_or_persisted(parsed_req.doc_id, config.parsed_dir)
+        if _is_active_pipeline_state(state):
+            results.append(
+                DocumentParseResultItem(
+                    doc_id=parsed_req.doc_id,
+                    status="already_processing",
+                    message="该文档正在解析中，未重复入队",
+                )
+            )
+            continue
+
+        accepted_requests.append(parsed_req)
+        # Placeholder; replaced after capacity check / enqueue.
+        results.append(
+            DocumentParseResultItem(
+                doc_id=parsed_req.doc_id,
+                status="queued",
+                message="已加入解析队列",
+            )
+        )
+
+    new_slots = len(accepted_requests)
+    if new_slots and not tm.can_accept(new_slots):
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"解析队列剩余名额不足：需要 {new_slots}，"
+                f"剩余 {tm.remaining_slots()}（容量 {tm.capacity}）"
+            ),
+        )
+
+    # Re-walk results and enqueue accepted docs in order.
+    accepted_iter = iter(accepted_requests)
+    final_results: list[DocumentParseResultItem] = []
+    for item in results:
+        if item.status != "queued":
+            final_results.append(item)
+            continue
+        parsed_req = next(accepted_iter)
+        response = await _enqueue_document_parse(
+            parsed_req,
+            config,
+            prepare_pdf=False,
+            raise_on_active=False,
+        )
+        final_results.append(
+            DocumentParseResultItem(
+                doc_id=response.doc_id,
+                status=response.status,
+                message=response.message,
+            )
+        )
+
+    return DocumentParseBatchResponse(results=final_results)
 
 
 async def _delete_one_document(doc_id: str, config) -> DocumentDeleteItem:
@@ -694,13 +879,25 @@ async def process_document(doc_id: str, config=Depends(get_config)):
     )
 
 
-@router.post("/documents/parse", response_model=DocumentParseResponse)
+@router.post("/documents/parse", response_model=DocumentParseBatchResponse)
 async def parse_document(
-    request: DocumentParseRequest,
+    request: DocumentParseBatchRequest,
     config=Depends(get_config),
-) -> DocumentParseResponse:
-    """触发 PDF 解析，符合外部接口文档契约。"""
-    return await _enqueue_document_parse(request, config)
+) -> DocumentParseBatchResponse:
+    """批量触发 PDF 解析（外部契约：仅 files[]）。"""
+    if len(request.files) > MAX_FILES_PER_PARSE_REQUEST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"files 上限为 {MAX_FILES_PER_PARSE_REQUEST} 个",
+        )
+    return await _enqueue_document_parse_batch(request, config)
+
+
+@router.get("/documents/parse-queue", response_model=DocumentParseQueueResponse)
+async def get_parse_queue() -> DocumentParseQueueResponse:
+    """查询解析队列占用与剩余可提交名额。"""
+    stats = get_task_manager().get_queue_stats()
+    return DocumentParseQueueResponse(**stats)
 
 
 @router.post("/documents/status", response_model=DocumentStatusBatchResponse)

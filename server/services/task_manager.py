@@ -16,6 +16,9 @@ logger = structlog.get_logger()
 _INDEX_READY_SENTINEL = ".indexed"
 _RESTART_INTERRUPTED_MESSAGE = "服务重启导致解析中断,请重试"
 _STALE_CANCEL_MESSAGE = "解析卡住超过 20 分钟无进度,已中止,请重试"
+# Default cap for unfinished parse tasks (queued + active). Override via env.
+DEFAULT_PARSE_QUEUE_CAPACITY = 100
+MAX_FILES_PER_PARSE_REQUEST = 20
 
 
 def _utcnow() -> datetime:
@@ -80,7 +83,17 @@ class TaskManager:
         self._current_doc_id: str | None = None
         self._current_inner_task: asyncio.Task[dict[str, int]] | None = None
         self._watchdog_cancel_reasons: dict[str, str] = {}
+        self._capacity = self._resolve_capacity()
         self._initialized = True
+
+    @staticmethod
+    def _resolve_capacity() -> int:
+        raw = os.environ.get("PARSE_QUEUE_CAPACITY", str(DEFAULT_PARSE_QUEUE_CAPACITY))
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return DEFAULT_PARSE_QUEUE_CAPACITY
+        return max(1, value)
 
     # -- 生命周期 --
 
@@ -104,11 +117,66 @@ class TaskManager:
 
     # -- 公开接口 --
 
+    @property
+    def capacity(self) -> int:
+        """Maximum number of unfinished parse tasks allowed at once."""
+        return self._capacity
+
+    def set_capacity(self, capacity: int) -> None:
+        """Override queue capacity (tests / runtime config)."""
+        self._capacity = max(1, int(capacity))
+
+    def is_active_state(self, state: TaskState | None) -> bool:
+        """Return whether a task is still queued or running."""
+        if state is None:
+            return False
+        return state.stage not in _TERMINAL_STAGES
+
+    def count_unfinished(self) -> int:
+        """Count in-memory tasks that are queued or actively processing."""
+        return sum(1 for state in self._states.values() if self.is_active_state(state))
+
+    def count_active(self) -> int:
+        """Count tasks currently being processed by the worker."""
+        return 1 if self._current_doc_id is not None else 0
+
+    def count_queued(self) -> int:
+        """Count unfinished tasks waiting for the worker (not yet active)."""
+        unfinished = self.count_unfinished()
+        active = self.count_active()
+        return max(0, unfinished - active)
+
+    def remaining_slots(self) -> int:
+        """How many new tasks can still be accepted."""
+        return max(0, self._capacity - self.count_unfinished())
+
+    def get_queue_stats(self) -> dict[str, int]:
+        """Snapshot of parse-queue capacity for the external contract."""
+        used = self.count_unfinished()
+        capacity = self._capacity
+        return {
+            "capacity": capacity,
+            "used": used,
+            "remaining": max(0, capacity - used),
+            "active": self.count_active(),
+            "queued": self.count_queued(),
+            "max_files_per_request": MAX_FILES_PER_PARSE_REQUEST,
+        }
+
+    def can_accept(self, new_slots: int = 1) -> bool:
+        """Return whether ``new_slots`` additional unfinished tasks fit."""
+        if new_slots <= 0:
+            return True
+        return self.count_unfinished() + new_slots <= self._capacity
+
     def enqueue(self, doc_id: str) -> TaskState:
         """将文档加入处理队列。如果已在活跃状态则返回当前状态。"""
         existing = self._states.get(doc_id)
         if existing is not None and existing.stage not in _TERMINAL_STAGES:
             return existing
+
+        if not self.can_accept(1):
+            raise RuntimeError("parse queue is full")
 
         attempts = existing.attempts + 1 if existing is not None else 1
         event = self._update_state(

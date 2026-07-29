@@ -109,6 +109,43 @@ def _load_content_list(md_path: Path, meta: dict) -> object | None:
     return json.loads(cl_path.read_text(encoding="utf-8"))
 
 
+def _ensure_local_pdf(
+    doc_id: str,
+    pdf_path: Path,
+    parse_options: dict,
+    pipeline_config: PipelineConfig,
+) -> None:
+    """Ensure the worker has a local PDF, fetching from minio_path when needed."""
+    if pdf_path.is_file():
+        return
+
+    minio_path = parse_options.get("minio_path") or parse_options.get("minioPath")
+    if not isinstance(minio_path, str) or not minio_path.strip():
+        raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
+
+    minio_path = minio_path.strip()
+    source_path = Path(minio_path)
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    if source_path.is_file():
+        import shutil
+
+        shutil.copyfile(source_path, pdf_path)
+        return
+
+    # Lazy import: server MinIO helpers depend on ServerConfig fields.
+    from server.config import ServerConfig
+    from server.services.minio_storage import download_pdf_from_minio
+
+    server_config = ServerConfig()
+    download_pdf_from_minio(
+        minio_path=minio_path,
+        destination=pdf_path,
+        config=server_config,
+    )
+    if not pdf_path.is_file():
+        raise FileNotFoundError(f"MinIO 下载后 PDF 仍不存在: {pdf_path}")
+
+
 async def run_single_document(
     doc_id: str,
     pipeline_config: PipelineConfig,
@@ -121,10 +158,14 @@ async def run_single_document(
     ready_marker = output_dir / _INDEX_READY_SENTINEL
     display_source_name = doc_id.replace("_", " ")
 
+    parse_options = _load_parse_options(output_dir)
+    if not pdf_path.is_file():
+        await _emit(on_progress, "parsing", 0.01, "正在从对象存储拉取 PDF")
+        _ensure_local_pdf(doc_id, pdf_path, parse_options, pipeline_config)
+
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
 
-    parse_options = _load_parse_options(output_dir)
     requested_file_name = _resolve_requested_file_name(parse_options)
     requested_context_summary_enabled = _resolve_context_summary_enabled(
         parse_options,
