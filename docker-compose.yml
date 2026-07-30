@@ -34,14 +34,25 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    # Stable hostname: container-id hostnames often fail DNS lookup and crash ES
+    # at bootstrap with UnknownHostException / Temporary failure in name resolution.
+    hostname: elasticsearch
+    restart: unless-stopped
     environment:
       - discovery.type=single-node
+      - node.name=elasticsearch
+      - cluster.name=euroqa-es
+      - network.host=0.0.0.0
       - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    extra_hosts:
+      - "elasticsearch:127.0.0.1"
     ports:
       - "9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
+    # Host must also have: sysctl vm.max_map_count=262144 (persist via /etc/sysctl.d)
 
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
