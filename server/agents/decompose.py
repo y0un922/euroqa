@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 import httpx
@@ -15,6 +16,18 @@ from server.core.query_understanding import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Hard filter for invented standard codes in retrieval queries.
+_EN_MENTION_RE = re.compile(
+    r"\b(?:BS[\s-]*)?(?:DG\s+)?EN\s*[-_]?\s*(199\d)"
+    r"(?:\s*[-_]\s*\d+(?:\s*[-_]\s*\d+)?)?"
+    r"(?:\s*:\s*\d{4})?\b",
+    re.IGNORECASE,
+)
+_EUROCODE_N_RE = re.compile(r"\bEurocode\s*([0-9])\b", re.IGNORECASE)
+_EC_N_RE = re.compile(r"\bEC\s*([0-9])\b", re.IGNORECASE)
+_YEAR_199X_RE = re.compile(r"\b(199\d)\b")
+_WHITESPACE_RE = re.compile(r"\s{2,}")
 
 _SYSTEM_PROMPT = """You route and rewrite Eurocode QA questions for deterministic Eurocode retrieval.
 
@@ -46,23 +59,23 @@ Sub-query rules:
     "slab spanning classification design principles"
   ]
 - Good example when the user explicitly mentions a standard
-  ("EN 1992-1-1 混凝土材料强度定义"):
+  ("EN 1990 设计使用年限如何确定"):
   [
-    "EN 1992-1-1 concrete strength definitions fck fcm fctm",
-    "EN 1992-1-1 concrete deformation definitions modulus creep shrinkage"
+    "EN 1990 design working life definition and categories",
+    "EN 1990 design working life determination and classification table"
   ]
 
 Standard-code rules (critical):
-- Do NOT invent EN/BS/DG document numbers, clauses, tables, formulas, or object
-  labels that the user question, conversation history, or retrieval_scope did
-  not mention.
+- Do NOT invent EN/BS/DG document numbers, Eurocode N / EC N labels, clauses,
+  tables, formulas, or object labels that the user question, conversation
+  history, or retrieval_scope did not mention.
 - If the user did not name a standard, write concept-level English queries
-  without prefixing "EN 1992-1-1" or any other guessed code.
+  without any EN/Eurocode prefix (no guessed codes).
 - If retrieval_scope is provided, you may only use standard/document labels that
   appear in that scope (or in the user/history). Never introduce out-of-scope
-  codes such as EN 1992 when the scope is only EN 1990.
-- retrieval_scope is a soft hint for query wording; hard document filtering is
-  applied separately. Still do not invent out-of-scope codes.
+  codes (e.g. EN 1992 / Eurocode 2 when scope is only EN 1990 / EN 1997).
+- Server-side hard filtering will strip disallowed codes; still avoid inventing
+  them so queries stay clean.
 
 Set needs_retrieval=false only for greetings, small talk, or questions that do
 not require Eurocode evidence. For Eurocode, engineering, formula, table, clause,
@@ -90,7 +103,8 @@ _ASSESSMENT_PROMPT = """你负责判断已检索到的 Eurocode 证据是否足�
 - 只有证据包含回答所需的关键定义、条文、公式、表格、限值或计算方法时，sufficient 才能为 true。
 - 缺少被问题要求的 EN 条文、表格/公式、Designers' Guide 说明/示例或必要子主题时，sufficient=false。
 - missing_queries 必须是英文，用于继续检索；必须指向具体缺口，不要重复 previous_queries。
-- missing_queries 不要编造用户/历史/已有证据未出现的规范号；优先用概念词，不要默认加 EN 1992-1-1。
+- missing_queries 不要编造用户/历史/retrieval_scope 未出现的规范号或 Eurocode N；
+  优先用概念词（shear reinforcement omission criteria），不要默认加 EN/Eurocode 前缀。
 - 不要回答用户，不要长篇引用，不要编造引用。
 """
 
@@ -169,6 +183,11 @@ async def decompose_query(
             filters=filters,
         )
 
+    allowed_years = _allowed_standard_years(
+        sanitized,
+        conversation_history,
+        selected_sources,
+    )
     try:
         raw = await _call_decompose_llm(
             sanitized,
@@ -178,8 +197,15 @@ async def decompose_query(
             selected_sources=selected_sources,
         )
         payload = _parse_decompose_payload(raw)
-        rewritten = _clean_text(payload.get("rewritten_question")) or sanitized
-        sub_queries = _normalize_sub_queries(payload.get("sub_queries"), rewritten)
+        rewritten = _sanitize_query_text(
+            _clean_text(payload.get("rewritten_question")) or sanitized,
+            allowed_years,
+        ) or sanitized
+        sub_queries = _normalize_sub_queries(
+            payload.get("sub_queries"),
+            rewritten,
+            allowed_years=allowed_years,
+        )
         return DecomposedQuery(
             rewritten_question=rewritten,
             sub_queries=sub_queries,
@@ -267,12 +293,24 @@ async def assess_evidence(
     evidence_text: str,
     previous_queries: list[str],
     config: ServerConfig,
+    selected_sources: list[str] | None = None,
+    conversation_history: list[dict] | None = None,
 ) -> EvidenceAssessment:
     """Use the small planning model to decide if evidence covers the question."""
+    allowed_years = _allowed_standard_years(
+        question,
+        conversation_history or [],
+        selected_sources,
+        extra_texts=[rewritten_question, implicit_context],
+    )
     if not evidence_text.strip():
+        fallback = _sanitize_query_text(
+            rewritten_question or question,
+            allowed_years,
+        ) or (rewritten_question or question)
         return EvidenceAssessment(
             sufficient=False,
-            missing_queries=[rewritten_question or question],
+            missing_queries=[fallback],
             reason="no evidence",
         )
     try:
@@ -283,6 +321,7 @@ async def assess_evidence(
             evidence_text=evidence_text,
             previous_queries=previous_queries,
             config=config,
+            selected_sources=selected_sources,
         )
         try:
             payload = _parse_decompose_payload(raw)
@@ -294,11 +333,13 @@ async def assess_evidence(
                 evidence_text=evidence_text,
                 previous_queries=previous_queries,
                 config=config,
+                selected_sources=selected_sources,
             )
             payload = _parse_decompose_payload(raw)
         missing = _normalize_missing_queries(
             payload.get("missing_queries"),
             previous_queries,
+            allowed_years=allowed_years,
         )
         return EvidenceAssessment(
             sufficient=bool(payload.get("sufficient")),
@@ -326,6 +367,7 @@ async def _call_assessment_llm(
     evidence_text: str,
     previous_queries: list[str],
     config: ServerConfig,
+    selected_sources: list[str] | None = None,
 ) -> str:
     timeout_seconds = max(1.0, config.decompose_llm_timeout_seconds)
     client = AsyncOpenAI(
@@ -334,13 +376,16 @@ async def _call_assessment_llm(
         timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
         max_retries=0,
     )
-    payload = {
+    payload: dict[str, object] = {
         "question": question,
         "rewritten_question": rewritten_question,
         "implicit_context": implicit_context,
         "previous_queries": previous_queries[-8:],
         "evidence": evidence_text[:12000],
     }
+    scope = _normalize_selected_sources(selected_sources)
+    if scope:
+        payload["retrieval_scope"] = scope
     response = await client.chat.completions.create(
         model=config.resolved_decompose_llm_model,
         messages=[
@@ -435,40 +480,105 @@ def _parse_decompose_payload(raw: str) -> dict[str, object]:
     return data
 
 
-def _normalize_sub_queries(value: object, fallback: str) -> list[str]:
+def _normalize_sub_queries(
+    value: object,
+    fallback: str,
+    *,
+    allowed_years: set[str] | None = None,
+) -> list[str]:
     if isinstance(value, list):
         queries = [_clean_text(item) for item in value]
     else:
         queries = []
+    years = allowed_years if allowed_years is not None else set()
     normalized: list[str] = []
     seen: set[str] = set()
     for query in queries:
-        if not query or query in seen:
+        cleaned = _sanitize_query_text(query, years)
+        key = cleaned.lower()
+        if not cleaned or key in seen:
             continue
-        seen.add(query)
-        normalized.append(query)
+        seen.add(key)
+        normalized.append(cleaned)
         if len(normalized) >= 4:
             break
-    return normalized or [fallback]
+    if normalized:
+        return normalized
+    fallback_clean = _sanitize_query_text(fallback, years) or fallback
+    return [fallback_clean]
 
 
-def _normalize_missing_queries(value: object, previous_queries: list[str]) -> list[str]:
+def _normalize_missing_queries(
+    value: object,
+    previous_queries: list[str],
+    *,
+    allowed_years: set[str] | None = None,
+) -> list[str]:
     previous = {query.strip().lower() for query in previous_queries if query.strip()}
     if isinstance(value, list):
         queries = [_clean_text(item) for item in value]
     else:
         queries = []
+    years = allowed_years if allowed_years is not None else set()
     normalized: list[str] = []
     seen: set[str] = set()
     for query in queries:
-        key = query.lower()
-        if not query or key in seen or key in previous:
+        cleaned = _sanitize_query_text(query, years)
+        key = cleaned.lower()
+        if not cleaned or key in seen or key in previous:
             continue
         seen.add(key)
-        normalized.append(query)
+        normalized.append(cleaned)
         if len(normalized) >= 4:
             break
     return normalized
+
+
+def _allowed_standard_years(
+    question: str,
+    conversation_history: list[dict],
+    selected_sources: list[str] | None = None,
+    *,
+    extra_texts: list[str] | None = None,
+) -> set[str]:
+    """Years (199x) the model is allowed to mention in retrieval queries."""
+    chunks: list[str] = [question or ""]
+    for turn in conversation_history[-4:]:
+        chunks.append(str(turn.get("question") or ""))
+        chunks.append(str(turn.get("answer") or "")[:500])
+    chunks.extend(_normalize_selected_sources(selected_sources))
+    for text in extra_texts or []:
+        chunks.append(str(text or ""))
+    return _extract_standard_years("\n".join(chunks))
+
+
+def _extract_standard_years(text: str) -> set[str]:
+    years: set[str] = set(_YEAR_199X_RE.findall(text or ""))
+    for match in _EUROCODE_N_RE.finditer(text or ""):
+        years.add(f"199{match.group(1)}")
+    for match in _EC_N_RE.finditer(text or ""):
+        years.add(f"199{match.group(1)}")
+    return years
+
+
+def _sanitize_query_text(query: str, allowed_years: set[str]) -> str:
+    """Strip EN/Eurocode mentions whose year is outside the allowed set."""
+    text = _clean_text(query)
+    if not text:
+        return ""
+
+    def _keep_en(match: re.Match[str]) -> str:
+        return match.group(0) if match.group(1) in allowed_years else " "
+
+    def _keep_eurocode(match: re.Match[str]) -> str:
+        year = f"199{match.group(1)}"
+        return match.group(0) if year in allowed_years else " "
+
+    text = _EN_MENTION_RE.sub(_keep_en, text)
+    text = _EUROCODE_N_RE.sub(_keep_eurocode, text)
+    text = _EC_N_RE.sub(_keep_eurocode, text)
+    text = _WHITESPACE_RE.sub(" ", text).strip(" \t\r\n-;:,|/\\")
+    return text
 
 
 def _normalize_outline_payload(payload: dict[str, object]) -> dict[str, object]:

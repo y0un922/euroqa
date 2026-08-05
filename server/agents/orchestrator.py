@@ -273,6 +273,8 @@ async def _prepare_evidence_for_agent_streamed(
             evidence_text=_format_assessment_evidence(deps.bundle),
             previous_queries=attempted_queries,
             config=deps.config,
+            selected_sources=list(deps.sources_filter or []),
+            conversation_history=history,
         )
         deps.bundle.tool_trace.append(
             {
