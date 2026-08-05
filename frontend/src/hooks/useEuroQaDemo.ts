@@ -629,8 +629,20 @@ export function useEuroQaDemo() {
     sessionId: string,
     signal: AbortSignal,
   ) {
+    // /query/stream requires a retrieval scope (docIds or kbIds). When the
+    // demo has no KB selected, pin the scope to currently loaded documents
+    // so streaming + agent progress stay on the SSE path instead of falling
+    // back to non-streaming /query.
+    const scopedDocIds =
+      selectedKbIds.length > 0
+        ? undefined
+        : documents
+            .map((document) => document.id)
+            .filter((docId) => docId.trim().length > 0)
+            .slice(0, 100);
     const requestPayload = buildChatQueryPayload({
       question: normalizedQuestion,
+      docIds: scopedDocIds,
       kbIds: selectedKbIds,
       sessionId,
       llm: toLlmRequestOverride(llmSettings),

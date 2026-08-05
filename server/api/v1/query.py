@@ -198,7 +198,11 @@ async def _resolve_query_sources(
     Priority:
     1. Explicit ``docIds`` (Huake external contract)
     2. Internal ``kbIds`` (admin/debug knowledge bases)
-    3. None = unrestricted (internal only; stream requires docIds)
+    3. None = unrestricted (internal only)
+
+    When ``require_doc_ids`` is True (``/query/stream``), a scope is mandatory:
+    either ``docIds`` or ``kbIds`` must resolve. Empty scope is rejected to
+    prevent accidental full-corpus retrieval on the public stream endpoint.
     """
     doc_ids = _normalize_request_doc_ids(req.doc_ids)
     if doc_ids:
@@ -209,13 +213,17 @@ async def _resolve_query_sources(
             )
         return await _resolve_doc_id_sources(doc_ids, retriever)
 
+    kb_sources = await _resolve_kb_sources(req, kb_db, retriever)
+    if kb_sources is not None:
+        return kb_sources
+
     if require_doc_ids:
         raise HTTPException(
             status_code=400,
             detail="docIds 不能为空，请传入本次允许检索的文档 ID 列表",
         )
 
-    return await _resolve_kb_sources(req, kb_db, retriever)
+    return None
 
 
 def _source_filter_kwargs(sources_filter: list[str] | None) -> dict[str, list[str]]:

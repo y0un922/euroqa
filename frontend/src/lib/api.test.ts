@@ -38,6 +38,22 @@ test("buildChatQueryPayload uses external sessionId and omits domain", () => {
   assert.equal("domain" in payload, false);
 });
 
+test("buildChatQueryPayload includes docIds and kbIds when provided", () => {
+  const payload = buildChatQueryPayload({
+    question: "设计使用年限是多少？",
+    sessionId: "1001_abc123",
+    docIds: ["EN1990_2002", "EN1992-1-1_2004"],
+    kbIds: ["kb-1"],
+  });
+
+  assert.deepEqual(payload, {
+    question: "设计使用年限是多少？",
+    sessionId: "1001_abc123",
+    docIds: ["EN1990_2002", "EN1992-1-1_2004"],
+    kbIds: ["kb-1"],
+  });
+});
+
 test("parseSseBuffer parses complete SSE messages and clears buffer", () => {
   const input =
     'event: chunk\ndata: {"text":"桥"}\n\n' +
@@ -886,6 +902,40 @@ test("deleteConversationSession deletes one redis-backed session", async () => {
 
   assert.match(seen[0]?.url ?? "", /\/api\/v1\/sessions\/1001_abc123$/);
   assert.equal(seen[0]?.method, "DELETE");
+});
+
+test("queryStream rejects JSON error envelopes instead of treating them as SSE", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          code: 400,
+          message: "docIds 不能为空，请传入本次允许检索的文档 ID 列表",
+          detail: null,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+
+    await assert.rejects(
+      () =>
+        queryStream(
+          {
+            question: "设计使用年限是多少？",
+            stream: true,
+          },
+          {
+            onReasoning: () => {},
+            onChunk: () => {},
+            onDone: () => {},
+          },
+        ),
+      /docIds 不能为空/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("queryStream sends llm overrides in the stream request body", async () => {

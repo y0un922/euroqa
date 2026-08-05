@@ -60,6 +60,62 @@ async def test_decompose_query_normalizes_llm_payload(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_decompose_query_forwards_selected_sources(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def _fake(*args, **kwargs):
+        captured.update(kwargs)
+        return """
+        {
+          "rewritten_question": "What is a one-way spanning slab?",
+          "sub_queries": [
+            "one-way spanning slab definition",
+            "one-way slab versus two-way slab criteria"
+          ],
+          "implicit_context": "",
+          "needs_retrieval": true,
+          "is_chitchat": false
+        }
+        """
+
+    monkeypatch.setattr(decompose, "_call_decompose_llm", _fake)
+
+    result = await decompose.decompose_query(
+        "什么是单向板？",
+        conversation_history=[],
+        glossary={},
+        config=ServerConfig(),
+        selected_sources=["EN 1990:2002", "DG EN1990", "EN 1990:2002"],
+    )
+
+    assert captured["selected_sources"] == [
+        "EN 1990:2002",
+        "DG EN1990",
+        "EN 1990:2002",
+    ]
+    assert result.sub_queries == [
+        "one-way spanning slab definition",
+        "one-way slab versus two-way slab criteria",
+    ]
+    assert "EN 1992" not in " ".join(result.sub_queries)
+
+
+def test_decompose_prompt_forbids_invented_standard_codes():
+    assert "Do NOT invent EN/BS/DG document numbers" in decompose._SYSTEM_PROMPT
+    assert "one-way spanning slab definition" in decompose._SYSTEM_PROMPT
+    assert 'prefixing "EN 1992-1-1"' in decompose._SYSTEM_PROMPT
+
+
+def test_normalize_selected_sources_dedupes_and_caps():
+    labels = [f"src-{i}" for i in range(30)]
+    labels.extend(["src-1", "  ", "src-2"])
+    normalized = decompose._normalize_selected_sources(labels)
+    assert len(normalized) == 24
+    assert normalized[0] == "src-0"
+    assert normalized.count("src-1") == 1
+
+
+@pytest.mark.asyncio
 async def test_decompose_query_can_skip_retrieval(monkeypatch):
     async def _fake(*args, **kwargs):
         return """
@@ -119,6 +175,7 @@ def test_assessment_prompt_requires_english_missing_queries():
     assert "missing_queries 必须是英文" in decompose._ASSESSMENT_PROMPT
     assert "主题定义" in decompose._ASSESSMENT_PROMPT
     assert "隐含需求" in decompose._ASSESSMENT_PROMPT
+    assert "不要编造用户/历史/已有证据未出现的规范号" in decompose._ASSESSMENT_PROMPT
 
 
 @pytest.mark.asyncio

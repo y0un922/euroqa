@@ -8,6 +8,7 @@ from server.agents.tools._utils import (
     clamp_top_k,
     limit_retrieval_result,
 )
+from server.agents.tool_progress import ToolProgressEmitter
 from server.core.retrieval import RetrievalResult
 from server.models.schemas import Chunk
 
@@ -20,11 +21,13 @@ async def search(
 ) -> str:
     """搜索 Eurocode 语料库。返回带编号的证据片段。"""
     effective_top_k = clamp_top_k(top_k)
+    progress = ToolProgressEmitter("retrieve", ctx.context.tool_progress)
     result = await ctx.context.retriever.retrieve(
         [query],
         original_query=query,
         filters=base_filters(ctx),
         top_k=effective_top_k,
+        progress=progress,
     )
     limited = limit_retrieval_result(result, effective_top_k)
     ctx.context.bundle.add_retrieval(limited, query=query)

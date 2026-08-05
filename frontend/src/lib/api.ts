@@ -359,11 +359,13 @@ export async function translateSource(
 
 export function buildChatQueryPayload({
   question,
+  docIds,
   kbIds,
   sessionId,
   llm,
 }: {
   question: string;
+  docIds?: string[];
   kbIds?: string[];
   sessionId: string;
   llm?: QueryRequestPayload["llm"];
@@ -371,6 +373,7 @@ export function buildChatQueryPayload({
   return {
     question,
     sessionId,
+    ...(docIds && docIds.length > 0 ? { docIds } : {}),
     ...(kbIds && kbIds.length > 0 ? { kbIds } : {}),
     ...(llm ? { llm } : {}),
   };
@@ -545,6 +548,21 @@ export async function queryStream(
     handleAuthFailure(response, sentToken);
     const detail = await response.text();
     throw new Error(detail || `Stream request failed: ${response.status}`);
+  }
+
+  // Backend wraps business errors as HTTP 200 JSON envelopes. Detect those
+  // before treating the body as an SSE stream (otherwise the UI falls back
+  // to non-streaming /query and loses agent progress + token deltas).
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const envelope = (await response.json()) as {
+      code?: number;
+      message?: string;
+    };
+    throw new Error(
+      envelope.message ||
+        `Stream request failed: ${envelope.code ?? response.status}`,
+    );
   }
 
   if (!response.body) {

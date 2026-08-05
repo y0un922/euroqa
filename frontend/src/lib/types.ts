@@ -26,6 +26,7 @@ export type LlmSettingsResponse = {
 export type QueryRequestPayload = {
   question: string;
   domain?: string;
+  docIds?: string[];
   kbIds?: string[];
   conversation_id?: string;
   sessionId?: string;

@@ -66,6 +66,26 @@ async def test_resolve_query_sources_requires_doc_ids_for_stream(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_resolve_query_sources_accepts_kb_ids_when_stream_requires_scope(
+    tmp_path,
+):
+    db = KBDatabase(str(tmp_path / "knowledge_bases.db"))
+    await db.initialize()
+    try:
+        kb = await db.create_kb("scope-kb")
+        await db.add_documents(kb["id"], [("EN1992-1-1_2004", "EN 1992.pdf")])
+        sources = await _resolve_query_sources(
+            QueryRequest(question="材料分项系数是什么？", kbIds=[kb["id"]]),
+            db,
+            _FakeRetriever(["EN1992-1-1 2004"]),
+            require_doc_ids=True,
+        )
+        assert sources == ["EN1992-1-1 2004"]
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_resolve_query_sources_internal_allows_empty_doc_ids(tmp_path):
     db = KBDatabase(str(tmp_path / "knowledge_bases.db"))
     await db.initialize()

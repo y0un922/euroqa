@@ -38,20 +38,37 @@ Sub-query rules:
 - Each sub_query must be specific enough for keyword/vector retrieval.
 - Cover theme, concrete requirements, background constraints, and implicit needs.
 - Avoid overlapping sub_queries and avoid broad queries such as "Eurocode concrete".
-- Good example for "混凝土材料强度与变形定义、关系及如何计算":
+- Prefer concept/object/parameter wording over guessing a Eurocode number.
+- Good example for "什么是单向板？":
+  [
+    "one-way spanning slab definition",
+    "one-way slab versus two-way slab criteria",
+    "slab spanning classification design principles"
+  ]
+- Good example when the user explicitly mentions a standard
+  ("EN 1992-1-1 混凝土材料强度定义"):
   [
     "EN 1992-1-1 concrete strength definitions fck fcm fctm",
-    "EN 1992-1-1 concrete deformation definitions modulus creep shrinkage",
-    "EN 1992-1-1 relationships and calculations for concrete strength values"
+    "EN 1992-1-1 concrete deformation definitions modulus creep shrinkage"
   ]
+
+Standard-code rules (critical):
+- Do NOT invent EN/BS/DG document numbers, clauses, tables, formulas, or object
+  labels that the user question, conversation history, or retrieval_scope did
+  not mention.
+- If the user did not name a standard, write concept-level English queries
+  without prefixing "EN 1992-1-1" or any other guessed code.
+- If retrieval_scope is provided, you may only use standard/document labels that
+  appear in that scope (or in the user/history). Never introduce out-of-scope
+  codes such as EN 1992 when the scope is only EN 1990.
+- retrieval_scope is a soft hint for query wording; hard document filtering is
+  applied separately. Still do not invent out-of-scope codes.
 
 Set needs_retrieval=false only for greetings, small talk, or questions that do
 not require Eurocode evidence. For Eurocode, engineering, formula, table, clause,
 or design questions, set needs_retrieval=true.
 
-Do not infer source_type. Do not classify intent. Do not invent clauses,
-tables, formulas, standards, or object labels that the user/history did not
-mention.
+Do not infer source_type. Do not classify intent.
 """
 
 _ASSESSMENT_PROMPT = """你负责判断已检索到的 Eurocode 证据是否足够回答用户问题。
@@ -73,6 +90,7 @@ _ASSESSMENT_PROMPT = """你负责判断已检索到的 Eurocode 证据是否足�
 - 只有证据包含回答所需的关键定义、条文、公式、表格、限值或计算方法时，sufficient 才能为 true。
 - 缺少被问题要求的 EN 条文、表格/公式、Designers' Guide 说明/示例或必要子主题时，sufficient=false。
 - missing_queries 必须是英文，用于继续检索；必须指向具体缺口，不要重复 previous_queries。
+- missing_queries 不要编造用户/历史/已有证据未出现的规范号；优先用概念词，不要默认加 EN 1992-1-1。
 - 不要回答用户，不要长篇引用，不要编造引用。
 """
 
@@ -129,8 +147,14 @@ async def decompose_query(
     conversation_history: list[dict],
     glossary: dict[str, str],
     config: ServerConfig,
+    selected_sources: list[str] | None = None,
 ) -> DecomposedQuery:
-    """Rewrite and split a user question before deterministic retrieval."""
+    """Rewrite and split a user question before deterministic retrieval.
+
+    ``selected_sources`` is an optional soft scope hint (KB/doc filter labels).
+    Hard retrieval filtering is applied separately; this only steers query wording
+    so the model does not invent out-of-scope standard codes.
+    """
     sanitized = sanitize_input(question).strip()
     filters = extract_filters(sanitized)
     requested_objects = extract_requested_objects(sanitized, None)
@@ -151,6 +175,7 @@ async def decompose_query(
             conversation_history=conversation_history,
             glossary=glossary,
             config=config,
+            selected_sources=selected_sources,
         )
         payload = _parse_decompose_payload(raw)
         rewritten = _clean_text(payload.get("rewritten_question")) or sanitized
@@ -186,6 +211,7 @@ async def _call_decompose_llm(
     conversation_history: list[dict],
     glossary: dict[str, str],
     config: ServerConfig,
+    selected_sources: list[str] | None = None,
 ) -> str:
     timeout_seconds = max(1.0, config.decompose_llm_timeout_seconds)
     client = AsyncOpenAI(
@@ -194,11 +220,14 @@ async def _call_decompose_llm(
         timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
         max_retries=0,
     )
-    payload = {
+    payload: dict[str, object] = {
         "question": question,
         "history": _compact_history(conversation_history),
         "glossary_terms": _matching_glossary_terms(question, glossary),
     }
+    scope = _normalize_selected_sources(selected_sources)
+    if scope:
+        payload["retrieval_scope"] = scope
     response = await client.chat.completions.create(
         model=config.resolved_decompose_llm_model,
         messages=[
@@ -211,6 +240,23 @@ async def _call_decompose_llm(
         extra_body={"enable_thinking": False},
     )
     return response.choices[0].message.content or ""
+
+
+def _normalize_selected_sources(selected_sources: list[str] | None) -> list[str]:
+    """Deduplicate and cap soft scope labels for the decompose prompt."""
+    if not selected_sources:
+        return []
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in selected_sources:
+        label = str(raw or "").strip()
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        normalized.append(label)
+        if len(normalized) >= 24:
+            break
+    return normalized
 
 
 async def assess_evidence(

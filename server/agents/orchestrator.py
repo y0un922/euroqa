@@ -27,7 +27,7 @@ from server.agents.qa_agent import (
     run_qa_agent,
     run_qa_agent_streamed,
 )
-from server.agents.tool_progress import ToolProgressCallback
+from server.agents.tool_progress import ToolProgressCallback, ToolProgressEmitter
 from server.agents.tools._utils import (
     base_filters,
     limit_retrieval_result,
@@ -196,6 +196,7 @@ async def _prepare_evidence_for_agent_streamed(
         history,
         glossary,
         deps.config,
+        selected_sources=list(deps.sources_filter or []),
     )
     deps.bundle.tool_trace.append(
         {
@@ -388,6 +389,7 @@ async def _retrieve_decomposed_queries(
         return None
     required_filters = base_filters(deps)
     filters = merge_retrieval_filters(required_filters, decomposed.filters)
+    progress = ToolProgressEmitter("retrieve", deps.tool_progress)
     result = await deps.retriever.retrieve(
         decomposed.sub_queries,
         original_query=decomposed.rewritten_question,
@@ -395,6 +397,7 @@ async def _retrieve_decomposed_queries(
         requested_objects=decomposed.requested_objects,
         prefetched_original_results=prefetched_original_results,
         top_k=top_k,
+        progress=progress,
     )
     limited = limit_retrieval_result(result, top_k)
     deps.bundle.add_retrieval(limited, query="; ".join(decomposed.sub_queries))
