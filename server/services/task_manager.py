@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import json
 import os
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -12,13 +13,33 @@ from pathlib import Path
 
 import structlog
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    fcntl = None  # type: ignore[assignment]
+
 logger = structlog.get_logger()
 _INDEX_READY_SENTINEL = ".indexed"
+_RECOVER_LOCK_NAME = ".recover.lock"
 _RESTART_INTERRUPTED_MESSAGE = "服务重启导致解析中断,请重试"
 _STALE_CANCEL_MESSAGE = "解析卡住超过 20 分钟无进度,已中止,请重试"
 # Default cap for unfinished parse tasks (queued + active). Override via env.
 DEFAULT_PARSE_QUEUE_CAPACITY = 100
 MAX_FILES_PER_PARSE_REQUEST = 20
+
+
+@contextlib.contextmanager
+def _exclusive_file_lock(lock_path: Path):
+    """Cross-process exclusive lock for multi-worker uvicorn safety."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+", encoding="utf-8") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _utcnow() -> datetime:
@@ -265,11 +286,21 @@ class TaskManager:
     # -- 内部 --
 
     def recover_interrupted_tasks(self, parsed_dir: str) -> None:
-        """Mark non-terminal persisted tasks as interrupted after service restart."""
+        """Mark non-terminal persisted tasks as interrupted after service restart.
+
+        Multi-worker uvicorn runs lifespan in every process. Serialize recovery
+        with a directory lock so concurrent workers do not race on status.json.
+        """
         parsed_root = Path(parsed_dir)
         if not parsed_root.is_dir():
             return
 
+        lock_path = parsed_root / _RECOVER_LOCK_NAME
+        with _exclusive_file_lock(lock_path):
+            self._recover_interrupted_tasks_locked(parsed_dir)
+
+    def _recover_interrupted_tasks_locked(self, parsed_dir: str) -> None:
+        parsed_root = Path(parsed_dir)
         for status_path in parsed_root.glob("*/status.json"):
             doc_id = status_path.parent.name
             ready_state = self._state_from_ready_marker(doc_id, parsed_dir)
@@ -514,28 +545,40 @@ class TaskManager:
             return None
 
     def _write_status_file(self, state: TaskState, parsed_dir: str) -> None:
+        """Atomically persist status.json; safe under multi-process writers.
+
+        Uses a per-doc exclusive lock plus a unique temp filename so concurrent
+        uvicorn workers cannot share ``status.json.tmp`` and fail on replace.
+        """
         path = self._status_path(state.doc_id, parsed_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_name(f"{path.name}.tmp")
-        tmp_path.write_text(
-            json.dumps(
-                {
-                    "doc_id": state.doc_id,
-                    "stage": state.stage.value,
-                    "progress": state.progress,
-                    "message": state.message,
-                    "error": state.error,
-                    "attempts": state.attempts,
-                    "created_at": self._format_datetime(state.created_at),
-                    "updated_at": self._format_datetime(state.updated_at),
-                    "heartbeat_at": self._format_datetime(state.heartbeat_at),
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
+        payload = json.dumps(
+            {
+                "doc_id": state.doc_id,
+                "stage": state.stage.value,
+                "progress": state.progress,
+                "message": state.message,
+                "error": state.error,
+                "attempts": state.attempts,
+                "created_at": self._format_datetime(state.created_at),
+                "updated_at": self._format_datetime(state.updated_at),
+                "heartbeat_at": self._format_datetime(state.heartbeat_at),
+            },
+            ensure_ascii=False,
+            indent=2,
         )
-        os.replace(tmp_path, path)
+        lock_path = path.with_name(f"{path.name}.lock")
+        tmp_path = path.with_name(
+            f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        )
+        with _exclusive_file_lock(lock_path):
+            try:
+                tmp_path.write_text(payload, encoding="utf-8")
+                os.replace(tmp_path, path)
+            finally:
+                with contextlib.suppress(OSError):
+                    if tmp_path.exists():
+                        tmp_path.unlink()
 
     def _parse_datetime(self, value: object) -> datetime:
         if isinstance(value, str) and value:

@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
 from server.services import task_manager as task_manager_module
-from server.services.task_manager import PipelineStage, TaskManager
+from server.services.task_manager import PipelineStage, TaskManager, TaskState
 
 
 def _new_manager() -> TaskManager:
@@ -112,6 +114,68 @@ def test_recover_interrupted_tasks_prefers_index_marker_ready(tmp_path: Path):
         (parsed_dir / "DOC_1" / "status.json").read_text(encoding="utf-8")
     )
     assert payload["stage"] == "ready"
+
+
+def test_write_status_file_concurrent_writers_do_not_raise(tmp_path: Path):
+    """Simulate multi-worker lifespan races on the same status.json."""
+    parsed_dir = tmp_path / "parsed"
+    doc_id = "DOC_RACE"
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(8)
+
+    def _write(i: int) -> None:
+        manager = _new_manager()
+        state = TaskState(
+            doc_id=doc_id,
+            stage=PipelineStage.PARSING,
+            progress=i / 10,
+            message=f"worker-{i}",
+            attempts=i,
+        )
+        barrier.wait()
+        try:
+            manager._write_status_file(state, str(parsed_dir))
+        except BaseException as exc:  # noqa: BLE001 - collect any race failure
+            errors.append(exc)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_write, range(8)))
+
+    assert errors == []
+    status_path = parsed_dir / doc_id / "status.json"
+    assert status_path.is_file()
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    assert payload["doc_id"] == doc_id
+    assert payload["stage"] == "parsing"
+    # No shared status.json.tmp left behind by concurrent writers.
+    leftovers = list((parsed_dir / doc_id).glob("status.json*.tmp"))
+    assert leftovers == []
+
+
+def test_recover_interrupted_tasks_concurrent_is_idempotent(tmp_path: Path):
+    parsed_dir = tmp_path / "parsed"
+    _write_status(parsed_dir, "DOC_1", stage="chunking", attempts=1)
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(4)
+
+    def _recover(_: int) -> None:
+        manager = _new_manager()
+        barrier.wait()
+        try:
+            manager.recover_interrupted_tasks(str(parsed_dir))
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(_recover, range(4)))
+
+    assert errors == []
+    payload = json.loads(
+        (parsed_dir / "DOC_1" / "status.json").read_text(encoding="utf-8")
+    )
+    assert payload["stage"] == "error"
+    # Serialized recovery: only one worker should bump attempts.
+    assert payload["attempts"] == 2
 
 
 def test_get_status_or_persisted_reads_status_json_and_prefers_index_marker(
