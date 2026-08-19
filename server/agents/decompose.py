@@ -14,6 +14,7 @@ from server.core.query_understanding import (
     extract_requested_objects,
     sanitize_input,
 )
+from shared.usage import record_usage, vendor_from_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -197,10 +198,13 @@ async def decompose_query(
             selected_sources=selected_sources,
         )
         payload = _parse_decompose_payload(raw)
-        rewritten = _sanitize_query_text(
-            _clean_text(payload.get("rewritten_question")) or sanitized,
-            allowed_years,
-        ) or sanitized
+        rewritten = (
+            _sanitize_query_text(
+                _clean_text(payload.get("rewritten_question")) or sanitized,
+                allowed_years,
+            )
+            or sanitized
+        )
         sub_queries = _normalize_sub_queries(
             payload.get("sub_queries"),
             rewritten,
@@ -243,7 +247,9 @@ async def _call_decompose_llm(
     client = AsyncOpenAI(
         api_key=config.resolved_decompose_llm_api_key,
         base_url=config.resolved_decompose_llm_base_url,
-        timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
+        timeout=httpx.Timeout(
+            timeout=timeout_seconds, connect=min(3.0, timeout_seconds)
+        ),
         max_retries=0,
     )
     payload: dict[str, object] = {
@@ -264,6 +270,11 @@ async def _call_decompose_llm(
         max_tokens=500,
         response_format={"type": "json_object"},
         extra_body={"enable_thinking": False},
+    )
+    record_usage(
+        model=config.resolved_decompose_llm_model,
+        vendor=vendor_from_base_url(config.resolved_decompose_llm_base_url),
+        payload=response,
     )
     return response.choices[0].message.content or ""
 
@@ -373,7 +384,9 @@ async def _call_assessment_llm(
     client = AsyncOpenAI(
         api_key=config.resolved_decompose_llm_api_key,
         base_url=config.resolved_decompose_llm_base_url,
-        timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
+        timeout=httpx.Timeout(
+            timeout=timeout_seconds, connect=min(3.0, timeout_seconds)
+        ),
         max_retries=0,
     )
     payload: dict[str, object] = {
@@ -396,6 +409,11 @@ async def _call_assessment_llm(
         max_tokens=600,
         response_format={"type": "json_object"},
         extra_body={"enable_thinking": False},
+    )
+    record_usage(
+        model=config.resolved_decompose_llm_model,
+        vendor=vendor_from_base_url(config.resolved_decompose_llm_base_url),
+        payload=response,
     )
     return response.choices[0].message.content or ""
 
@@ -444,7 +462,9 @@ async def _call_outline_llm(
     client = AsyncOpenAI(
         api_key=config.resolved_planning_llm_api_key,
         base_url=config.resolved_planning_llm_base_url,
-        timeout=httpx.Timeout(timeout=timeout_seconds, connect=min(3.0, timeout_seconds)),
+        timeout=httpx.Timeout(
+            timeout=timeout_seconds, connect=min(3.0, timeout_seconds)
+        ),
         max_retries=0,
     )
     payload = {
@@ -464,6 +484,11 @@ async def _call_outline_llm(
         max_tokens=1500,
         response_format={"type": "json_object"},
         extra_body={"enable_thinking": False},
+    )
+    record_usage(
+        model=config.resolved_planning_llm_model,
+        vendor=vendor_from_base_url(config.resolved_planning_llm_base_url),
+        payload=response,
     )
     return response.choices[0].message.content or ""
 
@@ -588,7 +613,9 @@ def _normalize_outline_payload(payload: dict[str, object]) -> dict[str, object]:
     return {
         "narrative_angle": _clean_text(payload.get("narrative_angle")),
         "sections": sections if isinstance(sections, list) else [],
-        "calculation_steps": calculation_steps if isinstance(calculation_steps, list) else [],
+        "calculation_steps": calculation_steps
+        if isinstance(calculation_steps, list)
+        else [],
         "self_check": self_check if isinstance(self_check, list) else [],
     }
 

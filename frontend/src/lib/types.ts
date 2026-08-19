@@ -102,6 +102,7 @@ export type QueryResponse = {
   conversation_id: string;
   degraded?: boolean;
   usage?: Record<string, number> | null;
+  cost?: Record<string, unknown> | null;
   elapsed_ms?: number | null;
   retrieval_context?: RetrievalContext | null;
   question_type?: QuestionType | null;
@@ -144,6 +145,7 @@ export type StreamDonePayload = {
   title?: string | null;
   groundedness?: string | null;
   usage?: Record<string, number> | null;
+  cost?: Record<string, unknown> | null;
   elapsed_ms?: number | null;
   retrieval_context?: RetrievalContext | null;
   question_type?: QuestionType | null;
@@ -241,6 +243,8 @@ export type DocumentInfo = {
   total_pages: number;
   chunk_count: number;
   status?: DocumentStatus;
+  usage?: Record<string, number> | null;
+  cost?: Record<string, unknown> | null;
 };
 
 export type KnowledgeBaseInfo = {
@@ -349,6 +353,7 @@ export type ChatTurn = {
   conversationId?: string;
   errorMessage?: string;
   usage?: Record<string, number> | null;
+  cost?: Record<string, unknown> | null;
   elapsed_ms?: number | null;
   retrievalContext?: RetrievalContext | null;
   questionType?: QuestionType | null;

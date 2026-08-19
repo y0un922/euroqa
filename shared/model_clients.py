@@ -1,4 +1,5 @@
 """Shared embedding and rerank model clients."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import structlog
+
+from shared.usage import record_usage, vendor_from_base_url
 
 logger = structlog.get_logger()
 
@@ -107,6 +110,11 @@ class EmbeddingClient:
         )
         response.raise_for_status()
         payload = response.json()
+        record_usage(
+            model=self.model,
+            vendor=vendor_from_base_url(self.api_url),
+            payload=payload,
+        )
         data = payload.get("data")
         if not isinstance(data, list):
             raise RuntimeError("Remote embedding API response missing data list")
@@ -221,6 +229,11 @@ class RerankClient:
             response = await self._post_rerank(endpoint, fallback_body)
         response.raise_for_status()
         payload = response.json()
+        record_usage(
+            model=self.model,
+            vendor=vendor_from_base_url(self.api_url),
+            payload=payload,
+        )
         results = payload.get("results") or payload.get("data")
         if not isinstance(results, list):
             raise RuntimeError("Remote rerank API response missing results list")
@@ -287,7 +300,9 @@ def build_embedding_client(config: Any) -> EmbeddingClient:
         request_timeout_seconds=config.embedding_request_timeout_seconds,
         batch_size=getattr(config, "embedding_batch_size", 8),
         max_connections=getattr(config, "httpx_max_connections", 100),
-        max_keepalive_connections=getattr(config, "httpx_max_keepalive_connections", 20),
+        max_keepalive_connections=getattr(
+            config, "httpx_max_keepalive_connections", 20
+        ),
     )
 
 
@@ -301,5 +316,7 @@ def build_rerank_client(config: Any) -> RerankClient:
         request_timeout_seconds=config.rerank_request_timeout_seconds,
         max_length=getattr(config, "rerank_max_length", 8192),
         max_connections=getattr(config, "httpx_max_connections", 100),
-        max_keepalive_connections=getattr(config, "httpx_max_keepalive_connections", 20),
+        max_keepalive_connections=getattr(
+            config, "httpx_max_keepalive_connections", 20
+        ),
     )

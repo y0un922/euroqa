@@ -21,6 +21,7 @@ from server.core.generation import postprocess_citations
 from server.models.schemas import Chunk
 from server.models.schemas import QueryRequest, QueryResponse, RetrievalContext, Source
 from shared.spot_check import SpotCheckRecorder, get_current_recorder
+from shared.usage import current_report
 
 logger = structlog.get_logger(__name__)
 
@@ -174,6 +175,22 @@ def _serialize_response_payload_for_history(
     return dict(response_payload)
 
 
+def _usage_and_cost(
+    usage: dict[str, int] | None = None,
+) -> tuple[dict[str, int] | None, dict[str, object] | None]:
+    """Prefer the official request ledger over a single-model usage blob."""
+    report = current_report()
+    if report is None:
+        return usage, None
+    totals = report.get("usage")
+    if isinstance(totals, dict) and totals:
+        usage = {
+            key: int(value) for key, value in totals.items() if isinstance(value, int)
+        }
+    cost = report.get("cost")
+    return usage, cost if isinstance(cost, dict) else None
+
+
 def _response_usage(response: object | None = None) -> dict[str, int] | None:
     """Extract token usage from a response-like object or active recorder."""
     usage = getattr(response, "usage", None) if response is not None else None
@@ -285,6 +302,7 @@ def _external_done_payload(
         "groundedness": groundedness,
         "title": title,
         "usage": data.get("usage"),
+        "cost": data.get("cost"),
         "elapsed_ms": data.get("elapsed_ms"),
     }
 
@@ -469,7 +487,9 @@ async def _stream_direct_agent_events(
         title=None,
         answer_mode=str(payload.get("answerMode") or "direct"),
     )
-    data["usage"] = usage or _response_usage()
+    resolved_usage, resolved_cost = _usage_and_cost(usage)
+    data["usage"] = resolved_usage or _response_usage()
+    data["cost"] = resolved_cost
     data["elapsed_ms"] = _response_elapsed_ms(
         started_at=request_started_at or started_at
     )

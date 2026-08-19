@@ -44,6 +44,7 @@ import {
 } from "../lib/replyExport";
 import type { ChatTurn } from "../lib/types";
 import type { KnowledgeBaseInfo } from "../lib/types";
+import { formatCostSummary, formatUsageSummary } from "../lib/usageDisplay";
 
 type MainWorkspaceProps = {
   activeReferenceId: string | null;
@@ -142,29 +143,6 @@ function getCitationText(children: ReactNode): string {
   }
 
   return String(children ?? "");
-}
-
-function formatUsageSummary(usage: ChatTurn["usage"]): string | null {
-  if (!usage) {
-    return null;
-  }
-
-  const totalTokens = usage.total_tokens ?? usage.totalTokens;
-  const inputTokens = usage.input_tokens ?? usage.prompt_tokens;
-  const outputTokens = usage.output_tokens ?? usage.completion_tokens;
-  const parts: string[] = [];
-
-  if (typeof totalTokens === "number") {
-    parts.push(`总 ${totalTokens}`);
-  }
-  if (typeof inputTokens === "number") {
-    parts.push(`输入 ${inputTokens}`);
-  }
-  if (typeof outputTokens === "number") {
-    parts.push(`输出 ${outputTokens}`);
-  }
-
-  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function formatElapsedMs(value: number | null | undefined): string | null {
@@ -571,6 +549,7 @@ const ChatTranscript = memo(function ChatTranscript({
                     {message.status === "done" ? (
                       (() => {
                         const usage = formatUsageSummary(message.usage);
+                        const cost = formatCostSummary(message.cost);
                         const elapsed = formatElapsedMs(message.elapsed_ms);
                         return (
                           <div className="flex items-center gap-1 pt-2">
@@ -608,11 +587,16 @@ const ChatTranscript = memo(function ChatTranscript({
                             >
                               <RotateCcw className="h-4 w-4" />
                             </button>
-                            {(usage || elapsed) ? (
+                            {(usage || cost || elapsed) ? (
                               <div className="ml-auto flex flex-wrap gap-2 text-xs text-stone-500">
                                 {usage ? (
                                   <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
                                     Token {usage}
+                                  </span>
+                                ) : null}
+                                {cost ? (
+                                  <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1">
+                                    费用 {cost}
                                   </span>
                                 ) : null}
                                 {elapsed ? (

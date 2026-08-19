@@ -1,4 +1,5 @@
 """桥接 pipeline 模块到 server：单文档 pipeline 执行器。"""
+
 from __future__ import annotations
 
 import inspect
@@ -24,6 +25,7 @@ from pipeline.structure import (
 )
 from pipeline.contextualize import enrich_chunks
 from server.deps import invalidate_retriever_cache
+from shared.usage import UsageLedger, collect_usage
 
 logger = structlog.get_logger()
 
@@ -81,6 +83,7 @@ async def _delete_document_chunks_for_doc_id(
         deleted["milvus"] += result["milvus"]
         deleted["elasticsearch"] += result["elasticsearch"]
     return deleted
+
 
 ProgressCallback = Callable[[str, float, str], Awaitable[None] | None]
 
@@ -175,7 +178,34 @@ async def run_single_document(
     # Rebuilds must earn readiness again after Stage 4 completes.
     ready_marker.unlink(missing_ok=True)
 
-    # Stage 1: MinerU 解析
+    with collect_usage() as ledger:
+        return await _run_indexed_document(
+            doc_id=doc_id,
+            pipeline_config=pipeline_config,
+            on_progress=on_progress,
+            pdf_path=pdf_path,
+            output_dir=output_dir,
+            ready_marker=ready_marker,
+            display_source_name=display_source_name,
+            requested_file_name=requested_file_name,
+            requested_context_summary_enabled=requested_context_summary_enabled,
+            ledger=ledger,
+        )
+
+
+async def _run_indexed_document(
+    *,
+    doc_id: str,
+    pipeline_config: PipelineConfig,
+    on_progress: ProgressCallback | None,
+    pdf_path: Path,
+    output_dir: Path,
+    ready_marker: Path,
+    display_source_name: str,
+    requested_file_name: str,
+    requested_context_summary_enabled: bool,
+    ledger: UsageLedger,
+) -> dict[str, int]:
     await _emit(on_progress, "parsing", 0.05, f"正在解析 {pdf_path.name}")
     md_path = await parse_pdf(
         pdf_path,
@@ -184,11 +214,12 @@ async def run_single_document(
         context_summary_enabled=requested_context_summary_enabled,
     )
 
-    # Stage 2: 结构化
     await _emit(on_progress, "structuring", 0.25, "正在构建文档树")
     markdown = md_path.read_text(encoding="utf-8")
     meta_path = output_dir / f"{doc_id}_meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    meta = (
+        json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    )
     content_list = _load_content_list(md_path, meta)
     source_title = requested_file_name or display_source_name
     context_summary_enabled = _resolve_context_summary_enabled(
@@ -201,15 +232,15 @@ async def run_single_document(
         body_start_titles=pipeline_config.tree_pruning_body_start_titles,
     )
     raw_tree = parse_markdown_to_tree(
-        markdown, source=doc_id, content_list=content_list,
+        markdown,
+        source=doc_id,
+        content_list=content_list,
     )
     tree = prune_document_tree(raw_tree, pruning_config)
 
-    # Stage 3: 分块
     await _emit(on_progress, "chunking", 0.50, "正在创建文档块")
     chunks = create_chunks(tree, source_title=source_title)
 
-    # Stage 3.5: LLM 摘要
     if context_summary_enabled:
         await _emit(on_progress, "summarizing", 0.60, "正在生成特殊元素摘要")
 
@@ -220,25 +251,31 @@ async def run_single_document(
         overall = 0.60 + 0.25 * ratio
         if on_progress is not None:
             import asyncio
+
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                loop.create_task(_emit(
-                    on_progress, "summarizing", overall,
-                    f"已摘要 {completed}/{total} 个特殊块",
-                ))
+                loop.create_task(
+                    _emit(
+                        on_progress,
+                        "summarizing",
+                        overall,
+                        f"已摘要 {completed}/{total} 个特殊块",
+                    )
+                )
 
     if context_summary_enabled:
         chunks = await enrich_chunks(
-            chunks, pipeline_config, tree=tree, progress_callback=_on_summary_progress,
+            chunks,
+            pipeline_config,
+            tree=tree,
+            progress_callback=_on_summary_progress,
         )
 
-    # Stage 4: 索引（先删旧再插新）
     await _emit(on_progress, "indexing", 0.88, "正在清理旧索引并写入新数据")
     deleted = await _delete_document_chunks_for_doc_id(doc_id, pipeline_config)
     milvus_count = await index_to_milvus(chunks, pipeline_config)
     es_count = await index_to_elasticsearch(chunks, pipeline_config)
 
-    # 热更新 retriever 缓存
     await invalidate_retriever_cache()
     ready_marker.write_text(
         json.dumps(
@@ -252,8 +289,15 @@ async def run_single_document(
         encoding="utf-8",
     )
 
+    pages = meta.get("original_page_count")
+    _write_usage_report(
+        output_dir, ledger, pages=pages if isinstance(pages, int) else None
+    )
+
     await _emit(
-        on_progress, "ready", 1.0,
+        on_progress,
+        "ready",
+        1.0,
         f"完成: {len(chunks)} 个块已索引 (Milvus={milvus_count}, ES={es_count})",
     )
 
@@ -273,3 +317,22 @@ async def run_single_document(
         "deleted_milvus": deleted["milvus"],
         "deleted_elasticsearch": deleted["elasticsearch"],
     }
+
+
+def _write_usage_report(
+    output_dir: Path,
+    ledger: UsageLedger,
+    *,
+    pages: int | None,
+) -> None:
+    report = ledger.report()
+    if pages and pages > 0:
+        report["pages"] = pages
+        total = report.get("cost", {}).get("total")
+        if isinstance(total, (int, float)):
+            report["cost_per_page"] = round(float(total) / pages, 8)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "usage.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )

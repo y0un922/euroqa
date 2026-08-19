@@ -1,4 +1,5 @@
 """Shared tokenizer utilities for retrieval and generation token accounting."""
+
 from __future__ import annotations
 
 import os
@@ -28,8 +29,9 @@ def count_for_embedding(
 
     Returns:
         ``(count, is_estimate)``. BGE models use local/online HF tokenizer
-        loading. Qwen API models use local tiktoken estimates to avoid remote
-        tokenization latency. Other models fall back to a character estimate.
+        loading. Qwen API models use the DashScope tokenizer when installed,
+        otherwise a character estimate. Billing must use provider ``usage``,
+        not these pre-counts. Other models fall back to a character estimate.
     """
     return _count_for_model(text, model)
 
@@ -48,7 +50,10 @@ def count_for_llm(text: str, model: str) -> tuple[int, bool]:
     if _is_openai_model(normalized_model):
         return _count_with_tiktoken(text, normalized_model), False
     if _is_qwen_model(normalized_model):
-        return _count_with_tiktoken(text, normalized_model), True
+        official = _qwen_tokenizer_count(text)
+        if official is not None:
+            return official
+        return _estimate_with_log(text, normalized_model, "qwen_tokenizer_unavailable")
     return _estimate_with_log(text, normalized_model, "llm_tokenizer_unavailable")
 
 
@@ -80,7 +85,10 @@ def _count_for_model(text: str, model: str) -> tuple[int, bool]:
             return _char_token_estimate(text), True
 
     if _is_qwen_model(normalized_model):
-        return _count_with_tiktoken(text, normalized_model), True
+        official = _qwen_tokenizer_count(text)
+        if official is not None:
+            return official
+        return _estimate_with_log(text, normalized_model, "qwen_tokenizer_unavailable")
 
     return _estimate_with_log(text, normalized_model, "tokenizer_mapping_missing")
 
@@ -151,6 +159,17 @@ def _is_openai_model(model: str) -> bool:
 
 def _is_qwen_model(model: str) -> bool:
     return "qwen" in model.lower()
+
+
+def _qwen_tokenizer_count(text: str) -> tuple[int, bool] | None:
+    """Count with the official Qwen tokenizer when DashScope is installed."""
+    try:
+        from dashscope import get_tokenizer
+
+        tokenizer = get_tokenizer("qwen-turbo")
+        return len(tokenizer.encode(text or "")), False
+    except Exception:
+        return None
 
 
 def _count_with_tiktoken(text: str, model: str) -> int:

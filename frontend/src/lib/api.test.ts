@@ -549,6 +549,7 @@ test("queryStream forwards usage and elapsed time in done payloads", async () =>
   const encoder = new TextEncoder();
   const donePayloads: Array<{
     usage?: Record<string, number> | null;
+    cost?: Record<string, unknown> | null;
     elapsed_ms?: number | null;
   }> = [];
   const originalFetch = globalThis.fetch;
@@ -560,7 +561,7 @@ test("queryStream forwards usage and elapsed time in done payloads", async () =>
           start(controller) {
             controller.enqueue(
               encoder.encode(
-                'event: done\ndata: {"confidence":"low","sources":[],"related_refs":[],"usage":{"input_tokens":11,"output_tokens":22,"total_tokens":33},"elapsed_ms":987}\n\n',
+                'event: done\ndata: {"confidence":"low","sources":[],"related_refs":[],"usage":{"input_tokens":11,"output_tokens":22,"total_tokens":33},"cost":{"currency":"CNY","total":0.0012},"elapsed_ms":987}\n\n',
               ),
             );
             controller.close();
@@ -580,6 +581,7 @@ test("queryStream forwards usage and elapsed time in done payloads", async () =>
         onDone: (payload) => {
           donePayloads.push({
             usage: payload.usage ?? null,
+            cost: payload.cost ?? null,
             elapsed_ms: payload.elapsed_ms ?? null,
           });
         },
@@ -592,6 +594,7 @@ test("queryStream forwards usage and elapsed time in done payloads", async () =>
   assert.deepEqual(donePayloads, [
     {
       usage: { input_tokens: 11, output_tokens: 22, total_tokens: 33 },
+      cost: { currency: "CNY", total: 0.0012 },
       elapsed_ms: 987,
     },
   ]);

@@ -1,4 +1,5 @@
 """Contextual retrieval helper objects."""
+
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +15,7 @@ from openai import AsyncOpenAI
 from pipeline.config import PipelineConfig
 from pipeline.structure import DocumentNode
 from pipeline.structure import ElementType as StructElementType
+from shared.usage import record_usage, vendor_from_base_url
 
 
 logger = structlog.get_logger()
@@ -39,7 +41,9 @@ class ContextualizeResult:
     semantic_description: str = ""
 
 
-def build_outline_from_tree(tree: DocumentNode, *, first_para_max_chars: int = 200) -> str:
+def build_outline_from_tree(
+    tree: DocumentNode, *, first_para_max_chars: int = 200
+) -> str:
     """Build a deterministic outline from the document tree."""
     lines: list[str] = []
     token_estimate_chars = 0
@@ -111,10 +115,15 @@ class Contextualizer:
             api_key=config.contextualize_llm_api_key or config.llm_api_key,
         )
         self._model = config.contextualize_llm_model or config.llm_model
+        self._vendor = vendor_from_base_url(
+            config.contextualize_llm_base_url or config.llm_base_url
+        )
         self._retry_attempts = max(1, config.contextualize_retry_attempts)
         self._request_timeout_seconds = config.contextualize_request_timeout_seconds
 
-    async def generate_doc_summary(self, source_title: str, doc_outline_text: str) -> str:
+    async def generate_doc_summary(
+        self, source_title: str, doc_outline_text: str
+    ) -> str:
         prompt = (
             f"Below is the outline and excerpts of a regulatory/standards document titled '{source_title}'.\n"
             "In 200-400 words, summarize its scope, structure, and key technical topics.\n"
@@ -123,7 +132,9 @@ class Contextualizer:
         )
         return await self._call_llm(prompt, max_tokens=800)
 
-    async def contextualize_chunk(self, request: ContextualizeRequest) -> ContextualizeResult:
+    async def contextualize_chunk(
+        self, request: ContextualizeRequest
+    ) -> ContextualizeResult:
         if request.chunk_kind == "text":
             return await self._contextualize_text_chunk(request)
         if request.chunk_kind in {"table", "formula", "image"}:
@@ -142,7 +153,9 @@ class Contextualizer:
             "for retrieval purposes. Output only the context, no preamble."
         )
         context = await self._call_llm(prompt, max_tokens=300)
-        return ContextualizeResult(context_blurb=context.strip(), semantic_description="")
+        return ContextualizeResult(
+            context_blurb=context.strip(), semantic_description=""
+        )
 
     async def _contextualize_special_chunk(
         self, request: ContextualizeRequest
@@ -161,7 +174,9 @@ class Contextualizer:
                 chunk_id="unknown",
                 raw=raw[:200],
             )
-            return ContextualizeResult(context_blurb=raw.strip(), semantic_description="")
+            return ContextualizeResult(
+                context_blurb=raw.strip(), semantic_description=""
+            )
 
     def _build_special_chunk_prompt(self, request: ContextualizeRequest) -> str:
         """Build the chunk-kind-specific prompt for special chunks."""
@@ -172,23 +187,23 @@ class Contextualizer:
         )
         schema_templates = {
             "table": (
-                '{\n'
+                "{\n"
                 '  "context": "1-2 sentence context situating this table within the document",\n'
                 '  "description": "natural-language description of what this table expresses, including '
                 'its structure, units, and key values"\n'
-                '}'
+                "}"
             ),
             "formula": (
-                '{\n'
+                "{\n"
                 '  "context": "1-2 sentence context situating this formula within the document",\n'
                 '  "description": "natural-language description of what this formula means and how to read it"\n'
-                '}'
+                "}"
             ),
             "image": (
-                '{\n'
+                "{\n"
                 '  "context": "1-2 sentence context situating this figure within the document",\n'
                 '  "description": "natural-language description of what this figure shows and why it matters"\n'
-                '}'
+                "}"
             ),
         }
         if request.chunk_kind == "table":
@@ -247,6 +262,11 @@ class Contextualizer:
                     timeout=self._request_timeout_seconds,
                 )
                 content = response.choices[0].message.content
+                record_usage(
+                    model=self._model,
+                    vendor=self._vendor,
+                    payload=response,
+                )
                 return content.strip() if content else ""
             except Exception as exc:
                 last_error = exc

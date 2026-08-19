@@ -717,6 +717,7 @@ export function useEuroQaDemo() {
           },
           onDone: (payload) => {
             const usage = payload.usage ?? null;
+            const cost = payload.cost ?? null;
             const elapsedMs = payload.elapsed_ms ?? null;
             setMessages((current) =>
               current.map((message) =>
@@ -733,6 +734,7 @@ export function useEuroQaDemo() {
                       questionType: payload.question_type ?? null,
                       engineeringContext: payload.engineering_context ?? null,
                       usage,
+                      cost,
                       elapsed_ms: elapsedMs,
                       status: "done",
                       errorMessage: undefined,
@@ -794,6 +796,7 @@ export function useEuroQaDemo() {
                   questionType: response.question_type ?? null,
                   engineeringContext: response.engineering_context ?? null,
                   usage: response.usage ?? null,
+                  cost: response.cost ?? null,
                   elapsed_ms: response.elapsed_ms ?? null,
                   status: "done",
                   errorMessage: undefined,

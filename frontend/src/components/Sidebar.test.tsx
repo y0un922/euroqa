@@ -16,7 +16,9 @@ test("Sidebar renders history sessions and omits glossary preview", () => {
           title: "EN 1992-1-1",
           total_pages: 580,
           chunk_count: 200,
-          status: "ready"
+          status: "ready",
+          usage: { input_tokens: 1000, output_tokens: 200, total_tokens: 1200 },
+          cost: { currency: "CNY", total: 0.012, items: [], unpriced: [] }
         }
       ],
       glossary: [
@@ -55,6 +57,8 @@ test("Sidebar renders history sessions and omits glossary preview", () => {
     })
   );
 
+  assert.match(html, /Token 总 1200 · 输入 1000 · 输出 200/);
+  assert.match(html, /费用 ¥0\.0120/);
   assert.match(html, /历史会话/);
   assert.match(html, /保护层都与什么因素相关，该怎么计算\?/);
   assert.match(html, /删除历史会话 保护层都与什么因素相关，该怎么计算\?/);

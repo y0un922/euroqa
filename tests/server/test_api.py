@@ -577,8 +577,8 @@ class TestQueryEndpoint:
         from unittest.mock import patch
 
         previous_overrides = dict(app.dependency_overrides)
-        app.dependency_overrides[deps.get_conversation_manager] = (
-            lambda: _FakeConversationManager()
+        app.dependency_overrides[deps.get_conversation_manager] = lambda: (
+            _FakeConversationManager()
         )
         app.dependency_overrides[deps.get_glossary] = lambda: {}
         try:
@@ -647,7 +647,9 @@ class TestDocumentsEndpoint:
                 return 100
 
             def enqueue(self, doc_id):
-                return type("State", (), {"stage": PipelineStage.PENDING, "doc_id": doc_id})()
+                return type(
+                    "State", (), {"stage": PipelineStage.PENDING, "doc_id": doc_id}
+                )()
 
         with patch(
             "server.api.v1.documents.get_task_manager",
@@ -751,6 +753,48 @@ class TestDocumentsEndpoint:
         assert len(body) == 1
         assert body[0]["id"] == "DG_EN1990"
         assert body[0]["status"] == "ready"
+
+    def test_list_documents_includes_usage_report_when_present(
+        self, client, tmp_path: Path
+    ):
+        pdf_dir = tmp_path / "pdfs"
+        parsed_dir = tmp_path / "parsed"
+        parsed_doc_dir = parsed_dir / "DG_EN1990"
+        pdf_dir.mkdir()
+        parsed_doc_dir.mkdir(parents=True)
+
+        pdf_path = pdf_dir / "DG_EN1990.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        (parsed_doc_dir / ".indexed").write_text("{}", encoding="utf-8")
+        (parsed_doc_dir / "usage.json").write_text(
+            json.dumps(
+                {
+                    "usage": {
+                        "input_tokens": 20,
+                        "output_tokens": 8,
+                        "total_tokens": 28,
+                    },
+                    "cost": {"currency": "CNY", "total": 0.001},
+                }
+            ),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            pdf_dir=str(pdf_dir),
+            parsed_dir=str(parsed_dir),
+            es_url="http://127.0.0.1:1",
+        )
+
+        resp = client.get("/api/v1/documents")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body[0]["usage"]["total_tokens"] == 28
+        assert body[0]["cost"]["total"] == 0.001
 
     def test_list_documents_marks_legacy_indexed_doc_ready_without_marker(
         self, client, tmp_path: Path
@@ -1078,9 +1122,7 @@ class TestDocumentsEndpoint:
         assert parse_options["file_name"] == "b.pdf"
         assert parse_options["minio_path"] == "eurocode/uploads/b.pdf"
 
-    def test_parse_queue_endpoint_returns_remaining(
-        self, client, tmp_path: Path
-    ):
+    def test_parse_queue_endpoint_returns_remaining(self, client, tmp_path: Path):
         app.dependency_overrides[deps.get_config] = lambda: _server_config(
             pdf_dir=str(tmp_path / "pdfs"),
             parsed_dir=str(tmp_path / "parsed"),
@@ -1315,6 +1357,48 @@ class TestDocumentsEndpoint:
                 }
             ],
         }
+
+    def test_batch_document_status_includes_usage_report_when_present(
+        self, client, tmp_path: Path
+    ):
+        parsed_doc_dir = tmp_path / "parsed" / "EN_1990_2002"
+        parsed_doc_dir.mkdir(parents=True)
+        (parsed_doc_dir / ".indexed").write_text(
+            json.dumps({"milvus": 10, "elasticsearch": 10}),
+            encoding="utf-8",
+        )
+        (parsed_doc_dir / "usage.json").write_text(
+            json.dumps(
+                {
+                    "usage": {
+                        "input_tokens": 20,
+                        "output_tokens": 8,
+                        "total_tokens": 28,
+                    },
+                    "cost": {"currency": "CNY", "total": 0.001},
+                }
+            ),
+            encoding="utf-8",
+        )
+        app.dependency_overrides[deps.get_config] = lambda: _server_config(
+            parsed_dir=str(tmp_path / "parsed"),
+            pdf_dir=str(tmp_path / "pdfs"),
+            es_url="http://127.0.0.1:1",
+        )
+
+        resp = client.post(
+            "/api/v1/documents/status",
+            json={"docIds": ["EN_1990_2002"]},
+        )
+
+        assert resp.status_code == 200
+        item = resp.json()["results"][0]
+        assert item["usage"] == {
+            "input_tokens": 20,
+            "output_tokens": 8,
+            "total_tokens": 28,
+        }
+        assert item["cost"]["total"] == 0.001
 
     def test_batch_document_status_returns_not_found_for_missing_document(
         self, client, tmp_path: Path

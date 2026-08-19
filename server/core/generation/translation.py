@@ -13,6 +13,7 @@ from server.core.generation.citations import _extract_json_text
 from server.core.generation.sources import _collect_pending_source_indexes
 from server.models.schemas import Source
 from shared.llm_clients import get_async_openai_client
+from shared.usage import record_usage, vendor_from_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +130,11 @@ async def _call_source_translation_llm(
         messages=[system_message, {"role": "user", "content": prompt}],
         temperature=0.0,
         response_format={"type": "json_object"},
+    )
+    record_usage(
+        model=model,
+        vendor=vendor_from_base_url(base_url),
+        payload=response,
     )
     return response.choices[0].message.content.strip()
 

@@ -18,6 +18,7 @@ from server.agents.evidence import EvidenceBundle
 from server.agents.tools.search import lookup_object, search
 from server.config import ServerConfig
 from shared.spot_check import merge_spot_check_usage
+from shared.usage import record_usage, vendor_from_base_url
 
 logger = structlog.get_logger(__name__)
 
@@ -122,17 +123,34 @@ def _aggregate_streamed_usage(result: object) -> dict[str, int] | None:
             val = getattr(usage, key, 0) or 0
             if val:
                 totals[key] = totals.get(key, 0) + int(val)
-        cached = getattr(
-            getattr(usage, "input_tokens_details", None), "cached_tokens", 0
-        ) or 0
+        cached = (
+            getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", 0)
+            or 0
+        )
         if cached:
             totals["cached_tokens"] = totals.get("cached_tokens", 0) + int(cached)
-        reasoning = getattr(
-            getattr(usage, "output_tokens_details", None), "reasoning_tokens", 0
-        ) or 0
+        reasoning = (
+            getattr(
+                getattr(usage, "output_tokens_details", None), "reasoning_tokens", 0
+            )
+            or 0
+        )
         if reasoning:
-            totals["reasoning_tokens"] = totals.get("reasoning_tokens", 0) + int(reasoning)
+            totals["reasoning_tokens"] = totals.get("reasoning_tokens", 0) + int(
+                reasoning
+            )
     return totals or None
+
+
+def _record_agent_usage(agent: Agent[QADeps], usage: dict[str, int]) -> None:
+    model = getattr(agent.model, "model", "") or ""
+    client = getattr(agent.model, "_client", None)
+    base_url = str(getattr(client, "base_url", "") or "")
+    record_usage(
+        model=str(model),
+        vendor=vendor_from_base_url(base_url),
+        usage_blob=usage,
+    )
 
 
 def _uses_deepseek_agent_endpoint(config: ServerConfig) -> bool:
@@ -248,6 +266,7 @@ async def run_qa_agent(
     usage = _aggregate_streamed_usage(result)
     if usage is not None:
         merge_spot_check_usage(usage)
+        _record_agent_usage(agent, usage)
     return str(result.final_output or ""), deps.bundle, usage
 
 
@@ -334,6 +353,7 @@ async def run_qa_agent_streamed(
     usage = _aggregate_streamed_usage(result)
     if usage is not None:
         merge_spot_check_usage(usage)
+        _record_agent_usage(agent, usage)
     yield (final_output or _fallback_agent_reply(deps), deps.bundle, usage)
 
 
@@ -371,7 +391,6 @@ def _build_input_items(question: str, deps: QADeps) -> list[dict[str, str]]:
             }
         )
     return input_items
-
 
 
 def _fallback_agent_reply(deps: QADeps) -> str:
@@ -413,7 +432,9 @@ def _format_evidence_context(
         ref = bundle.ref_label_for(chunk)
         meta = chunk.metadata
         section = " > ".join(meta.section_path) if meta.section_path else "unknown"
-        page = ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "unknown"
+        page = (
+            ", ".join(map(str, meta.page_numbers)) if meta.page_numbers else "unknown"
+        )
         object_label = f" | {meta.object_label}" if meta.object_label else ""
         block = (
             f"[{ref}] {meta.source} | {section} | p.{page}{object_label}"

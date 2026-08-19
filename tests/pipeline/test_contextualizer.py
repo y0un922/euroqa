@@ -1,4 +1,5 @@
 """Tests for contextual retrieval helper primitives."""
+
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
@@ -45,14 +46,26 @@ def test_contextualize_result_is_frozen_and_defaults_description_empty():
         result.context_blurb = "changed"
 
 
-def _chat_response(content: str) -> SimpleNamespace:
+def _chat_response(
+    content: str, *, prompt_tokens: int = 0, completion_tokens: int = 0
+) -> SimpleNamespace:
+    usage = None
+    if prompt_tokens or completion_tokens:
+        usage = SimpleNamespace(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        usage=usage,
     )
 
 
 def test_contextualizer_uses_contextualize_llm_overrides():
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
+    )
 
     with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client) as openai:
         contextualizer = Contextualizer(
@@ -74,7 +87,9 @@ def test_contextualizer_uses_contextualize_llm_overrides():
 
 
 def test_contextualizer_falls_back_to_main_llm_settings():
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
+    )
 
     with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client) as openai:
         contextualizer = Contextualizer(
@@ -98,7 +113,9 @@ def test_contextualizer_falls_back_to_main_llm_settings():
 @pytest.mark.asyncio
 async def test_generate_doc_summary_prompt_contains_title_and_outline():
     create = AsyncMock(return_value=_chat_response("Summary text."))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
 
     with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
         contextualizer = Contextualizer(
@@ -129,7 +146,9 @@ async def test_generate_doc_summary_prompt_contains_title_and_outline():
 @pytest.mark.asyncio
 async def test_call_llm_uses_configured_request_timeout():
     create = AsyncMock(return_value=_chat_response("Summary text."))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
 
     with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
         contextualizer = Contextualizer(
@@ -149,7 +168,9 @@ async def test_generate_doc_summary_retries_timeout_then_succeeds():
             _chat_response("Recovered summary."),
         ]
     )
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
 
     with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
         contextualizer = Contextualizer(PipelineConfig(contextualize_retry_attempts=2))
@@ -168,7 +189,9 @@ async def test_generate_doc_summary_retry_exhaustion_raises():
             httpx.ReadTimeout("timeout-3"),
         ]
     )
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
 
     with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
         contextualizer = Contextualizer(PipelineConfig(contextualize_retry_attempts=3))
@@ -182,7 +205,9 @@ async def test_generate_doc_summary_retry_exhaustion_raises():
 async def test_contextualize_chunk_text_path():
     llm_text = "Section 3.2 of EN1992 introduces concrete material properties."
     create = AsyncMock(return_value=_chat_response(llm_text))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="This document covers concrete structure design.",
         parent_section_text="3.2 Concrete material properties are defined here.",
@@ -195,11 +220,15 @@ async def test_contextualize_chunk_text_path():
         contextualizer = Contextualizer(PipelineConfig())
         result = await contextualizer.contextualize_chunk(request)
 
-    assert result == ContextualizeResult(context_blurb=llm_text, semantic_description="")
+    assert result == ContextualizeResult(
+        context_blurb=llm_text, semantic_description=""
+    )
     prompt = create.await_args.kwargs["messages"][0]["content"]
     assert prompt.index("Document summary:") < prompt.index("Section path:")
     assert prompt.index("Section path:") < prompt.index("Section containing the chunk:")
-    assert prompt.index("Section containing the chunk:") < prompt.index("Chunk to situate:")
+    assert prompt.index("Section containing the chunk:") < prompt.index(
+        "Chunk to situate:"
+    )
     assert "EN 1992-1-1 > Section 3 > 3.2 Concrete" in prompt
 
 
@@ -211,7 +240,9 @@ async def test_contextualize_chunk_special_json(chunk_kind: str):
         '"description": "It expresses design values used in concrete calculations."}'
     )
     create = AsyncMock(return_value=_chat_response(raw_json))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="Parent section text.",
@@ -234,7 +265,9 @@ async def test_contextualize_chunk_special_json(chunk_kind: str):
 async def test_contextualize_chunk_table_prompt_mentions_table_structure():
     raw_json = '{"context": "Table context.", "description": "Table description."}'
     create = AsyncMock(return_value=_chat_response(raw_json))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="Parent section text.",
@@ -257,7 +290,9 @@ async def test_contextualize_chunk_table_prompt_mentions_table_structure():
 async def test_contextualize_chunk_formula_prompt_mentions_symbol_meaning():
     raw_json = '{"context": "Formula context.", "description": "Formula description."}'
     create = AsyncMock(return_value=_chat_response(raw_json))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="Parent section text.",
@@ -280,7 +315,9 @@ async def test_contextualize_chunk_formula_prompt_mentions_symbol_meaning():
 async def test_contextualize_chunk_image_prompt_mentions_figure_subject():
     raw_json = '{"context": "Figure context.", "description": "Figure description."}'
     create = AsyncMock(return_value=_chat_response(raw_json))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="Parent section text.",
@@ -307,7 +344,9 @@ async def test_contextualize_chunk_image_prompt_includes_alt_text():
         '"description": "A figure showing the parabola-rectangle diagram for concrete."}'
     )
     create = AsyncMock(return_value=_chat_response(raw_json))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="Parent section text.",
@@ -330,7 +369,9 @@ async def test_contextualize_chunk_image_prompt_includes_alt_text():
 async def test_contextualize_special_prompt_omits_empty_parent_section():
     raw_json = '{"context": "Context.", "description": "Description."}'
     create = AsyncMock(return_value=_chat_response(raw_json))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="",
@@ -352,7 +393,9 @@ async def test_contextualize_special_prompt_omits_empty_parent_section():
 async def test_contextualize_chunk_json_parse_fallback():
     raw = "This table gives concrete strength classes in context."
     create = AsyncMock(return_value=_chat_response(raw))
-    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
     request = ContextualizeRequest(
         doc_summary="Document summary.",
         parent_section_text="Parent section text.",
@@ -373,3 +416,37 @@ async def test_contextualize_chunk_json_parse_fallback():
         and log["raw"] == raw
         for log in logs
     )
+
+
+@pytest.mark.asyncio
+async def test_contextualizer_records_official_usage():
+    from shared.usage import collect_usage
+
+    create = AsyncMock(
+        return_value=_chat_response(
+            "Summary text.", prompt_tokens=20, completion_tokens=8
+        )
+    )
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+
+    with patch("pipeline.contextualizer.AsyncOpenAI", return_value=client):
+        contextualizer = Contextualizer(
+            PipelineConfig(
+                llm_api_key="key",
+                llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                llm_model="qwen3.6-flash",
+                contextualize_llm_api_key="key",
+                contextualize_llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                contextualize_llm_model="qwen3.6-flash",
+            )
+        )
+        with collect_usage() as ledger:
+            await contextualizer.generate_doc_summary("Title", "Outline")
+
+    report = ledger.report()
+    assert report["usage"]["input_tokens"] == 20
+    assert report["usage"]["output_tokens"] == 8
+    assert report["cost"]["items"][0]["model"] == "qwen3.6-flash"
+    assert report["cost"]["items"][0]["vendor"] == "bailian"

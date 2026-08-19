@@ -278,6 +278,18 @@ def _read_indexed_chunk_count(doc_id: str, parsed_dir: str) -> int | None:
         return None
 
 
+def _read_usage_report(doc_id: str, parsed_dir: str) -> dict[str, object]:
+    """Load official token/cost report written after a parse run."""
+    path = Path(parsed_dir) / doc_id / "usage.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 async def _document_has_indexed_chunks(
     source_name: str,
     es_url: str,
@@ -335,6 +347,7 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
                 stage=status.value,
                 timestamp=_utc_iso(),
             )
+        usage_report = _read_usage_report(doc_id, config.parsed_dir)
         return DocumentStatusItem(
             doc_id=doc_id,
             status=_normalize_external_status(status),
@@ -344,6 +357,8 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
             chunk_count=_read_indexed_chunk_count(doc_id, config.parsed_dir)
             if status == DocumentStatus.READY
             else None,
+            usage=usage_report.get("usage") if status == DocumentStatus.READY else None,
+            cost=usage_report.get("cost") if status == DocumentStatus.READY else None,
             error=error,
         )
 
@@ -365,6 +380,7 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
         )
 
     status = await _get_document_status(doc_id, config)
+    usage_report = _read_usage_report(doc_id, config.parsed_dir)
     return DocumentStatusItem(
         doc_id=doc_id,
         status=_normalize_external_status(status),
@@ -374,6 +390,8 @@ async def _build_external_document_status(doc_id: str, config) -> DocumentStatus
         chunk_count=_read_indexed_chunk_count(doc_id, config.parsed_dir)
         if status == DocumentStatus.READY
         else None,
+        usage=usage_report.get("usage") if status == DocumentStatus.READY else None,
+        cost=usage_report.get("cost") if status == DocumentStatus.READY else None,
         error=DocumentStatusError(
             type="INTERNAL_ERROR",
             detail="文档解析失败",
@@ -509,7 +527,9 @@ async def _enqueue_document_parse(
     state = tm.get_status_or_persisted(request.doc_id, config.parsed_dir)
     if _is_active_pipeline_state(state):
         if raise_on_active:
-            raise HTTPException(status_code=409, detail="该文档正在解析中，不可重复触发")
+            raise HTTPException(
+                status_code=409, detail="该文档正在解析中，不可重复触发"
+            )
         return DocumentParseResponse(
             doc_id=request.doc_id,
             status="already_processing",
@@ -523,7 +543,9 @@ async def _enqueue_document_parse(
         enqueued = tm.enqueue(request.doc_id)
     except RuntimeError as exc:
         if "parse queue is full" in str(exc):
-            raise HTTPException(status_code=429, detail="解析队列已满，请稍后重试") from exc
+            raise HTTPException(
+                status_code=429, detail="解析队列已满，请稍后重试"
+            ) from exc
         raise
     status = "queued" if enqueued.stage == PipelineStage.PENDING else "processing"
     return DocumentParseResponse(
@@ -739,6 +761,9 @@ async def list_documents(config=Depends(get_config)) -> list[DocumentInfo]:
         for pdf_path in sorted(pdf_dir.glob("*.pdf")):
             try:
                 doc = fitz.open(str(pdf_path))
+                usage_report = _read_usage_report(pdf_path.stem, config.parsed_dir)
+                usage = usage_report.get("usage")
+                cost = usage_report.get("cost")
                 docs.append(
                     DocumentInfo(
                         id=pdf_path.stem,
@@ -747,6 +772,8 @@ async def list_documents(config=Depends(get_config)) -> list[DocumentInfo]:
                         total_pages=len(doc),
                         chunk_count=0,
                         status=await _get_document_status(pdf_path.stem, config),
+                        usage=usage if isinstance(usage, dict) else None,
+                        cost=cost if isinstance(cost, dict) else None,
                     )
                 )
                 doc.close()

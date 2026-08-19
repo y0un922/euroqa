@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import type { DocumentInfo, DocumentStatus, GlossaryEntry } from "../lib/types";
+import { formatCostSummary, formatUsageSummary } from "../lib/usageDisplay";
 import DocumentStatusBadge from "./DocumentStatusBadge";
 import DocumentUpload from "./DocumentUpload";
 
@@ -136,6 +137,8 @@ export default memo(function Sidebar(props: SidebarProps) {
                 : (document.status ?? "ready");
               const showProgress =
                 document.id === processingDocId && pipelineProgress > 0 && pipelineProgress < 1;
+              const usage = formatUsageSummary(document.usage);
+              const cost = formatCostSummary(document.cost);
               return (
                 <li key={document.id}>
                   <div className="group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm text-stone-600">
@@ -164,6 +167,13 @@ export default memo(function Sidebar(props: SidebarProps) {
                       )}
                     </div>
                   </div>
+                  {(usage || cost) ? (
+                    <div className="mx-2 mb-1 truncate text-[11px] leading-4 text-stone-400">
+                      {usage ? `Token ${usage}` : null}
+                      {usage && cost ? " · " : null}
+                      {cost ? `费用 ${cost}` : null}
+                    </div>
+                  ) : null}
                   {showProgress && (
                     <div className="mx-2 mt-0.5 h-1 overflow-hidden rounded-full bg-stone-200">
                       <div

@@ -6,7 +6,7 @@ import uuid
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 
 def to_camel(value: str) -> str:
@@ -203,6 +203,7 @@ class QueryResponse(BaseModel):
     conversation_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     degraded: bool = False
     usage: dict[str, int] | None = None
+    cost: dict[str, object] | None = None
     elapsed_ms: int | None = None
     retrieval_context: RetrievalContext | None = None
     question_type: Optional[str] = None
@@ -223,6 +224,7 @@ class ConversationTurn(CamelModel):
     conversation_id: str
     error_message: Optional[str] = None
     usage: dict[str, int] | None = None
+    cost: dict[str, object] | None = None
     elapsed_ms: int | None = None
     retrieval_context: Optional[dict[str, object]] = None
     question_type: Optional[str] = None
@@ -294,6 +296,8 @@ class DocumentInfo(BaseModel):
     total_pages: int
     chunk_count: int
     status: DocumentStatus = DocumentStatus.READY
+    usage: dict[str, int] | None = None
+    cost: dict[str, object] | None = None
 
 
 class DocumentUploadResponse(BaseModel):
@@ -436,7 +440,18 @@ class DocumentStatusItem(CamelModel):
     stage: str
     message: str
     chunk_count: int | None = None
+    usage: dict[str, int] | None = None
+    cost: dict[str, object] | None = None
     error: DocumentStatusError | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_usage_cost(self, serializer):
+        payload = serializer(self)
+        if payload.get("usage") is None:
+            payload.pop("usage", None)
+        if payload.get("cost") is None:
+            payload.pop("cost", None)
+        return payload
 
 
 class DocumentStatusBatchResponse(CamelModel):

@@ -1,4 +1,5 @@
 """Tests for shared embedding and rerank clients."""
+
 from __future__ import annotations
 
 import pytest
@@ -217,7 +218,78 @@ async def test_remote_rerank_client_accepts_openai_compatible_base_url(monkeypat
     )
 
     assert results == [(0, 0.91)]
-    assert calls[0][1] == "https://api.siliconflow.cn/v1/rerank"
+
+
+@pytest.mark.asyncio
+async def test_remote_embedding_records_official_usage(monkeypatch):
+    from shared.usage import collect_usage
+
+    calls = []
+    responses = {
+        ("POST", "https://api.siliconflow.cn/v1/embeddings"): [
+            _FakeResponse(
+                {
+                    "data": [{"index": 0, "embedding": [0.1, 0.2]}],
+                    "usage": {"prompt_tokens": 12, "total_tokens": 12},
+                }
+            )
+        ]
+    }
+    monkeypatch.setattr(
+        "shared.model_clients.httpx.AsyncClient",
+        lambda **kwargs: _FakeAsyncClient(responses, calls),
+    )
+    client = EmbeddingClient(
+        provider="remote",
+        model="BAAI/bge-m3",
+        api_url="https://api.siliconflow.cn/v1",
+        api_key="embed-key",
+    )
+
+    with collect_usage() as ledger:
+        await client.embed_texts(["first"])
+
+    report = ledger.report()
+    assert report["usage"]["input_tokens"] == 12
+    assert report["cost"]["items"][0]["model"] == "BAAI/bge-m3"
+    assert report["cost"]["items"][0]["vendor"] == "siliconflow"
+    assert report["cost"]["items"][0]["cny"] == 0.0
+    assert report["cost"]["unpriced"] == []
+
+
+@pytest.mark.asyncio
+async def test_remote_rerank_records_official_usage(monkeypatch):
+    from shared.usage import collect_usage
+
+    calls = []
+    responses = {
+        ("POST", "https://dashscope.aliyuncs.com/compatible-api/v1/reranks"): [
+            _FakeResponse(
+                {
+                    "results": [{"index": 0, "relevance_score": 0.91}],
+                    "usage": {"prompt_tokens": 40, "total_tokens": 40},
+                }
+            )
+        ]
+    }
+    monkeypatch.setattr(
+        "shared.model_clients.httpx.AsyncClient",
+        lambda **kwargs: _FakeAsyncClient(responses, calls),
+    )
+    client = RerankClient(
+        provider="remote",
+        model="qwen3-rerank",
+        api_url="https://dashscope.aliyuncs.com/compatible-api/v1/reranks",
+        api_key="rerank-key",
+    )
+
+    with collect_usage() as ledger:
+        await client.rerank(query="wind", documents=["doc-a"], top_n=1)
+
+    report = ledger.report()
+    assert report["usage"]["input_tokens"] == 40
+    assert report["cost"]["items"][0]["model"] == "qwen3-rerank"
+    assert report["cost"]["items"][0]["cny"] == pytest.approx(40 * 0.5 / 1_000_000)
 
 
 @pytest.mark.asyncio

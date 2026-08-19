@@ -1,4 +1,5 @@
 """Tests for shared tokenizer counting helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -98,27 +99,48 @@ def test_bge_count_helpers_return_plain_counts(monkeypatch):
     assert tokenizers.count_for_bge_rerank("text") == 2
 
 
-def test_qwen_llm_count_uses_local_tiktoken_estimate(monkeypatch):
+def test_qwen_llm_count_does_not_use_tiktoken(monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "llm-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://dashscope.example/v1")
 
+    def fail_tiktoken(*_args, **_kwargs):
+        raise AssertionError("tiktoken must not be used for Qwen billing or pre-counts")
+
+    monkeypatch.setattr(tokenizers.tiktoken, "encoding_for_model", fail_tiktoken)
+    monkeypatch.setattr(tokenizers.tiktoken, "get_encoding", fail_tiktoken)
+    monkeypatch.setattr(
+        tokenizers,
+        "_qwen_tokenizer_count",
+        lambda text: (len(text or ""), False),
+    )
+
     count, is_estimate = tokenizers.count_for_llm("混合 mixed text", "qwen3.6-flash")
 
-    assert count > 0
-    assert is_estimate is True
+    assert count == len("混合 mixed text")
+    assert is_estimate is False
 
 
-def test_qwen_llm_count_does_not_require_api_key(monkeypatch):
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+def test_qwen_llm_count_falls_back_to_char_estimate_without_qwen_tokenizer(monkeypatch):
+    def fail_tiktoken(*_args, **_kwargs):
+        raise AssertionError("tiktoken must not be used for Qwen")
+
+    monkeypatch.setattr(tokenizers.tiktoken, "encoding_for_model", fail_tiktoken)
+    monkeypatch.setattr(tokenizers.tiktoken, "get_encoding", fail_tiktoken)
+    monkeypatch.setattr(tokenizers, "_qwen_tokenizer_count", lambda _text: None)
 
     count, is_estimate = tokenizers.count_for_llm("abcdef", "qwen3.6-flash")
 
-    assert count > 0
+    assert count == 3
     assert is_estimate is True
 
 
-def test_qwen_embedding_count_uses_local_tiktoken_estimate(monkeypatch):
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+def test_qwen_embedding_count_does_not_use_tiktoken(monkeypatch):
+    def fail_tiktoken(*_args, **_kwargs):
+        raise AssertionError("tiktoken must not be used for Qwen")
+
+    monkeypatch.setattr(tokenizers.tiktoken, "encoding_for_model", fail_tiktoken)
+    monkeypatch.setattr(tokenizers.tiktoken, "get_encoding", fail_tiktoken)
+    monkeypatch.setattr(tokenizers, "_qwen_tokenizer_count", lambda _text: None)
 
     count, is_estimate = tokenizers.count_for_embedding("query", "qwen3-embedding-8b")
 
@@ -126,15 +148,21 @@ def test_qwen_embedding_count_uses_local_tiktoken_estimate(monkeypatch):
     assert is_estimate is True
 
 
-def test_qwen_count_falls_back_to_estimate_without_api_key(monkeypatch):
+def test_qwen_count_falls_back_to_estimate_without_official_tokenizer(monkeypatch):
     def fail_hf_load(name: str, *, local_files_only: bool):
         raise AssertionError("HF tokenizer should not be loaded for Qwen API models")
 
+    def fail_tiktoken(*_args, **_kwargs):
+        raise AssertionError("tiktoken must not be used for Qwen")
+
     monkeypatch.setattr(tokenizers, "_load_hf_tokenizer", fail_hf_load)
+    monkeypatch.setattr(tokenizers.tiktoken, "encoding_for_model", fail_tiktoken)
+    monkeypatch.setattr(tokenizers.tiktoken, "get_encoding", fail_tiktoken)
+    monkeypatch.setattr(tokenizers, "_qwen_tokenizer_count", lambda _text: None)
 
     count, is_estimate = tokenizers.count_for_llm("abcdef", "qwen-max")
 
-    assert count > 0
+    assert count == 3
     assert is_estimate is True
 
 

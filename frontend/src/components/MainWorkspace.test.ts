@@ -58,6 +58,7 @@ test("MainWorkspace hides display-layer controls and question type badges", () =
       relatedRefs: [],
       degraded: false,
       usage: { input_tokens: 12, output_tokens: 34, total_tokens: 46 },
+      cost: { currency: "CNY", total: 0.001234, items: [], unpriced: [] },
       elapsed_ms: 1234,
       questionType: "rule",
     }
@@ -88,6 +89,7 @@ test("MainWorkspace hides display-layer controls and question type badges", () =
   assert.doesNotMatch(html, />审图</);
   assert.doesNotMatch(html, />rule</);
   assert.match(html, /Token 总 46 · 输入 12 · 输出 34/);
+  assert.match(html, /费用 ¥0\.001234/);
   assert.match(html, /耗时 1\.2s/);
   assert.doesNotMatch(html, /Table 2\.6/);
   assert.doesNotMatch(html, /EN 1998/);

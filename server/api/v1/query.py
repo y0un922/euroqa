@@ -29,6 +29,7 @@ from server.api.v1._response import (
     _build_query_response,
     _record_agent_spot_check,
     _stream_direct_agent_events,
+    _usage_and_cost,
 )
 from server.deps import (
     get_config,
@@ -51,6 +52,7 @@ from shared.spot_check import (
     reset_current_recorder,
     set_current_recorder,
 )
+from shared.usage import collect_usage
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -247,54 +249,57 @@ async def query(
     )
     token = set_current_recorder(recorder)
     try:
-        agent_result = await dispatch_agent(
-            question=req.question,
-            req=req,
-            config=runtime_config,
-            retriever=retriever,
-            glossary=glossary,
-            conv_mgr=conv_mgr,
-            **_source_filter_kwargs(sources_filter),
-        )
-        agent_reply = agent_result.agent_reply
-        bundle = agent_result.bundle
-        conv = agent_result.conv
-        _record_agent_spot_check(recorder, bundle)
+        with collect_usage():
+            agent_result = await dispatch_agent(
+                question=req.question,
+                req=req,
+                config=runtime_config,
+                retriever=retriever,
+                glossary=glossary,
+                conv_mgr=conv_mgr,
+                **_source_filter_kwargs(sources_filter),
+            )
+            agent_reply = agent_result.agent_reply
+            bundle = agent_result.bundle
+            conv = agent_result.conv
+            _record_agent_spot_check(recorder, bundle)
 
-        response, answer_mode = await _build_query_response(
-            req=req,
-            runtime_config=runtime_config,
-            config=config,
-            agent_reply=agent_reply,
-            bundle=bundle,
-            conv=conv,
-            uses_external_session=uses_external_session(req),
-        )
-        response = response.model_copy(
-            update={
-                "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
-                "usage": agent_result.usage or response.usage,
-            }
-        )
-
-        if uses_external_session(req):
-            await _add_conversation_turn(
-                conv_mgr,
-                conv.conversation_id,
-                req.question,
-                response.answer,
-                sources=response.sources,
-                related_refs=response.related_refs,
-                retrieval_context=response.retrieval_context,
-                question_type=response.question_type,
-                engineering_context=response.engineering_context,
-                answer_mode=answer_mode,
-                groundedness=response.groundedness,
-                tool_trace=bundle.tool_trace,
-                response_payload=response.model_dump(mode="json"),
+            response, answer_mode = await _build_query_response(
+                req=req,
+                runtime_config=runtime_config,
+                config=config,
+                agent_reply=agent_reply,
+                bundle=bundle,
+                conv=conv,
+                uses_external_session=uses_external_session(req),
+            )
+            usage, cost = _usage_and_cost(agent_result.usage)
+            response = response.model_copy(
+                update={
+                    "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+                    "usage": usage or response.usage,
+                    "cost": cost,
+                }
             )
 
-        return response
+            if uses_external_session(req):
+                await _add_conversation_turn(
+                    conv_mgr,
+                    conv.conversation_id,
+                    req.question,
+                    response.answer,
+                    sources=response.sources,
+                    related_refs=response.related_refs,
+                    retrieval_context=response.retrieval_context,
+                    question_type=response.question_type,
+                    engineering_context=response.engineering_context,
+                    answer_mode=answer_mode,
+                    groundedness=response.groundedness,
+                    tool_trace=bundle.tool_trace,
+                    response_payload=response.model_dump(mode="json"),
+                )
+
+            return response
     except (LLMUnavailableError, RetrievalUnavailableError, QAError) as exc:
         logger.error(
             "query_qa_error",
@@ -347,133 +352,138 @@ async def query_stream(
         )
         token = set_current_recorder(recorder)
         try:
-            async with asyncio.timeout(runtime_config.request_deadline_seconds):
-                logger.info(
-                    "query_start",
-                    question=req.question[:100],
-                    session_id=req.session_id,
-                )
-                yield _progress_sse_event(
-                    stage="agent_thinking",
-                    status="running",
-                    title="分析问题",
-                    summary="Agent 正在理解问题并决定策略...",
-                    started_at=started_at,
-                )
-                agent_t0 = time.perf_counter()
-                agent_result: AgentResult | None = None
-                answer_streamed = False
-                tool_step_queue: asyncio.Queue[ToolSubStep] = asyncio.Queue(maxsize=100)
+            with collect_usage():
+                async with asyncio.timeout(runtime_config.request_deadline_seconds):
+                    logger.info(
+                        "query_start",
+                        question=req.question[:100],
+                        session_id=req.session_id,
+                    )
+                    yield _progress_sse_event(
+                        stage="agent_thinking",
+                        status="running",
+                        title="分析问题",
+                        summary="Agent 正在理解问题并决定策略...",
+                        started_at=started_at,
+                    )
+                    agent_t0 = time.perf_counter()
+                    agent_result: AgentResult | None = None
+                    answer_streamed = False
+                    tool_step_queue: asyncio.Queue[ToolSubStep] = asyncio.Queue(
+                        maxsize=100
+                    )
 
-                class QueueToolProgress:
-                    async def on_tool_sub_step(self, step: ToolSubStep) -> None:
-                        try:
-                            tool_step_queue.put_nowait(step)
-                        except asyncio.QueueFull:
+                    class QueueToolProgress:
+                        async def on_tool_sub_step(self, step: ToolSubStep) -> None:
                             try:
-                                tool_step_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                pass
-                            tool_step_queue.put_nowait(step)
+                                tool_step_queue.put_nowait(step)
+                            except asyncio.QueueFull:
+                                try:
+                                    tool_step_queue.get_nowait()
+                                except asyncio.QueueEmpty:
+                                    pass
+                                tool_step_queue.put_nowait(step)
 
-                async def agent_items():
-                    async for agent_item in dispatch_agent_streamed(
-                        question=req.question,
-                        req=req,
-                        config=runtime_config,
-                        retriever=retriever,
-                        glossary=glossary,
-                        conv_mgr=conv_mgr,
-                        tool_progress=QueueToolProgress(),
-                        **_source_filter_kwargs(sources_filter),
-                    ):
-                        yield agent_item
+                    async def agent_items():
+                        async for agent_item in dispatch_agent_streamed(
+                            question=req.question,
+                            req=req,
+                            config=runtime_config,
+                            retriever=retriever,
+                            glossary=glossary,
+                            conv_mgr=conv_mgr,
+                            tool_progress=QueueToolProgress(),
+                            **_source_filter_kwargs(sources_filter),
+                        ):
+                            yield agent_item
 
-                _agent_timed_out = False
-                try:
-                    async for item in _merge_agent_and_tool_progress(
-                        agent_items(),
-                        tool_step_queue,
-                    ):
-                        if isinstance(item, ToolSubStep):
-                            yield _tool_progress_sse_event(item, started_at)
-                            continue
-                        if isinstance(item, AgentProgress):
-                            if item.event.kind == "answer_delta":
-                                answer_streamed = True
-                            for event in _agent_progress_sse_events(
-                                item,
-                                started_at=started_at,
-                            ):
-                                yield event
-                            continue
-                        agent_result = item
-                except asyncio.TimeoutError:
-                    _agent_timed_out = True
+                    _agent_timed_out = False
+                    try:
+                        async for item in _merge_agent_and_tool_progress(
+                            agent_items(),
+                            tool_step_queue,
+                        ):
+                            if isinstance(item, ToolSubStep):
+                                yield _tool_progress_sse_event(item, started_at)
+                                continue
+                            if isinstance(item, AgentProgress):
+                                if item.event.kind == "answer_delta":
+                                    answer_streamed = True
+                                for event in _agent_progress_sse_events(
+                                    item,
+                                    started_at=started_at,
+                                ):
+                                    yield event
+                                continue
+                            agent_result = item
+                    except asyncio.TimeoutError:
+                        _agent_timed_out = True
 
-                if _agent_timed_out:
-                    logger.warning(
-                        "stream_agent_timeout",
+                    if _agent_timed_out:
+                        logger.warning(
+                            "stream_agent_timeout",
+                            duration_ms=int((time.perf_counter() - agent_t0) * 1000),
+                        )
+                        if agent_result is None:
+                            raise LLMUnavailableError("agent 决策超时")
+
+                    if agent_result is None:
+                        raise LLMUnavailableError("agent 未返回结果，请重试")
+
+                    agent_reply = agent_result.agent_reply
+                    bundle = agent_result.bundle
+                    conv = agent_result.conv
+                    logger.info(
+                        "agent_end",
+                        needs_rag=agent_result.needs_rag,
+                        tool_calls=len(bundle.tool_trace),
                         duration_ms=int((time.perf_counter() - agent_t0) * 1000),
                     )
-                    if agent_result is None:
-                        raise LLMUnavailableError("agent 决策超时")
-
-                if agent_result is None:
-                    raise LLMUnavailableError("agent 未返回结果，请重试")
-
-                agent_reply = agent_result.agent_reply
-                bundle = agent_result.bundle
-                conv = agent_result.conv
-                logger.info(
-                    "agent_end",
-                    needs_rag=agent_result.needs_rag,
-                    tool_calls=len(bundle.tool_trace),
-                    duration_ms=int((time.perf_counter() - agent_t0) * 1000),
-                )
-                final_mode = "agentic_rag" if agent_result.needs_rag else "direct"
-                final_groundedness = bundle.groundedness if bundle.has_rag_evidence else None
-                _record_agent_spot_check(recorder, bundle)
-                summary, facts = _agent_stage_summary(bundle)
-                yield _progress_sse_event(
-                    stage="agent_thinking",
-                    status="completed",
-                    title="分析问题",
-                    summary=summary,
-                    started_at=started_at,
-                    facts=facts,
-                )
-
-                if agent_result.needs_rag:
-                    logger.info(
-                        "retrieve_end",
-                        chunk_count=len(bundle.chunks),
-                        ref_chunk_count=len(bundle.ref_chunks),
-                        groundedness=bundle.groundedness,
+                    final_mode = "agentic_rag" if agent_result.needs_rag else "direct"
+                    final_groundedness = (
+                        bundle.groundedness if bundle.has_rag_evidence else None
                     )
-                    summary, facts = _retrieval_summary(bundle)
+                    _record_agent_spot_check(recorder, bundle)
+                    summary, facts = _agent_stage_summary(bundle)
                     yield _progress_sse_event(
-                        stage="retrieving",
+                        stage="agent_thinking",
                         status="completed",
-                        title="检索规范条文",
+                        title="分析问题",
                         summary=summary,
                         started_at=started_at,
                         facts=facts,
                     )
 
-                async for event in _stream_direct_agent_events(
-                    req=req,
-                    conv_mgr=conv_mgr,
-                    conv=conv,
-                    agent_reply=agent_reply,
-                    bundle=bundle,
-                    started_at=started_at,
-                    uses_external_session=uses_external_session(req),
-                    request_started_at=started_at,
-                    usage=agent_result.usage,
-                    emit_answer_chunk=not answer_streamed,
-                ):
-                    yield event
+                    if agent_result.needs_rag:
+                        logger.info(
+                            "retrieve_end",
+                            chunk_count=len(bundle.chunks),
+                            ref_chunk_count=len(bundle.ref_chunks),
+                            groundedness=bundle.groundedness,
+                        )
+                        summary, facts = _retrieval_summary(bundle)
+                        yield _progress_sse_event(
+                            stage="retrieving",
+                            status="completed",
+                            title="检索规范条文",
+                            summary=summary,
+                            started_at=started_at,
+                            facts=facts,
+                        )
+
+                    async for event in _stream_direct_agent_events(
+                        req=req,
+                        conv_mgr=conv_mgr,
+                        conv=conv,
+                        agent_reply=agent_reply,
+                        bundle=bundle,
+                        started_at=started_at,
+                        uses_external_session=uses_external_session(req),
+                        request_started_at=started_at,
+                        usage=agent_result.usage,
+                        emit_answer_chunk=not answer_streamed,
+                    ):
+                        yield event
         except asyncio.TimeoutError:
             logger.error("stream_request_timeout", error_type="timeout")
             yield _error_sse_event(
@@ -569,7 +579,7 @@ def _agent_progress_sse_events(
                 summary=event.summary or "工具执行完成。",
                 started_at=started_at,
                 facts=_tool_progress_facts(event),
-            )
+            ),
         ]
 
     if event.kind == "commentary" and event.summary:
